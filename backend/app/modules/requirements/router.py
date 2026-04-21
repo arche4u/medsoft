@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from .model import Requirement, RequirementCategory, BUILTIN_TYPES
+from .model import Requirement, RequirementCategory, BUILTIN_TYPES, readable_id_prefix
 from .schema import (
     RequirementCategoryCreate, RequirementCategoryRead,
     RequirementCreate, RequirementRead, RequirementUpdate, UploadSummary,
@@ -42,6 +42,28 @@ async def _ensure_builtins(db: AsyncSession, project_id: uuid.UUID) -> None:
                 is_builtin=True,
                 sort_order=bc["sort_order"],
             ))
+
+
+# ── Readable ID generation ────────────────────────────────────────────────────
+
+async def _next_readable_id(db: AsyncSession, project_id: uuid.UUID, type_name: str) -> str:
+    prefix = readable_id_prefix(type_name)
+    # Find the highest sequence number already used for this prefix in this project
+    rows = (await db.execute(
+        select(Requirement.readable_id).where(
+            Requirement.project_id == project_id,
+            Requirement.readable_id.like(f"{prefix}-%"),
+        )
+    )).scalars().all()
+    max_n = 0
+    for rid in rows:
+        try:
+            n = int(rid.split("-", 1)[1])
+            if n > max_n:
+                max_n = n
+        except (ValueError, IndexError):
+            pass
+    return f"{prefix}-{max_n + 1:03d}"
 
 
 # ── Hierarchy enforcement ─────────────────────────────────────────────────────
@@ -205,7 +227,8 @@ async def create_requirement(payload: RequirementCreate, db: AsyncSession = Depe
         raise HTTPException(400, f"Requirement type '{payload.type}' is not defined for this project")
 
     await _validate_hierarchy(db, payload.type.upper(), payload.parent_id)
-    req = Requirement(**{**payload.model_dump(), "type": payload.type.upper()})
+    rid = await _next_readable_id(db, payload.project_id, payload.type.upper())
+    req = Requirement(**{**payload.model_dump(), "type": payload.type.upper(), "readable_id": rid})
     db.add(req)
     await db.commit()
     await db.refresh(req)
@@ -310,8 +333,9 @@ async def upload_requirements(
                 continue
             parent_id = title_to_req[parent_title].id
 
+        rid = await _next_readable_id(db, project_id, type_str)
         new_req = Requirement(
-            project_id=project_id, type=type_str,
+            project_id=project_id, type=type_str, readable_id=rid,
             title=title, description=description, parent_id=parent_id,
         )
         db.add(new_req)

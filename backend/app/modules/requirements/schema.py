@@ -54,6 +54,7 @@ class RequirementRead(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     type: str
+    readable_id: str
     parent_id: uuid.UUID | None
     title: str
     description: str | None

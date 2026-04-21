@@ -311,7 +311,7 @@ function RequirementsPageInner() {
                     const c = catByName[r.type];
                     return (
                       <option key={r.id} value={r.id}>
-                        [{c?.label ?? r.type}] {r.title}
+                        {r.readable_id} [{c?.label ?? r.type}] {r.title}
                       </option>
                     );
                   })}
@@ -398,6 +398,12 @@ function ReqTree({ req, allReqs, cats, depth }: {
         paddingLeft: `${depth * 1.5}rem`,
       }}>
         {depth > 0 && <span style={{ color: "#ccc", fontSize: "0.78rem", flexShrink: 0 }}>└</span>}
+        <span style={{
+          fontFamily: "monospace", fontWeight: 700, fontSize: "0.72rem",
+          color: color, flexShrink: 0, minWidth: 68, letterSpacing: 0.3,
+        }}>
+          {req.readable_id}
+        </span>
         <span style={{
           background: color, color: "#fff", borderRadius: 3,
           padding: "1px 7px", fontSize: "0.67rem", flexShrink: 0, whiteSpace: "nowrap",

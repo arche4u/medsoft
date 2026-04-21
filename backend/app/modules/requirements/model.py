@@ -37,14 +37,23 @@ class RequirementCategory(Base, TimestampMixin):
     )
 
 
+_READABLE_ID_PREFIXES = {"USER": "URQ", "SYSTEM": "SYS", "SOFTWARE": "SWR"}
+
+
+def readable_id_prefix(type_name: str) -> str:
+    return _READABLE_ID_PREFIXES.get(type_name.upper(), type_name.upper()[:3])
+
+
 class Requirement(Base, TimestampMixin):
     __tablename__ = "requirements"
+    __table_args__ = (UniqueConstraint("project_id", "readable_id", name="uq_req_project_readable_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
     type: Mapped[str] = mapped_column(String(50), nullable=False)   # references RequirementCategory.name
+    readable_id: Mapped[str] = mapped_column(String(20), nullable=False)
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("requirements.id"), nullable=True
     )

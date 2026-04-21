@@ -28,7 +28,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export type Project     = { id: string; name: string; description: string | null; created_at: string };
 export type ReqType     = string;  // open: USER | SYSTEM | SOFTWARE | custom
 export type RequirementCategory = { id: string; project_id: string; name: string; label: string; color: string; is_builtin: boolean; sort_order: number; parent_id: string | null };
-export type Requirement = { id: string; project_id: string; type: string; parent_id: string | null; title: string; description: string | null; created_at: string };
+export type Requirement = { id: string; project_id: string; type: string; readable_id: string; parent_id: string | null; title: string; description: string | null; created_at: string };
 export type TestCase    = { id: string; project_id: string; title: string; description: string | null; created_at: string };
 export type TraceLink   = { id: string; requirement_id: string; testcase_id: string };
 export type Risk        = { id: string; requirement_id: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; risk_level: string };
