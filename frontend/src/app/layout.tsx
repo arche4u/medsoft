@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             padding: 0.32rem 0.75rem 0.32rem 0.9rem;
             color: #90caf9;
             text-decoration: none;
-            font-size: 0.76rem;
+            font-size: 0.78rem;
             border-left: 2px solid transparent;
             transition: color 0.15s, border-color 0.15s, background 0.15s;
           }
@@ -30,8 +30,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         {/* Sidebar */}
         <aside style={{
-          width: 220,
-          minWidth: 220,
+          width: 270,
+          minWidth: 270,
           background: "#0d1b2a",
           minHeight: "100vh",
           display: "flex",

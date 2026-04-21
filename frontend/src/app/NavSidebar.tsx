@@ -60,12 +60,27 @@ const SECTIONS: Section[] = [
               { href: "/requirements?type=SOFTWARE", label: "Software" },
             ],
           },
-          { href: "/design", label: "Design Elements" },
+          {
+            href: "/design",
+            label: "Design Elements",
+            subItems: [
+              { href: "/design?type=ARCHITECTURE", label: "Architecture" },
+              { href: "/design?type=DETAILED",     label: "Detailed" },
+            ],
+          },
         ],
       },
       {
         group: "Risk",
-        items: [{ href: "/risks", label: "Risk Register" }],
+        items: [{
+          href: "/risks",
+          label: "Risk Register",
+          subItems: [
+            { href: "/risks?level=HIGH",   label: "High Risk" },
+            { href: "/risks?level=MEDIUM", label: "Medium Risk" },
+            { href: "/risks?level=LOW",    label: "Low Risk" },
+          ],
+        }],
       },
       {
         group: "Testing",
@@ -329,7 +344,7 @@ function NavSidebarInner() {
                         border: "none",
                         borderLeft: `2px solid ${active && !expanded ? "#1565c0" : "transparent"}`,
                         color: active ? "#e0e0e0" : "#90caf9",
-                        fontSize: "0.76rem",
+                        fontSize: "0.78rem",
                         cursor: "pointer",
                         gap: "0.35rem",
                         boxSizing: "border-box",
@@ -390,7 +405,7 @@ function NavSidebarInner() {
                                 paddingLeft: "1.6rem",
                                 paddingTop: "0.25rem",
                                 paddingBottom: "0.25rem",
-                                fontSize: "0.72rem",
+                                fontSize: "0.74rem",
                                 flex: 1,
                                 color: subActive ? "#90caf9" : "#4a6080",
                                 borderLeftColor: subActive ? "#1565c0" : "transparent",

@@ -148,7 +148,12 @@ export const api = {
     create: (d: { requirement_id: string; testcase_id: string }) => req<TraceLink>("/tracelinks/", { method: "POST", body: JSON.stringify(d) }),
   },
   risks: {
-    list: (requirement_id?: string) => req<Risk[]>(`/risks/${requirement_id ? `?requirement_id=${requirement_id}` : ""}`),
+    list: (requirement_id?: string, project_id?: string) => {
+      const p = new URLSearchParams();
+      if (requirement_id) p.set("requirement_id", requirement_id);
+      else if (project_id) p.set("project_id", project_id);
+      return req<Risk[]>(`/risks/?${p}`);
+    },
     create: (d: { requirement_id: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number }) =>
       req<Risk>("/risks/", { method: "POST", body: JSON.stringify(d) }),
     delete: (id: string) => req<void>(`/risks/${id}`, { method: "DELETE" }),

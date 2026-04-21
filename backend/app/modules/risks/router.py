@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
+from app.modules.requirements.model import Requirement
 from .model import Risk, _compute_level
 from .schema import RiskCreate, RiskRead, RiskUpdate
 
@@ -12,11 +13,17 @@ router = APIRouter(prefix="/risks", tags=["risks"])
 @router.get("/", response_model=list[RiskRead])
 async def list_risks(
     requirement_id: uuid.UUID | None = None,
+    project_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     q = select(Risk)
     if requirement_id:
         q = q.where(Risk.requirement_id == requirement_id)
+    elif project_id:
+        req_ids = (await db.execute(
+            select(Requirement.id).where(Requirement.project_id == project_id)
+        )).scalars().all()
+        q = q.where(Risk.requirement_id.in_(req_ids))
     result = await db.execute(q)
     return result.scalars().all()
 
