@@ -101,6 +101,15 @@ export type ReadinessCheck = { ready: boolean; total_testcases: number; passed: 
 
 export type DHFDocument = { id: string; project_id: string; name: string; generated_at: string; file_path: string | null; content: string | null };
 
+// ── Documents module ─────────────────────────────────────────────────────────
+export type DocumentStatus   = "NOT_STARTED" | "DRAFT" | "IN_REVIEW" | "APPROVED" | "OBSOLETE";
+export type DocumentCategory = "PLANS" | "TECHNICAL" | "DEVELOPMENT";
+export type Doc = {
+  id: string; project_id: string; doc_type: string; category: string;
+  title: string; status: DocumentStatus; version: string | null;
+  notes: string | null; created_at: string; updated_at: string;
+};
+
 // ── API client ────────────────────────────────────────────────────────────────
 export const api = {
   projects: {
@@ -272,5 +281,18 @@ export const api = {
     create: (d: { user_id: string; training_name: string; description?: string; completed_at: string; valid_until: string }) =>
       req<TrainingRecord>("/training/records", { method: "POST", body: JSON.stringify(d) }),
     delete: (id: string) => req<void>(`/training/records/${id}`, { method: "DELETE" }),
+  },
+  documents: {
+    list: (project_id: string, category?: string) => {
+      const p = new URLSearchParams({ project_id });
+      if (category) p.set("category", category);
+      return req<Doc[]>(`/documents/?${p}`);
+    },
+    get: (id: string) => req<Doc>(`/documents/${id}`),
+    create: (d: { project_id: string; doc_type: string; category: string; title: string; status?: string; version?: string; notes?: string }) =>
+      req<Doc>("/documents/", { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: { title?: string; status?: string; version?: string; notes?: string }) =>
+      req<Doc>(`/documents/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    delete: (id: string) => req<void>(`/documents/${id}`, { method: "DELETE" }),
   },
 };
