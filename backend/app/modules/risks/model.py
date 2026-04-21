@@ -25,5 +25,6 @@ class Risk(Base):
     severity: Mapped[int] = mapped_column(Integer, nullable=False)
     probability: Mapped[int] = mapped_column(Integer, nullable=False)
     risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
+    mitigation: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
     requirement: Mapped["Requirement"] = relationship(back_populates="risks")

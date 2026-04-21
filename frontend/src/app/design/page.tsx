@@ -31,6 +31,11 @@ function ArchNode({ arch, children, onDelete }: {
         <span style={{ background: "#1565c0", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
           ARCH
         </span>
+        {arch.readable_id && (
+          <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#1565c0", background: "#e8eaf6", borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
+            {arch.readable_id}
+          </span>
+        )}
         <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{arch.title}</span>
         {arch.description && <span style={{ color: "#666", fontSize: 12 }}>{arch.description}</span>}
         <span style={{ fontSize: 12, color: "#888", marginLeft: 4 }}>{children.length} detailed</span>
@@ -53,6 +58,11 @@ function ArchNode({ arch, children, onDelete }: {
           <span style={{ background: "#4a148c", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
             DTL
           </span>
+          {det.readable_id && (
+            <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#4a148c", background: "#f3e5f5", borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
+              {det.readable_id}
+            </span>
+          )}
           <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{det.title}</span>
           {det.description && <span style={{ color: "#888", fontSize: 12 }}>{det.description}</span>}
           <button onClick={() => onDelete(det.id)} style={deleteBtnStyle}>✕</button>
@@ -176,7 +186,7 @@ function DesignPageInner() {
             {elType === "DETAILED" && (
               <select value={parentId} onChange={e => setParentId(e.target.value)} required style={inputStyle}>
                 <option value="">— Select Architecture parent *</option>
-                {archElements.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
+                {archElements.map(e => <option key={e.id} value={e.id}>{e.readable_id ? `${e.readable_id} ` : ""}{e.title}</option>)}
               </select>
             )}
             <input placeholder="Title *" value={title} onChange={e => setTitle(e.target.value)} required style={inputStyle} />
@@ -196,7 +206,7 @@ function DesignPageInner() {
             </select>
             <select value={linkElId} onChange={e => setLinkElId(e.target.value)} required style={inputStyle} disabled={!projectId}>
               <option value="">— Design element *</option>
-              {elements.map(e => <option key={e.id} value={e.id}>[{e.type === "ARCHITECTURE" ? "ARCH" : "DTL"}] {e.title}</option>)}
+              {elements.map(e => <option key={e.id} value={e.id}>{e.readable_id ? `${e.readable_id} ` : ""}[{e.type === "ARCHITECTURE" ? "ARCH" : "DTL"}] {e.title}</option>)}
             </select>
             {linkMsg && <p style={{ color: linkMsg.startsWith("Error") ? "red" : "#2e7d32", margin: 0, fontSize: 13 }}>{linkMsg}</p>}
             <button type="submit" disabled={linking || !linkReqId || !linkElId} style={btnStyle}>{linking ? "Linking…" : "Link"}</button>
@@ -250,6 +260,11 @@ function DesignPageInner() {
                   background: TYPE_META[el.type].color, color: "#fff",
                   borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0,
                 }}>{el.type === "ARCHITECTURE" ? "ARCH" : "DTL"}</span>
+                {el.readable_id && (
+                  <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: TYPE_META[el.type].color, borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
+                    {el.readable_id}
+                  </span>
+                )}
                 <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{el.title}</span>
                 {el.description && <span style={{ color: "#888", fontSize: 12 }}>{el.description}</span>}
                 <button onClick={() => handleDelete(el.id)} style={deleteBtnStyle}>✕</button>

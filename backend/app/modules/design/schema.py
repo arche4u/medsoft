@@ -28,6 +28,7 @@ class DesignElementUpdate(BaseModel):
 class DesignElementRead(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
+    readable_id: str | None
     type: DesignElementType
     parent_id: uuid.UUID | None
     title: str

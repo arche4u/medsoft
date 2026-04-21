@@ -14,6 +14,11 @@ function TestCaseRow({ tc, linkedReqs }: { tc: TestCase; linkedReqs: Requirement
         style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", cursor: "pointer" }}
       >
         <span style={{ color: "#999", fontSize: 12, minWidth: 14 }}>{open ? "▾" : "▸"}</span>
+        {tc.readable_id && (
+          <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#fff", background: "#1565c0", borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
+            {tc.readable_id}
+          </span>
+        )}
         <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{tc.title}</span>
         {linkedReqs.length > 0 && (
           <span style={{
@@ -160,7 +165,7 @@ function TestCasesPageInner() {
             </select>
             <select value={linkTcId} onChange={e => setLinkTcId(e.target.value)} required style={inputStyle} disabled={!projectId}>
               <option value="">— Test case *</option>
-              {testcases.map(tc => <option key={tc.id} value={tc.id}>{tc.title}</option>)}
+              {testcases.map(tc => <option key={tc.id} value={tc.id}>{tc.readable_id ? `${tc.readable_id} ` : ""}{tc.title}</option>)}
             </select>
             {linkMsg && <p style={{ color: linkMsg.startsWith("Error") ? "red" : "#2e7d32", margin: 0, fontSize: 13 }}>{linkMsg}</p>}
             <button type="submit" disabled={linking || !linkReqId || !linkTcId} style={btnStyle}>{linking ? "Linking…" : "Link"}</button>

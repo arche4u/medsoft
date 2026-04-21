@@ -69,6 +69,10 @@ function RequirementsPageInner() {
 
   useEffect(() => {
     if (!projectId) { setReqs([]); setCategories([]); return; }
+    if (typeof window !== "undefined") {
+      localStorage.setItem("medsoft_active_project", projectId);
+      window.dispatchEvent(new CustomEvent("medsoft:project_changed", { detail: { projectId } }));
+    }
     reload();
   }, [projectId]);
 
@@ -162,7 +166,8 @@ function RequirementsPageInner() {
 
   // Build requirement tree: each req may have a parent_id pointing to another req
   const reqById = Object.fromEntries(reqs.map(r => [r.id, r]));
-  const rootReqs = visibleReqs.filter(r => !r.parent_id || !reqById[r.parent_id]);
+  const visibleIds = new Set(visibleReqs.map(r => r.id));
+  const rootReqs = visibleReqs.filter(r => !r.parent_id || !visibleIds.has(r.parent_id));
   const childReqs = (parentId: string) => visibleReqs.filter(r => r.parent_id === parentId);
 
   const catByName = Object.fromEntries(categories.map(c => [c.name, c]));
@@ -371,7 +376,7 @@ function RequirementsPageInner() {
           <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "0.75rem 1rem" }}>
             {rootReqs.length === 0 && <p style={{ color: "#aaa", fontSize: "0.82rem" }}>Nothing matches the current filter.</p>}
             {rootReqs.map(r => (
-              <ReqTree key={r.id} req={r} allReqs={visibleReqs} cats={categories} depth={0} />
+              <ReqTree key={r.id} req={r} allReqs={visibleReqs} cats={categories} depth={0} onReload={reload} />
             ))}
           </div>
         )}
@@ -382,19 +387,108 @@ function RequirementsPageInner() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-/** Renders a requirement and all its visible children recursively */
-function ReqTree({ req, allReqs, cats, depth }: {
-  req: Requirement; allReqs: Requirement[]; cats: RequirementCategory[]; depth: number;
+/** Inline edit form for a single requirement */
+function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
+  req: Requirement;
+  cats: RequirementCategory[];
+  allReqs: Requirement[];
+  onSave: (updated: Requirement) => void;
+  onCancel: () => void;
 }) {
-  const cat   = cats.find(c => c.name === req.type);
+  const [title, setTitle]   = useState(req.title);
+  const [desc, setDesc]     = useState(req.description ?? "");
+  const [parentId, setParentId] = useState(req.parent_id ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState("");
+
+  // Eligible parents: anything that isn't this req itself, and follows hierarchy rules
+  const eligibleParents = allReqs.filter(r =>
+    r.id !== req.id && r.type !== req.type
+  );
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true); setError("");
+    try {
+      const updated = await api.requirements.update(req.id, {
+        title: title.trim(),
+        description: desc.trim() || null,
+        parent_id: parentId || null,
+      });
+      onSave(updated);
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{
+      background: "#fffde7", border: "1px solid #ffd54f",
+      borderRadius: 6, padding: "10px 12px", marginBottom: 4,
+    }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ flex: "2 1 200px" }}>
+          <label style={editLabelStyle}>Title *</label>
+          <input value={title} onChange={e => setTitle(e.target.value)} required style={editInputStyle} />
+        </div>
+        <div style={{ flex: "3 1 280px" }}>
+          <label style={editLabelStyle}>Description</label>
+          <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optional" style={editInputStyle} />
+        </div>
+        {req.type !== "USER" && (
+          <div style={{ flex: "2 1 180px" }}>
+            <label style={editLabelStyle}>Parent requirement</label>
+            <select value={parentId} onChange={e => setParentId(e.target.value)} style={editInputStyle}>
+              <option value="">— None</option>
+              {eligibleParents.map(r => {
+                const c = cats.find(c => c.name === r.type);
+                return (
+                  <option key={r.id} value={r.id}>
+                    {r.readable_id} [{c?.label ?? r.type}] {r.title}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
+      </div>
+      {error && <p style={{ color: "red", margin: "0 0 6px", fontSize: 12 }}>{error}</p>}
+      <div style={{ display: "flex", gap: 6 }}>
+        <button type="submit" disabled={saving} style={editSaveStyle}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button type="button" onClick={onCancel} style={editCancelStyle}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+/** Renders a requirement and all its visible children recursively */
+function ReqTree({ req, allReqs, cats, depth, onReload }: {
+  req: Requirement; allReqs: Requirement[]; cats: RequirementCategory[];
+  depth: number; onReload: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [localReq, setLocalReq] = useState(req);
+
+  const cat   = cats.find(c => c.name === localReq.type);
   const color = catColor(cat);
   const children = allReqs.filter(r => r.parent_id === req.id);
 
+  async function handleDelete() {
+    if (!confirm(`Delete "${localReq.readable_id} ${localReq.title}"? This cannot be undone.`)) return;
+    try {
+      await api.requirements.delete(req.id);
+      onReload();
+    } catch (e: any) { alert("Delete failed: " + e.message); }
+  }
+
   return (
     <div>
+      {/* Row */}
       <div style={{
-        display: "flex", gap: "0.6rem", alignItems: "baseline",
-        padding: "0.36rem 0", borderBottom: "1px solid #f5f5f5",
+        display: "flex", gap: "0.5rem", alignItems: "center",
+        padding: "0.32rem 0.4rem 0.32rem 0",
+        borderBottom: "1px solid #f5f5f5",
         paddingLeft: `${depth * 1.5}rem`,
       }}>
         {depth > 0 && <span style={{ color: "#ccc", fontSize: "0.78rem", flexShrink: 0 }}>└</span>}
@@ -402,19 +496,54 @@ function ReqTree({ req, allReqs, cats, depth }: {
           fontFamily: "monospace", fontWeight: 700, fontSize: "0.72rem",
           color: color, flexShrink: 0, minWidth: 68, letterSpacing: 0.3,
         }}>
-          {req.readable_id}
+          {localReq.readable_id}
         </span>
         <span style={{
           background: color, color: "#fff", borderRadius: 3,
           padding: "1px 7px", fontSize: "0.67rem", flexShrink: 0, whiteSpace: "nowrap",
         }}>
-          {cat?.label ?? req.type}
+          {cat?.label ?? localReq.type}
         </span>
-        <span style={{ fontWeight: 500, fontSize: "0.84rem" }}>{req.title}</span>
-        {req.description && <span style={{ color: "#999", fontSize: "0.76rem" }}>— {req.description}</span>}
+        <span style={{ fontWeight: 500, fontSize: "0.84rem", flex: 1 }}>{localReq.title}</span>
+        {localReq.description && (
+          <span style={{ color: "#999", fontSize: "0.76rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 260 }}>
+            — {localReq.description}
+          </span>
+        )}
+        {/* Actions */}
+        <button
+          onClick={() => setEditing(e => !e)}
+          style={{
+            padding: "1px 8px", fontSize: "0.68rem", borderRadius: 4, cursor: "pointer",
+            border: `1px solid ${editing ? "#1565c0" : "#ddd"}`,
+            background: editing ? "#e3f2fd" : "#fafafa",
+            color: editing ? "#1565c0" : "#666",
+            flexShrink: 0,
+          }}
+        >
+          {editing ? "Cancel" : "Edit"}
+        </button>
+        <button
+          onClick={handleDelete}
+          style={{ background: "none", border: "none", color: "#c62828", cursor: "pointer", fontSize: "0.8rem", flexShrink: 0, padding: "1px 4px" }}
+        >✕</button>
       </div>
+
+      {/* Inline edit form */}
+      {editing && (
+        <div style={{ paddingLeft: `${depth * 1.5 + 0.5}rem` }}>
+          <EditReqForm
+            req={localReq}
+            cats={cats}
+            allReqs={allReqs}
+            onSave={updated => { setLocalReq(updated); setEditing(false); }}
+            onCancel={() => setEditing(false)}
+          />
+        </div>
+      )}
+
       {children.map(c => (
-        <ReqTree key={c.id} req={c} allReqs={allReqs} cats={cats} depth={depth + 1} />
+        <ReqTree key={c.id} req={c} allReqs={allReqs} cats={cats} depth={depth + 1} onReload={onReload} />
       ))}
     </div>
   );
@@ -554,6 +683,10 @@ export default function RequirementsPage() {
   );
 }
 
-const cardStyle: React.CSSProperties  = { background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "1.5rem" };
-const inputStyle: React.CSSProperties = { padding: "0.42rem 0.65rem", border: "1px solid #ccc", borderRadius: 4, fontFamily: "monospace", fontSize: "0.84rem", width: "100%", boxSizing: "border-box" };
-const btnStyle: React.CSSProperties   = { padding: "0.52rem 1.1rem", background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontFamily: "monospace", alignSelf: "flex-start" };
+const cardStyle: React.CSSProperties     = { background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "1.5rem" };
+const inputStyle: React.CSSProperties    = { padding: "0.42rem 0.65rem", border: "1px solid #ccc", borderRadius: 4, fontFamily: "monospace", fontSize: "0.84rem", width: "100%", boxSizing: "border-box" };
+const btnStyle: React.CSSProperties      = { padding: "0.52rem 1.1rem", background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontFamily: "monospace", alignSelf: "flex-start" };
+const editInputStyle: React.CSSProperties  = { padding: "5px 8px", border: "1px solid #ccc", borderRadius: 4, fontSize: "0.82rem", width: "100%", boxSizing: "border-box" as const };
+const editLabelStyle: React.CSSProperties  = { display: "block", fontSize: "0.65rem", color: "#777", fontWeight: 600, marginBottom: 2, textTransform: "uppercase" as const, letterSpacing: "0.04em" };
+const editSaveStyle: React.CSSProperties   = { padding: "4px 14px", background: "#1565c0", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: "0.78rem" };
+const editCancelStyle: React.CSSProperties = { padding: "4px 12px", background: "#f5f5f5", color: "#555", border: "1px solid #ddd", borderRadius: 4, cursor: "pointer", fontSize: "0.78rem" };

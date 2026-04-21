@@ -1,7 +1,8 @@
 "use client";
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { api, RequirementCategory } from "@/lib/api";
 
 // ── Icons ────────────────────────────────────────────────────────────────────
 
@@ -85,12 +86,18 @@ const SECTIONS: Section[] = [
       {
         group: "Testing",
         items: [
-          { href: "/testcases",    label: "Test Cases" },
-          { href: "/verification", label: "Test Execution" },
-          { href: "/validation",   label: "Validation Records" },
-          { href: "/tracelinks",   label: "Trace Matrix" },
-          { href: "/traceability", label: "V-Model Tree" },
-          { href: "/impact",       label: "Impact Analysis" },
+          {
+            href: "/testcases",
+            label: "Testing",
+            subItems: [
+              { href: "/testcases",    label: "Test Cases" },
+              { href: "/verification", label: "Test Execution" },
+              { href: "/validation",   label: "Validation Records" },
+              { href: "/tracelinks",   label: "Trace Matrix" },
+              { href: "/traceability", label: "V-Model Tree" },
+              { href: "/impact",       label: "Impact Analysis" },
+            ],
+          },
         ],
       },
     ],
@@ -147,6 +154,21 @@ const SECTIONS: Section[] = [
           { href: "/documents?category=DEVELOPMENT&type=TM",   label: "Traceability Matrix" },
         ],
       },
+      {
+        group: "SOPs",
+        items: [
+          { href: "/documents?category=SOP&type=SOP-SDLC", label: "SDLC" },
+          { href: "/documents?category=SOP&type=SOP-CM",   label: "Configuration Management" },
+          { href: "/documents?category=SOP&type=SOP-CR",   label: "Change Control" },
+          { href: "/documents?category=SOP&type=SOP-RA",   label: "Risk Management" },
+          { href: "/documents?category=SOP&type=SOP-VV",   label: "Verification & Validation" },
+          { href: "/documents?category=SOP&type=SOP-NCR",  label: "Non-Conformance & CAPA" },
+          { href: "/documents?category=SOP&type=SOP-AU",   label: "Internal Audit" },
+          { href: "/documents?category=SOP&type=SOP-TR",   label: "Training & Competency" },
+          { href: "/documents?category=SOP&type=SOP-DOC",  label: "Document Control" },
+          { href: "/documents?category=SOP&type=SOP-REL",  label: "Release Management" },
+        ],
+      },
     ],
   },
   {
@@ -199,6 +221,28 @@ function NavSidebarInner() {
   const autoSection = detectActiveSection(pathname, currentType) ?? "design";
   const [activeId, setActiveId] = useState<Section["id"] | null>(autoSection);
 
+  // ── Dynamic requirement categories ────────────────────────────────────────
+  const [dynCats, setDynCats] = useState<RequirementCategory[]>([]);
+
+  const loadCats = async (projectId: string) => {
+    if (!projectId) { setDynCats([]); return; }
+    try { setDynCats(await api.requirements.categories.list(projectId)); }
+    catch { setDynCats([]); }
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // Load from storage on mount
+    const pid = localStorage.getItem("medsoft_active_project") ?? "";
+    if (pid) loadCats(pid);
+    // Listen for project changes fired by the requirements page
+    const handler = (e: Event) => {
+      loadCats((e as CustomEvent<{ projectId: string }>).detail?.projectId ?? "");
+    };
+    window.addEventListener("medsoft:project_changed", handler);
+    return () => window.removeEventListener("medsoft:project_changed", handler);
+  }, []);
+
   // Per-item expand state for sub-items
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
@@ -245,7 +289,8 @@ function NavSidebarInner() {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        borderRight: "1px solid #1e3a5f",
+        borderRight: "1px solid #1e293b",
+        background: "#080e1a",
         paddingTop: "0.5rem",
         paddingBottom: "0.5rem",
         gap: "0.25rem",
@@ -265,20 +310,20 @@ function NavSidebarInner() {
                 justifyContent: "center",
                 width: 42,
                 padding: "0.55rem 0.35rem",
-                background: isActive ? "rgba(21,101,192,0.25)" : "transparent",
+                background: isActive ? "rgba(59,130,246,0.18)" : "transparent",
                 border: "none",
-                borderRadius: 6,
-                borderLeft: `3px solid ${isActive ? "#42a5f5" : "transparent"}`,
-                color: isActive ? "#90caf9" : hasCurrentPath ? "#546e7a" : "#37474f",
+                borderRadius: 7,
+                borderLeft: `3px solid ${isActive ? "#60a5fa" : "transparent"}`,
+                color: isActive ? "#93c5fd" : hasCurrentPath ? "#64748b" : "#334155",
                 cursor: "pointer",
                 gap: "0.2rem",
                 transition: "background 0.15s, color 0.15s",
               }}
-              onMouseOver={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.05)"; (e.currentTarget as HTMLElement).style.color = "#90caf9"; } }}
-              onMouseOut={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = hasCurrentPath ? "#546e7a" : "#37474f"; } }}
+              onMouseOver={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)"; (e.currentTarget as HTMLElement).style.color = "#94a3b8"; } }}
+              onMouseOut={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = hasCurrentPath ? "#64748b" : "#334155"; } }}
             >
               {s.icon}
-              <span style={{ fontSize: "0.5rem", letterSpacing: "0.03em", textTransform: "uppercase", fontWeight: "bold" }}>
+              <span style={{ fontSize: "0.5rem", letterSpacing: "0.04em", textTransform: "uppercase", fontWeight: "700" }}>
                 {s.label}
               </span>
             </button>
@@ -292,6 +337,7 @@ function NavSidebarInner() {
         overflowY: "auto",
         overflowX: "hidden",
         display: activeSection ? "block" : "none",
+        background: "#0f172a",
       }}>
         {/* Section header */}
         {activeSection && (
@@ -299,12 +345,12 @@ function NavSidebarInner() {
             display: "flex",
             alignItems: "center",
             gap: "0.4rem",
-            padding: "0.6rem 0.75rem 0.4rem",
-            borderBottom: "1px solid #1e3a5f",
-            color: "#42a5f5",
-            fontSize: "0.7rem",
-            fontWeight: "bold",
-            letterSpacing: "0.08em",
+            padding: "0.65rem 0.75rem 0.45rem",
+            borderBottom: "1px solid #1e293b",
+            color: "#60a5fa",
+            fontSize: "0.68rem",
+            fontWeight: "700",
+            letterSpacing: "0.09em",
             textTransform: "uppercase",
           }}>
             {activeSection.icon}
@@ -314,14 +360,14 @@ function NavSidebarInner() {
 
         {/* Nav groups */}
         {activeSection?.groups.map(group => (
-          <div key={group.group} style={{ marginBottom: "0.25rem" }}>
+          <div key={group.group} style={{ marginBottom: "0.15rem" }}>
             <div style={{
-              padding: "0.45rem 0.75rem 0.15rem",
-              fontSize: "0.58rem",
-              fontWeight: "bold",
-              letterSpacing: "0.07em",
+              padding: "0.5rem 0.75rem 0.18rem",
+              fontSize: "0.57rem",
+              fontWeight: "700",
+              letterSpacing: "0.08em",
               textTransform: "uppercase",
-              color: "#37474f",
+              color: "#3b82f6",
             }}>
               {group.group}
             </div>
@@ -340,24 +386,24 @@ function NavSidebarInner() {
                         alignItems: "center",
                         width: "100%",
                         padding: "0.32rem 0.75rem 0.32rem 0.9rem",
-                        background: active && !expanded ? "rgba(21,101,192,0.15)" : "transparent",
+                        background: active && !expanded ? "rgba(59,130,246,0.12)" : "transparent",
                         border: "none",
-                        borderLeft: `2px solid ${active && !expanded ? "#1565c0" : "transparent"}`,
-                        color: active ? "#e0e0e0" : "#90caf9",
+                        borderLeft: `2px solid ${active && !expanded ? "#3b82f6" : "transparent"}`,
+                        color: active ? "#e2e8f0" : "#cbd5e1",
                         fontSize: "0.78rem",
                         cursor: "pointer",
                         gap: "0.35rem",
                         boxSizing: "border-box",
                       }}
-                      onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = "rgba(21,101,192,0.1)"; }}
-                      onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = active && !expanded ? "rgba(21,101,192,0.15)" : "transparent"; }}
+                      onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = "rgba(59,130,246,0.08)"; }}
+                      onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = active && !expanded ? "rgba(59,130,246,0.12)" : "transparent"; }}
                     >
-                      <span style={{ fontSize: "0.58rem", color: expanded ? "#42a5f5" : "#546e7a", minWidth: 8 }}>
+                      <span style={{ fontSize: "0.58rem", color: expanded ? "#60a5fa" : "#475569", minWidth: 8 }}>
                         {expanded ? "▼" : "▶"}
                       </span>
                       <span style={{ flex: 1, textAlign: "left" }}>{item.label}</span>
-                      <span style={{ fontSize: "0.55rem", color: "#37474f", background: "#0d2137", borderRadius: 8, padding: "1px 4px" }}>
-                        {item.subItems.length}
+                      <span style={{ fontSize: "0.55rem", color: "#60a5fa", background: "rgba(59,130,246,0.2)", borderRadius: 8, padding: "1px 6px", fontWeight: "600" }}>
+                        {item.href === "/requirements" && dynCats.length > 0 ? dynCats.length : item.subItems.length}
                       </span>
                     </button>
                   ) : (
@@ -367,7 +413,7 @@ function NavSidebarInner() {
                       style={{
                         paddingLeft: "0.9rem",
                         paddingRight: "0.75rem",
-                        ...(active ? { color: "#e0e0e0", borderLeftColor: "#1565c0", background: "rgba(21,101,192,0.15)" } : {}),
+                        ...(active ? { color: "#f1f5f9", borderLeftColor: "#3b82f6", background: "rgba(59,130,246,0.12)" } : {}),
                       }}
                     >
                       {item.label}
@@ -375,51 +421,62 @@ function NavSidebarInner() {
                   )}
 
                   {/* Sub-items tree */}
-                  {item.subItems && expanded && (
-                    <div style={{ position: "relative", marginLeft: "0.9rem" }}>
-                      <div style={{
-                        position: "absolute",
-                        left: "0.65rem",
-                        top: 0,
-                        bottom: 4,
-                        width: 1,
-                        background: "#1e3a5f",
-                      }} />
-                      {item.subItems.map((sub, idx) => {
-                        const subActive = isSubActive(sub);
-                        const isLast = idx === item.subItems!.length - 1;
-                        return (
-                          <div key={sub.href} style={{ position: "relative", display: "flex", alignItems: "center" }}>
-                            <div style={{
-                              position: "absolute",
-                              left: "0.65rem",
-                              top: "50%",
-                              width: "0.55rem",
-                              height: 1,
-                              background: subActive ? "#42a5f5" : "#1e3a5f",
-                            }} />
-                            <Link
-                              href={sub.href}
-                              className="nav-link"
-                              style={{
-                                paddingLeft: "1.6rem",
-                                paddingTop: "0.25rem",
-                                paddingBottom: "0.25rem",
-                                fontSize: "0.74rem",
-                                flex: 1,
-                                color: subActive ? "#90caf9" : "#4a6080",
-                                borderLeftColor: subActive ? "#1565c0" : "transparent",
-                                background: subActive ? "rgba(21,101,192,0.12)" : "transparent",
-                                fontWeight: subActive ? "500" : "normal",
-                              }}
-                            >
-                              {sub.label}
-                            </Link>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  {item.subItems && expanded && (() => {
+                    // Use dynamic categories for the Requirements item
+                    const subs: SubItem[] =
+                      item.href === "/requirements" && dynCats.length > 0
+                        ? [...dynCats]
+                            .sort((a, b) => a.sort_order - b.sort_order)
+                            .map(c => ({
+                              href: `/requirements?type=${encodeURIComponent(c.name)}`,
+                              label: c.label ?? c.name,
+                            }))
+                        : item.subItems;
+                    return (
+                      <div style={{ position: "relative", marginLeft: "0.9rem" }}>
+                        <div style={{
+                          position: "absolute",
+                          left: "0.65rem",
+                          top: 0,
+                          bottom: 4,
+                          width: 1,
+                          background: "#1e293b",
+                        }} />
+                        {subs.map((sub, idx) => {
+                          const subActive = isSubActive(sub);
+                          return (
+                            <div key={sub.href} style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                              <div style={{
+                                position: "absolute",
+                                left: "0.65rem",
+                                top: "50%",
+                                width: "0.55rem",
+                                height: 1,
+                                background: subActive ? "#60a5fa" : "#1e293b",
+                              }} />
+                              <Link
+                                href={sub.href}
+                                className="nav-link"
+                                style={{
+                                  paddingLeft: "1.6rem",
+                                  paddingTop: "0.25rem",
+                                  paddingBottom: "0.25rem",
+                                  fontSize: "0.74rem",
+                                  flex: 1,
+                                  color: subActive ? "#e3f2fd" : "#b0bec5",
+                                  borderLeftColor: subActive ? "#42a5f5" : "transparent",
+                                  background: subActive ? "rgba(66,165,245,0.15)" : "transparent",
+                                  fontWeight: subActive ? "600" : "normal",
+                                }}
+                              >
+                                {sub.label}
+                              </Link>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}

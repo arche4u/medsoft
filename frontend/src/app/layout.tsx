@@ -13,16 +13,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           .nav-link {
             display: block;
             padding: 0.32rem 0.75rem 0.32rem 0.9rem;
-            color: #90caf9;
+            color: #94a3b8;
             text-decoration: none;
             font-size: 0.78rem;
             border-left: 2px solid transparent;
             transition: color 0.15s, border-color 0.15s, background 0.15s;
           }
           .nav-link:hover {
-            color: #e0e0e0;
-            border-left-color: #1565c0;
-            background: rgba(21, 101, 192, 0.15);
+            color: #f1f5f9;
+            border-left-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
           }
         `}</style>
       </head>
@@ -32,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <aside style={{
           width: 270,
           minWidth: 270,
-          background: "#0d1b2a",
+          background: "#0f172a",
           minHeight: "100vh",
           display: "flex",
           flexDirection: "column",
@@ -46,23 +46,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             display: "flex",
             alignItems: "center",
             gap: "0.6rem",
-            padding: "0.9rem 0.75rem 0.8rem 0.75rem",
+            padding: "0.95rem 0.75rem 0.85rem 0.75rem",
             textDecoration: "none",
-            borderBottom: "1px solid #1e3a5f",
+            borderBottom: "1px solid #1e293b",
             flexShrink: 0,
           }}>
             {/* Logo mark */}
             <div style={{
-              width: 28, height: 28, borderRadius: 6,
-              background: "linear-gradient(135deg, #1565c0 0%, #0d47a1 100%)",
+              width: 30, height: 30, borderRadius: 8,
+              background: "linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)",
               display: "flex", alignItems: "center", justifyContent: "center",
               color: "#fff", fontWeight: "bold", fontSize: "0.85rem", flexShrink: 0,
+              boxShadow: "0 2px 8px rgba(59,130,246,0.4)",
             }}>
               M
             </div>
             <div>
-              <div style={{ color: "#fff", fontWeight: "bold", fontSize: "0.88rem", letterSpacing: "0.3px" }}>MedSoft</div>
-              <div style={{ color: "#37474f", fontSize: "0.58rem", marginTop: 1 }}>IEC 62304</div>
+              <div style={{ color: "#f1f5f9", fontWeight: "700", fontSize: "0.9rem", letterSpacing: "0.2px" }}>MedSoft</div>
+              <div style={{ color: "#475569", fontSize: "0.58rem", marginTop: 1, letterSpacing: "0.04em" }}>IEC 62304</div>
             </div>
           </Link>
 

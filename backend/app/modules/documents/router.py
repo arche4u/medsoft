@@ -37,6 +37,17 @@ DOCUMENT_REGISTRY = [
     {"doc_type": "RHL",   "category": "DEVELOPMENT", "title": "Revision History Log"},
     {"doc_type": "UAL",   "category": "DEVELOPMENT", "title": "Unresolved Anomaly List"},
     {"doc_type": "TM",    "category": "DEVELOPMENT", "title": "Traceability Matrix"},
+    # SOPs
+    {"doc_type": "SOP-SDLC",  "category": "SOP", "title": "SOP: Software Development Lifecycle"},
+    {"doc_type": "SOP-CM",    "category": "SOP", "title": "SOP: Configuration Management"},
+    {"doc_type": "SOP-CR",    "category": "SOP", "title": "SOP: Change Request & Change Control"},
+    {"doc_type": "SOP-RA",    "category": "SOP", "title": "SOP: Risk Management"},
+    {"doc_type": "SOP-VV",    "category": "SOP", "title": "SOP: Verification & Validation"},
+    {"doc_type": "SOP-NCR",   "category": "SOP", "title": "SOP: Non-Conformance & CAPA"},
+    {"doc_type": "SOP-AU",    "category": "SOP", "title": "SOP: Internal Audit"},
+    {"doc_type": "SOP-TR",    "category": "SOP", "title": "SOP: Training & Competency"},
+    {"doc_type": "SOP-DOC",   "category": "SOP", "title": "SOP: Document Control"},
+    {"doc_type": "SOP-REL",   "category": "SOP", "title": "SOP: Release Management"},
 ]
 
 

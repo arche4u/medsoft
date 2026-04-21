@@ -9,6 +9,24 @@ from .schema import TestCaseCreate, TestCaseRead, TestCaseUpdate
 router = APIRouter(prefix="/testcases", tags=["testcases"])
 
 
+async def _next_tc_id(db: AsyncSession, project_id: uuid.UUID) -> str:
+    rows = (await db.execute(
+        select(TestCase.readable_id).where(
+            TestCase.project_id == project_id,
+            TestCase.readable_id.like("TC-%"),
+        )
+    )).scalars().all()
+    max_n = 0
+    for rid in rows:
+        try:
+            n = int(rid.split("-", 1)[1])
+            if n > max_n:
+                max_n = n
+        except (ValueError, IndexError):
+            pass
+    return f"TC-{max_n + 1:03d}"
+
+
 @router.get("/", response_model=list[TestCaseRead])
 async def list_testcases(project_id: uuid.UUID | None = None, db: AsyncSession = Depends(get_db)):
     q = select(TestCase)
@@ -20,7 +38,8 @@ async def list_testcases(project_id: uuid.UUID | None = None, db: AsyncSession =
 
 @router.post("/", response_model=TestCaseRead, status_code=201)
 async def create_testcase(payload: TestCaseCreate, db: AsyncSession = Depends(get_db)):
-    tc = TestCase(**payload.model_dump())
+    rid = await _next_tc_id(db, payload.project_id)
+    tc = TestCase(**payload.model_dump(), readable_id=rid)
     db.add(tc)
     await db.commit()
     await db.refresh(tc)

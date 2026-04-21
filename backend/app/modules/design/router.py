@@ -14,6 +14,30 @@ from .schema import (
 
 router = APIRouter(prefix="/design", tags=["design"])
 
+_PREFIX = {
+    DesignElementType.ARCHITECTURE: "ARC",
+    DesignElementType.DETAILED: "DET",
+}
+
+
+async def _next_design_id(db: AsyncSession, project_id: uuid.UUID, el_type: DesignElementType) -> str:
+    prefix = _PREFIX[el_type]
+    rows = (await db.execute(
+        select(DesignElement.readable_id).where(
+            DesignElement.project_id == project_id,
+            DesignElement.readable_id.like(f"{prefix}-%"),
+        )
+    )).scalars().all()
+    max_n = 0
+    for rid in rows:
+        try:
+            n = int(rid.split("-", 1)[1])
+            if n > max_n:
+                max_n = n
+        except (ValueError, IndexError):
+            pass
+    return f"{prefix}-{max_n + 1:03d}"
+
 
 async def _validate_design_hierarchy(db: AsyncSession, el_type: DesignElementType, parent_id: uuid.UUID | None):
     if el_type == DesignElementType.ARCHITECTURE:
@@ -38,7 +62,8 @@ async def list_elements(project_id: uuid.UUID | None = None, db: AsyncSession = 
 @router.post("/elements", response_model=DesignElementRead, status_code=201)
 async def create_element(payload: DesignElementCreate, db: AsyncSession = Depends(get_db)):
     await _validate_design_hierarchy(db, payload.type, payload.parent_id)
-    el = DesignElement(**payload.model_dump())
+    rid = await _next_design_id(db, payload.project_id, payload.type)
+    el = DesignElement(**payload.model_dump(), readable_id=rid)
     db.add(el)
     await db.flush()
     await audit(db, "design_element", el.id, AuditAction.CREATE)

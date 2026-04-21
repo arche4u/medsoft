@@ -29,13 +29,13 @@ export type Project     = { id: string; name: string; description: string | null
 export type ReqType     = string;  // open: USER | SYSTEM | SOFTWARE | custom
 export type RequirementCategory = { id: string; project_id: string; name: string; label: string; color: string; is_builtin: boolean; sort_order: number; parent_id: string | null };
 export type Requirement = { id: string; project_id: string; type: string; readable_id: string; parent_id: string | null; title: string; description: string | null; created_at: string };
-export type TestCase    = { id: string; project_id: string; title: string; description: string | null; created_at: string };
+export type TestCase    = { id: string; project_id: string; readable_id: string | null; title: string; description: string | null; created_at: string };
 export type TraceLink   = { id: string; requirement_id: string; testcase_id: string };
-export type Risk        = { id: string; requirement_id: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; risk_level: string };
+export type Risk        = { id: string; requirement_id: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; risk_level: string; mitigation: string | null };
 
 // ── Phase 2 types ─────────────────────────────────────────────────────────────
 export type DesignElementType = "ARCHITECTURE" | "DETAILED";
-export type DesignElement     = { id: string; project_id: string; type: DesignElementType; parent_id: string | null; title: string; description: string | null; created_at: string };
+export type DesignElement     = { id: string; project_id: string; readable_id: string | null; type: DesignElementType; parent_id: string | null; title: string; description: string | null; created_at: string };
 export type DesignLink        = { id: string; requirement_id: string; design_element_id: string };
 export type ExecStatus        = "PASS" | "FAIL" | "BLOCKED";
 export type TestExecution     = { id: string; testcase_id: string; status: ExecStatus; executed_at: string; notes: string | null };
@@ -107,7 +107,7 @@ export type DocumentCategory = "PLANS" | "TECHNICAL" | "DEVELOPMENT";
 export type Doc = {
   id: string; project_id: string; doc_type: string; category: string;
   title: string; status: DocumentStatus; version: string | null;
-  notes: string | null; created_at: string; updated_at: string;
+  notes: string | null; content: string | null; created_at: string; updated_at: string;
 };
 
 // ── API client ────────────────────────────────────────────────────────────────
@@ -130,6 +130,9 @@ export const api = {
       form.append("file", file);
       return req<UploadSummary>(`/requirements/upload?project_id=${project_id}`, { method: "POST", body: form });
     },
+    update: (id: string, d: { title?: string; description?: string | null; parent_id?: string | null }) =>
+      req<Requirement>(`/requirements/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    delete: (id: string) => req<void>(`/requirements/${id}`, { method: "DELETE" }),
     categories: {
       list: (project_id: string) =>
         req<RequirementCategory[]>(`/requirements/categories?project_id=${project_id}`),
@@ -154,8 +157,10 @@ export const api = {
       else if (project_id) p.set("project_id", project_id);
       return req<Risk[]>(`/risks/?${p}`);
     },
-    create: (d: { requirement_id: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number }) =>
+    create: (d: { requirement_id: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; mitigation?: string }) =>
       req<Risk>("/risks/", { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: { hazard?: string; hazardous_situation?: string; harm?: string; severity?: number; probability?: number; mitigation?: string | null }) =>
+      req<Risk>(`/risks/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     delete: (id: string) => req<void>(`/risks/${id}`, { method: "DELETE" }),
   },
   traceability: {
@@ -296,7 +301,7 @@ export const api = {
     get: (id: string) => req<Doc>(`/documents/${id}`),
     create: (d: { project_id: string; doc_type: string; category: string; title: string; status?: string; version?: string; notes?: string }) =>
       req<Doc>("/documents/", { method: "POST", body: JSON.stringify(d) }),
-    update: (id: string, d: { title?: string; status?: string; version?: string; notes?: string }) =>
+    update: (id: string, d: { title?: string; status?: string; version?: string; notes?: string; content?: string }) =>
       req<Doc>(`/documents/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     delete: (id: string) => req<void>(`/documents/${id}`, { method: "DELETE" }),
   },

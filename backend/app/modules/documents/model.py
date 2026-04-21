@@ -33,3 +33,4 @@ class Document(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="NOT_STARTED")
     version: Mapped[str | None] = mapped_column(String(20), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: {section_id: html}

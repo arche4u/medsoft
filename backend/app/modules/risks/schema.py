@@ -9,6 +9,7 @@ class RiskCreate(BaseModel):
     harm: str
     severity: int = Field(ge=1, le=5)
     probability: int = Field(ge=1, le=5)
+    mitigation: str | None = None
 
 
 class RiskUpdate(BaseModel):
@@ -17,6 +18,7 @@ class RiskUpdate(BaseModel):
     harm: str | None = None
     severity: int | None = Field(default=None, ge=1, le=5)
     probability: int | None = Field(default=None, ge=1, le=5)
+    mitigation: str | None = None
 
 
 class RiskRead(BaseModel):
@@ -28,5 +30,6 @@ class RiskRead(BaseModel):
     severity: int
     probability: int
     risk_level: str
+    mitigation: str | None
 
     model_config = {"from_attributes": True}

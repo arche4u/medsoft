@@ -28,15 +28,15 @@ export default function NavUser() {
   };
 
   if (!user) return (
-    <div style={{ padding: "0.75rem 1.25rem", borderTop: "1px solid #1e3a5f" }}>
-      <a href="/login" style={{ color: "#90caf9", textDecoration: "none", fontSize: "0.78rem" }}>Sign In →</a>
+    <div style={{ padding: "0.75rem 1.25rem", borderTop: "1px solid #1e293b" }}>
+      <a href="/login" style={{ color: "#60a5fa", textDecoration: "none", fontSize: "0.78rem" }}>Sign In →</a>
     </div>
   );
 
   const roleColor = ROLE_COLORS[user.role] ?? "#90a4ae";
 
   return (
-    <div style={{ borderTop: "1px solid #1e3a5f", padding: "0.85rem 1.25rem" }}>
+    <div style={{ borderTop: "1px solid #1e293b", padding: "0.85rem 1.25rem" }}>
       {/* Avatar + name */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem" }}>
         <div style={{
@@ -49,10 +49,10 @@ export default function NavUser() {
           {user.name.charAt(0).toUpperCase()}
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ color: "#e0e0e0", fontSize: "0.78rem", fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ color: "#e2e8f0", fontSize: "0.78rem", fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {user.name}
           </div>
-          <div style={{ color: "#546e7a", fontSize: "0.62rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ color: "#64748b", fontSize: "0.62rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {user.email}
           </div>
         </div>
@@ -67,7 +67,7 @@ export default function NavUser() {
         }}>
           {user.role}
         </span>
-        <span style={{ color: "#37474f", fontSize: "0.6rem", marginLeft: 6 }}>
+        <span style={{ color: "#475569", fontSize: "0.6rem", marginLeft: 6 }}>
           {user.permissions.length} permissions
         </span>
       </div>
@@ -77,11 +77,11 @@ export default function NavUser() {
         onClick={logout}
         style={{
           width: "100%", padding: "0.35rem", background: "transparent",
-          border: "1px solid #1e3a5f", borderRadius: 4, color: "#546e7a",
+          border: "1px solid #1e293b", borderRadius: 4, color: "#64748b",
           fontSize: "0.72rem", cursor: "pointer", textAlign: "center",
         }}
-        onMouseOver={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#ef5350"; (e.currentTarget as HTMLButtonElement).style.color = "#ef5350"; }}
-        onMouseOut={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#1e3a5f"; (e.currentTarget as HTMLButtonElement).style.color = "#546e7a"; }}
+        onMouseOver={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#ef4444"; (e.currentTarget as HTMLButtonElement).style.color = "#ef4444"; }}
+        onMouseOut={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = "#1e293b"; (e.currentTarget as HTMLButtonElement).style.color = "#64748b"; }}
       >
         Sign Out
       </button>

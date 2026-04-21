@@ -18,6 +18,7 @@ class DocumentUpdate(BaseModel):
     status: str | None = None
     version: str | None = None
     notes: str | None = None
+    content: str | None = None
 
 
 class DocumentRead(BaseModel):
@@ -29,6 +30,7 @@ class DocumentRead(BaseModel):
     status: str
     version: str | None
     notes: str | None
+    content: str | None
     created_at: datetime
     updated_at: datetime
 

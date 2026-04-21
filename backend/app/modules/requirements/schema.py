@@ -48,6 +48,7 @@ class RequirementCreate(BaseModel):
 class RequirementUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
+    parent_id: uuid.UUID | None = None
 
 
 class RequirementRead(BaseModel):
