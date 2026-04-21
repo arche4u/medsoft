@@ -10,5 +10,7 @@ class AuditLogRead(BaseModel):
     entity_id: uuid.UUID
     action: AuditAction
     timestamp: datetime
+    user_id: uuid.UUID | None = None
+    details: str | None = None
 
     model_config = {"from_attributes": True}

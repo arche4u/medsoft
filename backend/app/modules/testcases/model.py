@@ -9,9 +9,9 @@ class TestCase(Base, TimestampMixin):
     __tablename__ = "testcases"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
 
     project: Mapped["Project"] = relationship(back_populates="testcases")
-    tracelinks: Mapped[list["TraceLink"]] = relationship(back_populates="testcase", cascade="all, delete-orphan")
+    tracelinks: Mapped[list["TraceLink"]] = relationship(back_populates="testcase", cascade="all, delete-orphan", passive_deletes=True)

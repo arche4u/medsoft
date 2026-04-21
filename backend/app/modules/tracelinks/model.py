@@ -9,8 +9,8 @@ class TraceLink(Base):
     __tablename__ = "tracelinks"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    requirement_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("requirements.id"), nullable=False)
-    testcase_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("testcases.id"), nullable=False)
+    requirement_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("requirements.id", ondelete="CASCADE"), nullable=False)
+    testcase_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("testcases.id", ondelete="CASCADE"), nullable=False)
 
     requirement: Mapped["Requirement"] = relationship(back_populates="tracelinks")
     testcase: Mapped["TestCase"] = relationship(back_populates="tracelinks")

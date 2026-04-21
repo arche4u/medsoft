@@ -1,7 +1,7 @@
 import enum
 import uuid
 from datetime import datetime
-from sqlalchemy import DateTime, Enum as SAEnum, String, func
+from sqlalchemy import DateTime, Enum as SAEnum, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.base import Base
@@ -21,3 +21,5 @@ class AuditLog(Base):
     entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     action: Mapped[AuditAction] = mapped_column(SAEnum(AuditAction, name="auditaction"), nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)

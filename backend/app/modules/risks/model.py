@@ -18,7 +18,7 @@ class Risk(Base):
     __tablename__ = "risks"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    requirement_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("requirements.id"), nullable=False)
+    requirement_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("requirements.id", ondelete="CASCADE"), nullable=False)
     hazard: Mapped[str] = mapped_column(String(500), nullable=False)
     hazardous_situation: Mapped[str] = mapped_column(String(500), nullable=False)
     harm: Mapped[str] = mapped_column(String(500), nullable=False)
