@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.audit.service import audit
 from app.modules.audit.model import AuditAction
-from app.modules.requirements.model import Requirement, RequirementType
+from app.modules.requirements.model import Requirement
 from .model import ValidationRecord
 from .schema import ValidationRecordCreate, ValidationRecordRead, ValidationRecordUpdate
 
@@ -25,7 +25,7 @@ async def create_record(payload: ValidationRecordCreate, db: AsyncSession = Depe
     req = await db.get(Requirement, payload.related_requirement_id)
     if not req:
         raise HTTPException(404, detail="Requirement not found")
-    if req.type != RequirementType.USER:
+    if req.type != "USER":
         raise HTTPException(400, detail="Validation records must link to USER requirements")
     record = ValidationRecord(**payload.model_dump())
     db.add(record)

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.audit.service import audit
 from app.modules.audit.model import AuditAction
-from app.modules.requirements.model import Requirement, RequirementType
+from app.modules.requirements.model import Requirement
 from .model import DesignElement, DesignElementType, RequirementDesignLink
 from .schema import (
     DesignElementCreate, DesignElementRead, DesignElementUpdate,
@@ -99,7 +99,7 @@ async def create_link(payload: RequirementDesignLinkCreate, db: AsyncSession = D
     req = await db.get(Requirement, payload.requirement_id)
     if not req:
         raise HTTPException(404, detail="Requirement not found")
-    if req.type != RequirementType.SOFTWARE:
+    if req.type != "SOFTWARE":
         raise HTTPException(400, detail="Only SOFTWARE requirements can be linked to design elements")
     link = RequirementDesignLink(**payload.model_dump())
     db.add(link)

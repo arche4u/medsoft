@@ -10,7 +10,7 @@ from app.modules.audit.model import AuditAction
 from app.modules.auth.deps import get_current_user, require_permission
 from app.modules.auth.schema import TokenData
 from app.modules.esign.model import ElectronicSignature, ESignEntityType, ESignMeaning
-from app.modules.requirements.model import Requirement, RequirementType
+from app.modules.requirements.model import Requirement
 from app.modules.design.model import DesignElement, DesignElementType
 from app.modules.testcases.model import TestCase
 
@@ -152,7 +152,7 @@ async def _auto_populate_impacts(db: AsyncSession, cr: ChangeRequest) -> None:
         await db.execute(
             select(Requirement).where(
                 Requirement.project_id == cr.project_id,
-                Requirement.type == RequirementType.SOFTWARE,
+                Requirement.type == "SOFTWARE",
             )
         )
     ).scalars().all()

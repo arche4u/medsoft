@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.modules.requirements.model import Requirement, RequirementType
+from app.modules.requirements.model import Requirement
 from app.modules.risks.model import Risk
 from app.modules.tracelinks.model import TraceLink
 from app.modules.testcases.model import TestCase
@@ -33,7 +33,7 @@ async def get_traceability_tree(project_id: uuid.UUID, db: AsyncSession = Depend
         })
 
     # ── Design elements linked to SOFTWARE requirements ───────────────────────
-    sw_ids = [r.id for r in reqs if r.type == RequirementType.SOFTWARE]
+    sw_ids = [r.id for r in reqs if r.type == "SOFTWARE"]
 
     design_links = (await db.execute(
         select(RequirementDesignLink).where(RequirementDesignLink.requirement_id.in_(sw_ids))
@@ -83,13 +83,13 @@ async def get_traceability_tree(project_id: uuid.UUID, db: AsyncSession = Depend
     # ── Build V-model tree ────────────────────────────────────────────────────
     def req_node(r: Requirement) -> dict:
         return {
-            "id": str(r.id), "type": r.type.value, "title": r.title,
+            "id": str(r.id), "type": r.type, "title": r.title,
             "description": r.description, "risks": risks_by_req.get(r.id, []),
         }
 
-    user_reqs = [r for r in reqs if r.type == RequirementType.USER]
-    sys_reqs  = [r for r in reqs if r.type == RequirementType.SYSTEM]
-    sw_reqs   = [r for r in reqs if r.type == RequirementType.SOFTWARE]
+    user_reqs = [r for r in reqs if r.type == "USER"]
+    sys_reqs  = [r for r in reqs if r.type == "SYSTEM"]
+    sw_reqs   = [r for r in reqs if r.type == "SOFTWARE"]
 
     tree = []
     for user in user_reqs:

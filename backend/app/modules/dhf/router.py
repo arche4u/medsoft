@@ -114,7 +114,7 @@ async def generate_dhf(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
         "requirements": [
             {
                 "id": str(r.id),
-                "type": r.type.value,
+                "type": r.type,
                 "title": r.title,
                 "description": r.description,
                 "parent_id": str(r.parent_id) if r.parent_id else None,
