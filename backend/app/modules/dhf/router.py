@@ -114,6 +114,7 @@ async def generate_dhf(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
         "requirements": [
             {
                 "id": str(r.id),
+                "readable_id": r.readable_id,
                 "type": r.type,
                 "title": r.title,
                 "description": r.description,
@@ -124,10 +125,12 @@ async def generate_dhf(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
         "design_elements": [
             {
                 "id": str(de.id),
+                "readable_id": de.readable_id,
                 "type": de.type.value,
                 "title": de.title,
                 "description": de.description,
                 "parent_id": str(de.parent_id) if de.parent_id else None,
+                "diagram_source": de.diagram_source,
             }
             for de in design_elements
         ],

@@ -1,6 +1,6 @@
 import enum
 import uuid
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, JSON, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.base import Base, TimestampMixin
@@ -15,9 +15,10 @@ class DocumentStatus(str, enum.Enum):
 
 
 class DocumentCategory(str, enum.Enum):
-    PLANS      = "PLANS"
-    TECHNICAL  = "TECHNICAL"
+    PLANS       = "PLANS"
+    TECHNICAL   = "TECHNICAL"
     DEVELOPMENT = "DEVELOPMENT"
+    STANDARDS   = "STANDARDS"
 
 
 class Document(Base, TimestampMixin):
@@ -34,3 +35,5 @@ class Document(Base, TimestampMixin):
     version: Mapped[str | None] = mapped_column(String(20), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: {section_id: html}
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)

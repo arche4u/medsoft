@@ -31,6 +31,12 @@ class RequirementCategoryRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class RequirementCategoryUpdate(BaseModel):
+    label: str | None = None
+    color: str | None = None
+    sort_order: int | None = None   # hierarchy level; lower = higher in tree
+
+
 class RequirementCreate(BaseModel):
     project_id: uuid.UUID
     type: str

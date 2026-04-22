@@ -1,4 +1,5 @@
 "use client";
+import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useState } from "react";
 import { api, Project, ChangeRequest, ChangeRequestDetail, ChangeRequestState, Approval } from "@/lib/api";
 
@@ -24,7 +25,7 @@ export default function ChangeControlPage() {
   const [selected, setSelected] = useState<ChangeRequestDetail | null>(null);
   const [approvals, setApprovals] = useState<Approval[]>([]);
 
-  const [projectId, setProjectId] = useState("");
+  const [projectId, setProjectId] = useActiveProject();
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [error, setError] = useState("");

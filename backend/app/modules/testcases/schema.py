@@ -1,6 +1,40 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
+
+
+# ── Test Category schemas ─────────────────────────────────────────────────────
+
+class TestCategoryCreate(BaseModel):
+    project_id: uuid.UUID
+    name: str
+    label: str
+    color: str = "#546e7a"
+
+    @model_validator(mode="after")
+    def normalise_name(self):
+        self.name = self.name.strip().upper().replace(" ", "_")
+        if not self.name:
+            raise ValueError("name must not be empty")
+        return self
+
+
+class TestCategoryUpdate(BaseModel):
+    label: str | None = None
+    color: str | None = None
+    sort_order: int | None = None
+
+
+class TestCategoryRead(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    name: str
+    label: str
+    color: str
+    sort_order: int
+    is_builtin: bool
+
+    model_config = {"from_attributes": True}
 
 
 class TestCaseBase(BaseModel):

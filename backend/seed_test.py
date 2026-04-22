@@ -47,6 +47,7 @@ async def wipe(db: AsyncSession):
         "requirement_design_links", "design_elements",
         "tracelinks", "risks", "testcases",
         "requirements", "requirement_categories",
+        "software_safety_profiles",
         "audit_logs", "documents", "projects",
     ])
     await db.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))

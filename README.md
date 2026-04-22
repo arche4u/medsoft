@@ -135,6 +135,33 @@ curl -X POST http://localhost:8000/api/v1/tracelinks/ \
   -d '{"requirement_id":"<req_id>","testcase_id":"<tc_id>"}'
 ```
 
+## Demo Credentials
+
+Run `python seed_phase4.py` (or `python seed_test.py` for full 3-project data) to create these accounts:
+
+| Role | Email | Password |
+|------|-------|----------|
+| Admin | admin@medsoft.local | Admin@123 |
+| QA Engineer | qa@medsoft.local | Qa@123456 |
+| Developer | dev@medsoft.local | Dev@123456 |
+| Reviewer | reviewer@medsoft.local | Review@123 |
+
+## Seed Files
+
+| File | Description |
+|------|-------------|
+| `seed.py` | Phase 1 — single Pump project, basic requirements/test cases/risks |
+| `seed_phase2.py` | Phase 2 — design elements, verifications, validations (add-on) |
+| `seed_phase4.py` | Phase 4 — users, roles, RBAC, training records (add-on) |
+| `seed_test.py` | **Full reset** — 3 projects (Pump, Cardiac Monitor, Ventilator), all modules, wipes DB first |
+
+```bash
+# Recommended: full demo data (wipes existing data)
+cd backend && source .venv/bin/activate
+python seed_test.py
+python seed_phase4.py   # adds users/roles on top
+```
+
 ## Roadmap
 
 - [ ] Authentication & RBAC

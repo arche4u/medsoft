@@ -25,6 +25,7 @@ import app.modules.users.model          # noqa: F401
 import app.modules.esign.model          # noqa: F401
 import app.modules.training.model       # noqa: F401
 import app.modules.documents.model      # noqa: F401
+import app.modules.knowledge.model      # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

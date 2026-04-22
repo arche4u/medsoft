@@ -1,5 +1,6 @@
 "use client";
 
+import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useState } from "react";
 import { api, Project, TestCase, TestExecution, ExecStatus } from "@/lib/api";
 
@@ -11,7 +12,7 @@ export default function VerificationPage() {
   const [testcases, setTestcases]     = useState<TestCase[]>([]);
   const [executions, setExecutions]   = useState<TestExecution[]>([]);
   const [latestMap, setLatestMap]     = useState<Record<string, TestExecution>>({});
-  const [projectId, setProjectId]     = useState("");
+  const [projectId, setProjectId]     = useActiveProject();
   const [selectedTc, setSelectedTc]   = useState("");
 
   // run form

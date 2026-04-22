@@ -11,6 +11,8 @@ class DocumentCreate(BaseModel):
     status: str = "NOT_STARTED"
     version: str | None = None
     notes: str | None = None
+    description: str | None = None
+    tags: list[str] = []
 
 
 class DocumentUpdate(BaseModel):
@@ -19,6 +21,8 @@ class DocumentUpdate(BaseModel):
     version: str | None = None
     notes: str | None = None
     content: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
 
 
 class DocumentRead(BaseModel):
@@ -31,7 +35,16 @@ class DocumentRead(BaseModel):
     version: str | None
     notes: str | None
     content: str | None
+    description: str | None
+    tags: list[str]
     created_at: datetime
     updated_at: datetime
+
+    from pydantic import field_validator
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def coerce_tags(cls, v):
+        return v if v is not None else []
 
     model_config = {"from_attributes": True}

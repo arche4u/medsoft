@@ -23,49 +23,89 @@ engine = create_async_engine(settings.DATABASE_URL)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 ALL_PERMISSIONS = [
+    # Requirements
+    ("READ_REQUIREMENT",         "View requirements"),
     ("CREATE_REQUIREMENT",       "Create requirements"),
     ("UPDATE_REQUIREMENT",       "Update requirements"),
     ("DELETE_REQUIREMENT",       "Delete requirements"),
+    # Risks
+    ("READ_RISK",                "View risk records"),
     ("CREATE_RISK",              "Create risk records"),
+    ("UPDATE_RISK",              "Update risk records"),
+    ("DELETE_RISK",              "Delete risk records"),
+    # Design
+    ("READ_DESIGN",              "View design elements"),
     ("CREATE_DESIGN",            "Create design elements"),
+    ("UPDATE_DESIGN",            "Update design elements"),
+    ("DELETE_DESIGN",            "Delete design elements"),
+    # Testing
+    ("READ_TESTCASE",            "View test cases"),
     ("CREATE_TESTCASE",          "Create test cases"),
     ("EXECUTE_TEST",             "Record test executions"),
+    # Validation
     ("CREATE_VALIDATION",        "Create validation records"),
     ("UPDATE_VALIDATION",        "Update validation records"),
+    # Change Control
     ("CREATE_CHANGE_REQUEST",    "Create change requests"),
     ("APPROVE_CHANGE_REQUEST",   "Approve or reject change requests"),
     ("IMPLEMENT_CHANGE",         "Mark change requests as implemented"),
+    # Release
     ("CREATE_RELEASE",           "Create release drafts"),
     ("APPROVE_RELEASE",          "Approve releases"),
     ("PUBLISH_RELEASE",          "Publish approved releases"),
+    # Documents & DHF
+    ("READ_DOCUMENT",            "View documents"),
+    ("UPDATE_DOCUMENT",          "Edit document status and notes"),
     ("GENERATE_DHF",             "Generate Design History File"),
+    # Admin
     ("MANAGE_USERS",             "Create and manage users"),
-    ("VIEW_AUDIT",               "View audit logs"),
+    ("VIEW_AUDIT",               "View activity log"),
 ]
 
 ROLE_PERMISSIONS = {
     "ADMIN": [p[0] for p in ALL_PERMISSIONS],
     "QA": [
+        "READ_REQUIREMENT", "READ_RISK", "READ_DESIGN", "READ_TESTCASE", "READ_DOCUMENT",
         "EXECUTE_TEST", "CREATE_VALIDATION", "UPDATE_VALIDATION",
         "APPROVE_CHANGE_REQUEST", "APPROVE_RELEASE", "PUBLISH_RELEASE",
-        "CREATE_RELEASE", "GENERATE_DHF", "VIEW_AUDIT",
+        "CREATE_RELEASE", "GENERATE_DHF", "VIEW_AUDIT", "UPDATE_DOCUMENT",
+    ],
+    "QARA": [
+        "READ_REQUIREMENT", "CREATE_REQUIREMENT", "UPDATE_REQUIREMENT",
+        "READ_RISK", "CREATE_RISK", "UPDATE_RISK",
+        "READ_DESIGN", "READ_TESTCASE", "READ_DOCUMENT",
+        "CREATE_VALIDATION", "UPDATE_VALIDATION",
+        "APPROVE_CHANGE_REQUEST", "APPROVE_RELEASE", "PUBLISH_RELEASE",
+        "CREATE_RELEASE", "GENERATE_DHF", "VIEW_AUDIT", "UPDATE_DOCUMENT",
     ],
     "DEVELOPER": [
-        "CREATE_REQUIREMENT", "UPDATE_REQUIREMENT", "DELETE_REQUIREMENT",
-        "CREATE_RISK", "CREATE_DESIGN", "CREATE_TESTCASE", "EXECUTE_TEST",
+        "READ_REQUIREMENT", "CREATE_REQUIREMENT", "UPDATE_REQUIREMENT", "DELETE_REQUIREMENT",
+        "READ_RISK", "CREATE_RISK", "UPDATE_RISK",
+        "READ_DESIGN", "CREATE_DESIGN", "UPDATE_DESIGN", "DELETE_DESIGN",
+        "READ_TESTCASE", "CREATE_TESTCASE", "EXECUTE_TEST",
         "CREATE_CHANGE_REQUEST", "IMPLEMENT_CHANGE", "CREATE_RELEASE",
+        "READ_DOCUMENT",
+    ],
+    "TESTER": [
+        "READ_REQUIREMENT", "READ_RISK", "READ_DESIGN",
+        "READ_TESTCASE", "CREATE_TESTCASE", "EXECUTE_TEST",
+        "CREATE_VALIDATION", "UPDATE_VALIDATION",
+        "READ_DOCUMENT", "VIEW_AUDIT",
     ],
     "REVIEWER": [
+        "READ_REQUIREMENT", "READ_RISK", "READ_DESIGN", "READ_TESTCASE", "READ_DOCUMENT",
         "APPROVE_CHANGE_REQUEST", "APPROVE_RELEASE",
         "CREATE_VALIDATION", "VIEW_AUDIT",
     ],
 }
 
 DEFAULT_USERS = [
-    {"name": "Admin User",    "email": "admin@medsoft.local",    "password": "Admin@123",    "role": "ADMIN"},
-    {"name": "QA Engineer",   "email": "qa@medsoft.local",       "password": "Qa@123456",    "role": "QA"},
-    {"name": "Developer",     "email": "dev@medsoft.local",      "password": "Dev@123456",   "role": "DEVELOPER"},
-    {"name": "Reviewer",      "email": "reviewer@medsoft.local", "password": "Review@123",   "role": "REVIEWER"},
+    {"name": "Admin User",          "email": "admin@medsoft.local",    "password": "Admin@123",    "role": "ADMIN"},
+    {"name": "QA Engineer",         "email": "qa@medsoft.local",       "password": "Qa@123456",    "role": "QA"},
+    {"name": "QARA Specialist",     "email": "qara@medsoft.local",     "password": "Qara@123456",  "role": "QARA"},
+    {"name": "Developer",           "email": "dev@medsoft.local",      "password": "Dev@123456",   "role": "DEVELOPER"},
+    {"name": "Testing Engineer",    "email": "tester@medsoft.local",   "password": "Test@123456",  "role": "TESTER"},
+    {"name": "Reviewer",            "email": "reviewer@medsoft.local", "password": "Review@123",   "role": "REVIEWER"},
 ]
 
 

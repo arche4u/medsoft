@@ -1,4 +1,5 @@
 "use client";
+import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useState } from "react";
 import { api, Project, Release, ReleaseDetail, ReleaseStatus, TestCase, Requirement, DesignElement, ReadinessCheck, Approval } from "@/lib/api";
 
@@ -22,7 +23,7 @@ export default function ReleasePage() {
   const [readiness, setReadiness] = useState<ReadinessCheck | null>(null);
   const [approvals, setApprovals] = useState<Approval[]>([]);
 
-  const [projectId, setProjectId] = useState("");
+  const [projectId, setProjectId] = useActiveProject();
   const [version, setVersion] = useState("");
   const [error, setError] = useState("");
 

@@ -69,16 +69,16 @@ async def impact_analysis(requirement_id: uuid.UUID, db: AsyncSession = Depends(
     return {
         "requirement": {
             "id": str(req.id),
-            "type": req.type.value,
+            "type": req.type,
             "title": req.title,
             "description": req.description,
         },
         "children_requirements": [
-            {"id": str(r.id), "type": r.type.value, "title": r.title}
+            {"id": str(r.id), "type": r.type, "title": r.title}
             for r in children + grandchildren
         ],
         "linked_design_elements": [
-            {"id": str(e.id), "type": e.type.value, "title": e.title, "description": e.description}
+            {"id": str(e.id), "type": e.type.value, "readable_id": e.readable_id, "title": e.title, "description": e.description}
             for e in design_elements
         ],
         "linked_testcases": [

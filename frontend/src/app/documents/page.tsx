@@ -2,6 +2,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, Doc, DocumentStatus, Project } from "@/lib/api";
+import { useActiveProject } from "@/lib/useActiveProject";
 
 // ── Status config ─────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<DocumentStatus, { label: string; bg: string; color: string; dot: string }> = {
@@ -12,7 +13,30 @@ const STATUS_CONFIG: Record<DocumentStatus, { label: string; bg: string; color: 
   OBSOLETE:    { label: "Obsolete",    bg: "#fef2f2",  color: "#991b1b", dot: "#ef4444" },
 };
 
-const CATEGORIES = ["PLANS", "TECHNICAL", "DEVELOPMENT", "SOP"] as const;
+const PREDEFINED_TAGS = ["IEC62304", "ISO13485", "ISO14971", "Company", "GDPR", "FDA", "MDR", "CE-Marking"];
+
+const TAG_COLORS: Record<string, { bg: string; color: string; border: string }> = {
+  IEC62304:    { bg: "#eff6ff", color: "#1e40af", border: "#bfdbfe" },
+  ISO13485:    { bg: "#f0fdf4", color: "#15803d", border: "#bbf7d0" },
+  ISO14971:    { bg: "#fef3c7", color: "#92400e", border: "#fde68a" },
+  Company:     { bg: "#f5f3ff", color: "#6d28d9", border: "#ddd6fe" },
+  GDPR:        { bg: "#fdf2f8", color: "#9d174d", border: "#fbcfe8" },
+  FDA:         { bg: "#fff7ed", color: "#c2410c", border: "#fed7aa" },
+  MDR:         { bg: "#f0f9ff", color: "#0369a1", border: "#bae6fd" },
+  "CE-Marking":{ bg: "#f9fafb", color: "#374151", border: "#d1d5db" },
+};
+
+function tagStyle(tag: string): React.CSSProperties {
+  const c = TAG_COLORS[tag] ?? { bg: "#f3f4f6", color: "#374151", border: "#d1d5db" };
+  return {
+    display: "inline-flex", alignItems: "center",
+    padding: "1px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600,
+    background: c.bg, color: c.color, border: `1px solid ${c.border}`,
+    whiteSpace: "nowrap",
+  };
+}
+
+const CATEGORIES = ["SOP", "PLANS", "TECHNICAL", "DEVELOPMENT", "STANDARDS"] as const;
 type Category = typeof CATEGORIES[number];
 
 const CATEGORY_META: Record<Category, { label: string; color: string; bg: string }> = {
@@ -20,6 +44,7 @@ const CATEGORY_META: Record<Category, { label: string; color: string; bg: string
   TECHNICAL:   { label: "Technical Documents",  color: "#6d28d9", bg: "#f5f3ff" },
   DEVELOPMENT: { label: "Development Documents",color: "#065f46", bg: "#ecfdf5" },
   SOP:         { label: "Standard Operating Procedures", color: "#92400e", bg: "#fffbeb" },
+  STANDARDS:   { label: "Standards & References", color: "#0f766e", bg: "#f0fdfa" },
 };
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -43,16 +68,28 @@ function EditModal({ doc, onSave, onClose }: {
   onSave: (updated: Doc) => void;
   onClose: () => void;
 }) {
-  const [status, setStatus]   = useState<DocumentStatus>(doc.status as DocumentStatus);
-  const [version, setVersion] = useState(doc.version ?? "");
-  const [notes, setNotes]     = useState(doc.notes ?? "");
-  const [saving, setSaving]   = useState(false);
+  const [status, setStatus]       = useState<DocumentStatus>(doc.status as DocumentStatus);
+  const [version, setVersion]     = useState(doc.version ?? "");
+  const [notes, setNotes]         = useState(doc.notes ?? "");
+  const [tags, setTags]           = useState<string[]>(doc.tags ?? []);
+  const [customTag, setCustomTag] = useState("");
+  const [saving, setSaving]       = useState(false);
+
+  function toggleTag(tag: string) {
+    setTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
+  }
+
+  function addCustomTag() {
+    const t = customTag.trim();
+    if (t && !tags.includes(t)) setTags(prev => [...prev, t]);
+    setCustomTag("");
+  }
 
   async function save() {
     setSaving(true);
     try {
       const updated = await api.documents.update(doc.id, {
-        status, version: version || undefined, notes: notes || undefined,
+        status, version: version || undefined, notes: notes || undefined, tags,
       });
       onSave(updated);
     } catch (e: any) {
@@ -95,6 +132,44 @@ function EditModal({ doc, onSave, onClose }: {
           placeholder="Enter notes, review comments, or document location…"
           style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
 
+        <label style={labelStyle}>Tags</label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {PREDEFINED_TAGS.map(tag => {
+            const active = tags.includes(tag);
+            const c = TAG_COLORS[tag] ?? { bg: "#f3f4f6", color: "#374151", border: "#d1d5db" };
+            return (
+              <button key={tag} onClick={() => toggleTag(tag)} style={{
+                padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600,
+                cursor: "pointer", transition: "all 0.12s",
+                background: active ? c.color : "#f9fafb",
+                color: active ? "#fff" : c.color,
+                border: `1px solid ${active ? c.color : c.border}`,
+              }}>
+                {tag}
+              </button>
+            );
+          })}
+        </div>
+        {tags.filter(t => !PREDEFINED_TAGS.includes(t)).map(t => (
+          <span key={t} style={{ ...tagStyle(t), marginRight: 4, marginBottom: 4 }}>
+            {t}
+            <button onClick={() => setTags(prev => prev.filter(x => x !== t))} style={{
+              marginLeft: 5, background: "none", border: "none", cursor: "pointer",
+              color: "inherit", fontSize: 12, padding: 0, lineHeight: 1,
+            }}>×</button>
+          </span>
+        ))}
+        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+          <input
+            value={customTag}
+            onChange={e => setCustomTag(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && addCustomTag()}
+            placeholder="Add custom tag…"
+            style={{ ...inputStyle, flex: 1, fontSize: 13 }}
+          />
+          <button onClick={addCustomTag} style={{ ...btnSecStyle, padding: "8px 14px", fontSize: 13 }}>+ Add</button>
+        </div>
+
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 20 }}>
           <button onClick={onClose} style={btnSecStyle}>Cancel</button>
           <button onClick={save} disabled={saving} style={btnStyle}>{saving ? "Saving…" : "Save Changes"}</button>
@@ -106,10 +181,15 @@ function EditModal({ doc, onSave, onClose }: {
 
 // Doc types that have a structured editor
 const EDITABLE_TYPES = new Set([
+  // Plans
   "SDP", "SMP", "SPRP", "SCP", "SVP", "SBRP",
+  // Technical
   "SRS", "SADS", "SDDS", "SVPROT", "SVREP",
-  "SOP-SDLC", "SOP-CM", "SOP-CR", "SOP-RA", "SOP-VV",
-  "SOP-NCR", "SOP-AU", "SOP-TR", "SOP-DOC", "SOP-REL",
+  // Development
+  "SBD", "SII", "CG", "SUTP", "SUTR", "SITP", "SITR", "SOUP", "CRR", "VDD", "RHL", "UAL", "TM",
+  // SOPs
+  "SOP-001", "SOP-002", "SOP-003", "SOP-004", "SOP-005", "SOP-006",
+  "SOP-007", "SOP-008", "SOP-009", "SOP-010", "SOP-011", "SOP-012",
 ]);
 
 // ── Document row ──────────────────────────────────────────────────────────────
@@ -129,6 +209,9 @@ function DocRow({ doc, onEdit, highlight }: { doc: Doc; onEdit: (d: Doc) => void
             letterSpacing: 0.4, flexShrink: 0, fontFamily: "monospace",
           }}>{doc.doc_type}</span>
           <span style={{ fontSize: 14, color: "#1a1a1a" }}>{doc.title}</span>
+          {doc.tags?.map(tag => (
+            <span key={tag} style={tagStyle(tag)}>{tag}</span>
+          ))}
           {hasDraft && (
             <span style={{ fontSize: 11, color: "#10b981", background: "#f0fdf4", padding: "1px 7px", borderRadius: 10, border: "1px solid #bbf7d0" }}>
               has content
@@ -148,17 +231,17 @@ function DocRow({ doc, onEdit, highlight }: { doc: Doc; onEdit: (d: Doc) => void
           ? (doc.notes.length > 70 ? doc.notes.slice(0, 70) + "…" : doc.notes)
           : "click to add notes"}
       </td>
-      <td style={{ ...tdStyle, width: hasEditor ? 130 : 70, textAlign: "right" }}>
+      <td style={{ ...tdStyle, width: hasEditor ? 140 : 90, textAlign: "right" }}>
         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
           {hasEditor && (
             <a href={`/documents/edit?id=${doc.id}`} style={{
               ...editBtnStyle, display: "inline-block", textDecoration: "none",
               background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe",
             }}>
-              {hasDraft ? "Open" : "Write"} ↗
+              Open ↗
             </a>
           )}
-          <button onClick={() => onEdit(doc)} style={editBtnStyle}>Edit</button>
+          <button onClick={() => onEdit(doc)} style={editBtnStyle}>Edit Status</button>
         </div>
       </td>
     </tr>
@@ -271,11 +354,14 @@ function DocumentsPageInner() {
   const catParam  = params.get("category") ?? "";
 
   const [projects, setProjects]   = useState<Project[]>([]);
-  const [selProj, setSelProj]     = useState("");
+  const [selProj, setSelProj]     = useActiveProject();
   const [docs, setDocs]           = useState<Doc[]>([]);
   const [loading, setLoading]     = useState(false);
   const [editing, setEditing]     = useState<Doc | null>(null);
   const [catFilter, setCatFilter] = useState<string>(catParam || "ALL");
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+
+  useEffect(() => { setCatFilter(catParam || "ALL"); }, [catParam]);
 
   useEffect(() => { api.projects.list().then(setProjects); }, []);
 
@@ -293,11 +379,14 @@ function DocumentsPageInner() {
   }
 
   const allCategories = [...CATEGORIES];
-  const displayed = catFilter === "ALL" ? docs : docs.filter(d => d.category === catFilter);
+  const afterCat  = catFilter === "ALL" ? docs : docs.filter(d => d.category === catFilter);
+  const displayed = tagFilter ? afterCat.filter(d => d.tags?.includes(tagFilter)) : afterCat;
   const grouped = allCategories.reduce<Record<string, Doc[]>>((acc, c) => {
     acc[c] = displayed.filter(d => d.category === c);
     return acc;
   }, {});
+
+  const usedTags = [...new Set(docs.flatMap(d => d.tags ?? []))].sort();
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px" }}>
@@ -332,10 +421,45 @@ function DocumentsPageInner() {
             return (
               <button key={c} onClick={() => setCatFilter(c)} style={{
                 ...tabBtnStyle,
-                ...(isActive ? { background: meta.color, color: "#fff", borderColor: meta.color } : {}),
+                ...(isActive ? { background: meta.color, color: "#fff", border: `1px solid ${meta.color}` } : {}),
               }}>
                 {meta.label}
                 <span style={{ marginLeft: 6, opacity: 0.65 }}>({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Tag filter bar */}
+      {selProj && usedTags.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 600, flexShrink: 0 }}>Filter by tag:</span>
+          <button
+            onClick={() => setTagFilter(null)}
+            style={{
+              padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              background: tagFilter === null ? "#1e40af" : "#f9fafb",
+              color: tagFilter === null ? "#fff" : "#374151",
+              border: `1px solid ${tagFilter === null ? "#1e40af" : "#d1d5db"}`,
+            }}
+          >
+            All
+          </button>
+          {usedTags.map(tag => {
+            const active = tagFilter === tag;
+            const c = TAG_COLORS[tag] ?? { bg: "#f3f4f6", color: "#374151", border: "#d1d5db" };
+            return (
+              <button key={tag} onClick={() => setTagFilter(active ? null : tag)} style={{
+                padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                background: active ? c.color : "#f9fafb",
+                color: active ? "#fff" : c.color,
+                border: `1px solid ${active ? c.color : c.border}`,
+              }}>
+                {tag}
+                <span style={{ marginLeft: 5, opacity: 0.7, fontSize: 11 }}>
+                  ({docs.filter(d => d.tags?.includes(tag)).length})
+                </span>
               </button>
             );
           })}
@@ -407,7 +531,7 @@ const tabBtnStyle: React.CSSProperties = {
   color: "#374151", transition: "all 0.15s",
 };
 const tabActiveStyle: React.CSSProperties = {
-  background: "#1e40af", color: "#fff", borderColor: "#1e40af",
+  background: "#1e40af", color: "#fff", border: "1px solid #1e40af",
 };
 const tableStyle: React.CSSProperties = {
   width: "100%", borderCollapse: "collapse", background: "#fff",

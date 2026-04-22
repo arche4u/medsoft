@@ -4,8 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.requirements.model import Requirement
-from .model import Risk, _compute_level
-from .schema import RiskCreate, RiskRead, RiskUpdate
+from .model import Risk, SoftwareSafetyProfile, _compute_level
+from .schema import RiskCreate, RiskRead, RiskUpdate, SafetyProfileCreate, SafetyProfileRead, SafetyProfileUpdate
 
 router = APIRouter(prefix="/risks", tags=["risks"])
 
@@ -68,3 +68,42 @@ async def delete_risk(risk_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, detail="Risk not found")
     await db.delete(risk)
     await db.commit()
+
+
+# ── Software Safety Profile endpoints ─────────────────────────────────────────
+
+@router.get("/safety-profile/{project_id}", response_model=SafetyProfileRead | None)
+async def get_safety_profile(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(SoftwareSafetyProfile).where(SoftwareSafetyProfile.project_id == project_id)
+    )
+    return result.scalar_one_or_none()
+
+
+@router.post("/safety-profile", response_model=SafetyProfileRead, status_code=201)
+async def create_safety_profile(payload: SafetyProfileCreate, db: AsyncSession = Depends(get_db)):
+    existing = await db.execute(
+        select(SoftwareSafetyProfile).where(SoftwareSafetyProfile.project_id == payload.project_id)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(409, detail="Safety profile already exists for this project. Use PUT to update.")
+    profile = SoftwareSafetyProfile(**payload.model_dump())
+    db.add(profile)
+    await db.commit()
+    await db.refresh(profile)
+    return profile
+
+
+@router.put("/safety-profile/{project_id}", response_model=SafetyProfileRead)
+async def update_safety_profile(project_id: uuid.UUID, payload: SafetyProfileUpdate, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(SoftwareSafetyProfile).where(SoftwareSafetyProfile.project_id == project_id)
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(404, detail="Safety profile not found. Use POST to create.")
+    for k, v in payload.model_dump(exclude_unset=True).items():
+        setattr(profile, k, v)
+    await db.commit()
+    await db.refresh(profile)
+    return profile

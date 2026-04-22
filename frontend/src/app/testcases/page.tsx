@@ -1,5 +1,6 @@
 "use client";
 
+import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, Project, TestCase, Requirement, TraceLink } from "@/lib/api";
@@ -65,7 +66,7 @@ function TestCasesPageInner() {
   const [testcases, setTestcases]   = useState<TestCase[]>([]);
   const [allReqs, setAllReqs]       = useState<Requirement[]>([]);
   const [traceLinks, setTraceLinks] = useState<TraceLink[]>([]);
-  const [projectId, setProjectId]   = useState(projParam);
+  const [projectId, setProjectId]   = useActiveProject();
 
   // create form
   const [title, setTitle]       = useState("");

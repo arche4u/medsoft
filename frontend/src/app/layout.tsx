@@ -13,16 +13,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           .nav-link {
             display: block;
             padding: 0.32rem 0.75rem 0.32rem 0.9rem;
-            color: #94a3b8;
+            color: #475569;
             text-decoration: none;
             font-size: 0.78rem;
             border-left: 2px solid transparent;
             transition: color 0.15s, border-color 0.15s, background 0.15s;
           }
           .nav-link:hover {
-            color: #f1f5f9;
+            color: #1e40af;
             border-left-color: #3b82f6;
-            background: rgba(59, 130, 246, 0.1);
+            background: rgba(59, 130, 246, 0.06);
           }
         `}</style>
       </head>
@@ -30,9 +30,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         {/* Sidebar */}
         <aside style={{
-          width: 270,
-          minWidth: 270,
-          background: "#0f172a",
+          width: 274,
+          minWidth: 274,
+          background: "#ffffff",
           minHeight: "100vh",
           display: "flex",
           flexDirection: "column",
@@ -40,30 +40,34 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           top: 0,
           height: "100vh",
           overflowY: "auto",
+          borderRight: "1px solid #e2e8f0",
+          boxShadow: "2px 0 12px rgba(30,64,175,0.07)",
         }}>
           {/* Brand — spans full sidebar width */}
           <Link href="/" style={{
             display: "flex",
             alignItems: "center",
-            gap: "0.6rem",
-            padding: "0.95rem 0.75rem 0.85rem 0.75rem",
+            gap: "0.65rem",
+            padding: "0.95rem 0.75rem 0.85rem 1rem",
             textDecoration: "none",
-            borderBottom: "1px solid #1e293b",
+            borderBottom: "1px solid #c7d2fe",
             flexShrink: 0,
+            background: "linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)",
           }}>
             {/* Logo mark */}
             <div style={{
-              width: 30, height: 30, borderRadius: 8,
-              background: "linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)",
+              width: 32, height: 32, borderRadius: 9,
+              background: "rgba(255,255,255,0.15)",
+              border: "1.5px solid rgba(255,255,255,0.3)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              color: "#fff", fontWeight: "bold", fontSize: "0.85rem", flexShrink: 0,
-              boxShadow: "0 2px 8px rgba(59,130,246,0.4)",
+              color: "#fff", fontWeight: "800", fontSize: "1rem", flexShrink: 0,
+              letterSpacing: "-0.5px",
             }}>
               M
             </div>
             <div>
-              <div style={{ color: "#f1f5f9", fontWeight: "700", fontSize: "0.9rem", letterSpacing: "0.2px" }}>MedSoft</div>
-              <div style={{ color: "#475569", fontSize: "0.58rem", marginTop: 1, letterSpacing: "0.04em" }}>IEC 62304</div>
+              <div style={{ color: "#ffffff", fontWeight: "700", fontSize: "0.92rem", letterSpacing: "0.3px" }}>MedSoft</div>
+              <div style={{ color: "#93c5fd", fontSize: "0.58rem", marginTop: 1, letterSpacing: "0.06em", textTransform: "uppercase" }}>IEC 62304 Platform</div>
             </div>
           </Link>
 

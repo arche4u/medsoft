@@ -2,12 +2,13 @@ import io
 import uuid
 import openpyxl
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
-from sqlalchemy import select
+from sqlalchemy import select, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from .model import Requirement, RequirementCategory, BUILTIN_TYPES, readable_id_prefix
 from .schema import (
-    RequirementCategoryCreate, RequirementCategoryRead,
+    RequirementCategoryCreate, RequirementCategoryRead, RequirementCategoryUpdate,
     RequirementCreate, RequirementRead, RequirementUpdate, UploadSummary,
 )
 
@@ -23,25 +24,19 @@ _BUILTIN_CATEGORIES = [
 
 
 async def _ensure_builtins(db: AsyncSession, project_id: uuid.UUID) -> None:
-    """Create built-in categories for a project if they don't exist yet."""
+    """Seed built-in categories on first use. Uses ON CONFLICT DO NOTHING for concurrency safety."""
     for bc in _BUILTIN_CATEGORIES:
-        existing = (
-            await db.execute(
-                select(RequirementCategory).where(
-                    RequirementCategory.project_id == project_id,
-                    RequirementCategory.name == bc["name"],
-                )
-            )
-        ).scalar_one_or_none()
-        if not existing:
-            db.add(RequirementCategory(
-                project_id=project_id,
-                name=bc["name"],
-                label=bc["label"],
-                color=bc["color"],
-                is_builtin=True,
-                sort_order=bc["sort_order"],
-            ))
+        stmt = pg_insert(RequirementCategory).values(
+            id=uuid.uuid4(),
+            project_id=project_id,
+            name=bc["name"],
+            label=bc["label"],
+            color=bc["color"],
+            is_builtin=True,
+            sort_order=bc["sort_order"],
+            parent_id=None,
+        ).on_conflict_do_nothing(constraint="uq_req_category_project_name")
+        await db.execute(stmt)
 
 
 # ── Readable ID generation ────────────────────────────────────────────────────
@@ -153,6 +148,24 @@ async def create_category(
     return cat
 
 
+@router.put("/categories/{category_id}", response_model=RequirementCategoryRead)
+async def update_category(
+    category_id: uuid.UUID,
+    body: RequirementCategoryUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    cat = (
+        await db.execute(select(RequirementCategory).where(RequirementCategory.id == category_id))
+    ).scalar_one_or_none()
+    if not cat:
+        raise HTTPException(404, "Category not found")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(cat, k, v)
+    await db.commit()
+    await db.refresh(cat)
+    return cat
+
+
 @router.delete("/categories/{category_id}", status_code=204)
 async def delete_category(
     category_id: uuid.UUID,
@@ -163,8 +176,6 @@ async def delete_category(
     ).scalar_one_or_none()
     if not cat:
         raise HTTPException(404, "Category not found")
-    if cat.is_builtin:
-        raise HTTPException(400, "Built-in categories cannot be deleted")
 
     # Check no requirements use this type
     in_use = (
@@ -212,17 +223,6 @@ async def create_requirement(payload: RequirementCreate, db: AsyncSession = Depe
             )
         )
     ).scalar_one_or_none()
-    if not cat:
-        # Auto-ensure builtins then recheck
-        await _ensure_builtins(db, payload.project_id)
-        cat = (
-            await db.execute(
-                select(RequirementCategory).where(
-                    RequirementCategory.project_id == payload.project_id,
-                    RequirementCategory.name == payload.type.upper(),
-                )
-            )
-        ).scalar_one_or_none()
     if not cat:
         raise HTTPException(400, f"Requirement type '{payload.type}' is not defined for this project")
 

@@ -16,7 +16,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     const text = await res.text();
     if (res.status === 401 && typeof window !== "undefined") {
       localStorage.removeItem("medsoft_auth");
-      window.location.href = "/login";
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
     }
     throw new Error(`${res.status}: ${text}`);
   }
@@ -32,21 +34,37 @@ export type Requirement = { id: string; project_id: string; type: string; readab
 export type TestCase    = { id: string; project_id: string; readable_id: string | null; title: string; description: string | null; created_at: string };
 export type TraceLink   = { id: string; requirement_id: string; testcase_id: string };
 export type Risk        = { id: string; requirement_id: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; risk_level: string; mitigation: string | null };
+export type SafetyProfile = {
+  id: string; project_id: string;
+  iec62304_class: string;
+  classification_rationale: string | null;
+  rpn_scale: number;
+  severity_definitions: string | null;
+  probability_definitions: string | null;
+  iso14971_aligned: boolean;
+  software_failure_assumption: boolean;
+  sdp_section_reference: string | null;
+  approved_by: string | null;
+  review_date: string | null;
+  created_at: string; updated_at: string;
+};
 
 // ── Phase 2 types ─────────────────────────────────────────────────────────────
 export type DesignElementType = "ARCHITECTURE" | "DETAILED";
-export type DesignElement     = { id: string; project_id: string; readable_id: string | null; type: DesignElementType; parent_id: string | null; title: string; description: string | null; created_at: string };
+export type DesignElement     = { id: string; project_id: string; readable_id: string | null; type: DesignElementType; parent_id: string | null; title: string; description: string | null; diagram_source: string | null; created_at: string };
 export type DesignLink        = { id: string; requirement_id: string; design_element_id: string };
+export type DesignCategory    = { id: string; project_id: string; name: string; label: string; color: string; sort_order: number; is_builtin: boolean };
+export type TestCategory      = { id: string; project_id: string; name: string; label: string; color: string; sort_order: number; is_builtin: boolean };
 export type ExecStatus        = "PASS" | "FAIL" | "BLOCKED";
 export type TestExecution     = { id: string; testcase_id: string; status: ExecStatus; executed_at: string; notes: string | null };
 export type ValidationStatus  = "PLANNED" | "PASSED" | "FAILED";
 export type ValidationRecord  = { id: string; project_id: string; related_requirement_id: string; description: string; status: ValidationStatus; created_at: string };
-export type AuditLog          = { id: string; entity_type: string; entity_id: string; action: "CREATE" | "UPDATE" | "DELETE"; timestamp: string };
+export type AuditLog          = { id: string; entity_type: string; entity_id: string; action: "CREATE" | "UPDATE" | "DELETE"; timestamp: string; actor_name: string | null; details: string | null };
 
 export type ImpactResult = {
   requirement: { id: string; type: string; title: string; description: string | null };
   children_requirements: { id: string; type: string; title: string }[];
-  linked_design_elements: { id: string; type: string; title: string; description: string | null }[];
+  linked_design_elements: { id: string; type: string; readable_id: string | null; title: string; description: string | null }[];
   linked_testcases: { id: string; title: string }[];
   latest_executions: { testcase_id: string; testcase_title: string; status: string | null; executed_at: string | null }[];
 };
@@ -107,7 +125,44 @@ export type DocumentCategory = "PLANS" | "TECHNICAL" | "DEVELOPMENT";
 export type Doc = {
   id: string; project_id: string; doc_type: string; category: string;
   title: string; status: DocumentStatus; version: string | null;
-  notes: string | null; content: string | null; created_at: string; updated_at: string;
+  notes: string | null; content: string | null; description: string | null;
+  tags: string[];
+  created_at: string; updated_at: string;
+};
+
+export type KnowledgeEntry = {
+  id: string;
+  project_id: string | null;
+  is_global: boolean;
+  category: string;
+  standard: string | null;
+  clause_ref: string | null;
+  title: string;
+  summary: string | null;
+  content: string | null;
+  tags: string[];
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AIGeneratedRequirement = {
+  type: string;
+  title: string;
+  description: string;
+  rationale: string;
+};
+export type AICategoryMeta = {
+  name: string;
+  label: string;
+  sort_order: number;
+  parent_name: string | null;
+};
+export type AIGenerateResponse = {
+  requirements: AIGeneratedRequirement[];
+  categories: AICategoryMeta[];
+  tokens_used: number;
+  model: string;
 };
 
 // ── API client ────────────────────────────────────────────────────────────────
@@ -115,6 +170,8 @@ export const api = {
   projects: {
     list: () => req<Project[]>("/projects/"),
     create: (d: { name: string; description?: string }) => req<Project>("/projects/", { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: { name?: string; description?: string }) => req<Project>(`/projects/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    delete: (id: string) => req<void>(`/projects/${id}`, { method: "DELETE" }),
   },
   requirements: {
     list: (project_id?: string, type?: string) => {
@@ -138,6 +195,8 @@ export const api = {
         req<RequirementCategory[]>(`/requirements/categories?project_id=${project_id}`),
       create: (d: { project_id: string; name: string; label: string; color: string; parent_id?: string }) =>
         req<RequirementCategory>("/requirements/categories", { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { label?: string; color?: string; sort_order?: number }) =>
+        req<RequirementCategory>(`/requirements/categories/${id}`, { method: "PUT", body: JSON.stringify(d) }),
       delete: (id: string) =>
         req<void>(`/requirements/categories/${id}`, { method: "DELETE" }),
     },
@@ -145,6 +204,14 @@ export const api = {
   testcases: {
     list: (project_id?: string) => req<TestCase[]>(`/testcases/${project_id ? `?project_id=${project_id}` : ""}`),
     create: (d: { project_id: string; title: string; description?: string }) => req<TestCase>("/testcases/", { method: "POST", body: JSON.stringify(d) }),
+    categories: {
+      list:   (project_id: string) => req<TestCategory[]>(`/testcases/categories?project_id=${project_id}`),
+      create: (d: { project_id: string; name: string; label: string; color: string }) =>
+        req<TestCategory>("/testcases/categories", { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { label?: string; color?: string; sort_order?: number }) =>
+        req<TestCategory>(`/testcases/categories/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (id: string) => req<void>(`/testcases/categories/${id}`, { method: "DELETE" }),
+    },
   },
   tracelinks: {
     list: (requirement_id?: string) => req<TraceLink[]>(`/tracelinks/${requirement_id ? `?requirement_id=${requirement_id}` : ""}`),
@@ -162,6 +229,13 @@ export const api = {
     update: (id: string, d: { hazard?: string; hazardous_situation?: string; harm?: string; severity?: number; probability?: number; mitigation?: string | null }) =>
       req<Risk>(`/risks/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     delete: (id: string) => req<void>(`/risks/${id}`, { method: "DELETE" }),
+    safetyProfile: {
+      get: (project_id: string) => req<SafetyProfile | null>(`/risks/safety-profile/${project_id}`),
+      create: (d: Omit<SafetyProfile, "id" | "created_at" | "updated_at">) =>
+        req<SafetyProfile>("/risks/safety-profile", { method: "POST", body: JSON.stringify(d) }),
+      update: (project_id: string, d: Partial<Omit<SafetyProfile, "id" | "project_id" | "created_at" | "updated_at">>) =>
+        req<SafetyProfile>(`/risks/safety-profile/${project_id}`, { method: "PUT", body: JSON.stringify(d) }),
+    },
   },
   traceability: {
     tree: (project_id: string) => req<TreeNode[]>(`/traceability/${project_id}`),
@@ -170,11 +244,21 @@ export const api = {
     listElements: (project_id?: string) => req<DesignElement[]>(`/design/elements${project_id ? `?project_id=${project_id}` : ""}`),
     createElement: (d: { project_id: string; type: DesignElementType; parent_id?: string; title: string; description?: string }) =>
       req<DesignElement>("/design/elements", { method: "POST", body: JSON.stringify(d) }),
+    updateElement: (id: string, d: { title?: string; description?: string; diagram_source?: string | null }) =>
+      req<DesignElement>(`/design/elements/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     deleteElement: (id: string) => req<void>(`/design/elements/${id}`, { method: "DELETE" }),
     listLinks: (requirement_id?: string) => req<DesignLink[]>(`/design/links${requirement_id ? `?requirement_id=${requirement_id}` : ""}`),
     createLink: (d: { requirement_id: string; design_element_id: string }) =>
       req<DesignLink>("/design/links", { method: "POST", body: JSON.stringify(d) }),
     deleteLink: (id: string) => req<void>(`/design/links/${id}`, { method: "DELETE" }),
+    categories: {
+      list:   (project_id: string) => req<DesignCategory[]>(`/design/categories?project_id=${project_id}`),
+      create: (d: { project_id: string; name: string; label: string; color: string }) =>
+        req<DesignCategory>("/design/categories", { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { label?: string; color?: string; sort_order?: number }) =>
+        req<DesignCategory>(`/design/categories/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (id: string) => req<void>(`/design/categories/${id}`, { method: "DELETE" }),
+    },
   },
   verification: {
     listExecutions: (testcase_id?: string) => req<TestExecution[]>(`/verification/executions${testcase_id ? `?testcase_id=${testcase_id}` : ""}`),
@@ -267,6 +351,9 @@ export const api = {
   roles: {
     list: () => req<RoleRead[]>("/roles"),
     listPermissions: () => req<PermissionRead[]>("/roles/permissions"),
+    create: (d: { name: string; description?: string; permission_names?: string[] }) =>
+      req<RoleRead>("/roles", { method: "POST", body: JSON.stringify(d) }),
+    delete: (id: string) => req<void>(`/roles/${id}`, { method: "DELETE" }),
   },
   users: {
     list: () => req<UserRead[]>("/users"),
@@ -301,8 +388,39 @@ export const api = {
     get: (id: string) => req<Doc>(`/documents/${id}`),
     create: (d: { project_id: string; doc_type: string; category: string; title: string; status?: string; version?: string; notes?: string }) =>
       req<Doc>("/documents/", { method: "POST", body: JSON.stringify(d) }),
-    update: (id: string, d: { title?: string; status?: string; version?: string; notes?: string; content?: string }) =>
+    update: (id: string, d: { title?: string; status?: string; version?: string; notes?: string; content?: string; tags?: string[] }) =>
       req<Doc>(`/documents/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     delete: (id: string) => req<void>(`/documents/${id}`, { method: "DELETE" }),
+  },
+  ai: {
+    generateRequirements: (d: { project_id: string; product_description: string; focus_area?: string }) =>
+      req<AIGenerateResponse>("/ai/generate-requirements", { method: "POST", body: JSON.stringify(d) }),
+  },
+  knowledge: {
+    listGlobal: (standard?: string, category?: string) => {
+      const p = new URLSearchParams();
+      if (standard) p.set("standard", standard);
+      if (category) p.set("category", category);
+      return req<KnowledgeEntry[]>(`/knowledge/global?${p}`);
+    },
+    listProject: (project_id: string, standard?: string, category?: string) => {
+      const p = new URLSearchParams();
+      if (standard) p.set("standard", standard);
+      if (category) p.set("category", category);
+      return req<KnowledgeEntry[]>(`/knowledge/project/${project_id}?${p}`);
+    },
+    get: (id: string) => req<KnowledgeEntry>(`/knowledge/entry/${id}`),
+    createGlobal: (d: { category: string; standard?: string; clause_ref?: string; title: string; summary?: string; content?: string; tags?: string[]; sort_order?: number }) =>
+      req<KnowledgeEntry>("/knowledge/global", { method: "POST", body: JSON.stringify(d) }),
+    createProject: (project_id: string, d: { category: string; standard?: string; clause_ref?: string; title: string; summary?: string; content?: string; tags?: string[]; sort_order?: number }) =>
+      req<KnowledgeEntry>(`/knowledge/project/${project_id}`, { method: "POST", body: JSON.stringify(d) }),
+    updateGlobal: (id: string, d: Partial<{ title: string; summary: string; content: string; tags: string[]; category: string; standard: string; clause_ref: string; sort_order: number }>) =>
+      req<KnowledgeEntry>(`/knowledge/global/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    update: (id: string, d: Partial<{ title: string; summary: string; content: string; tags: string[]; category: string; standard: string; clause_ref: string; sort_order: number }>) =>
+      req<KnowledgeEntry>(`/knowledge/entry/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    deleteGlobal: (id: string) => req<void>(`/knowledge/global/${id}`, { method: "DELETE" }),
+    delete: (id: string) => req<void>(`/knowledge/entry/${id}`, { method: "DELETE" }),
+    copyToProject: (entry_id: string, project_id: string) =>
+      req<KnowledgeEntry>(`/knowledge/entry/${entry_id}/copy-to-project/${project_id}`, { method: "POST", body: JSON.stringify({}) }),
   },
 };

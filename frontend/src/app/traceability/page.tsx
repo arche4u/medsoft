@@ -1,5 +1,6 @@
 "use client";
 
+import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useState } from "react";
 import { api, Project, TreeNode } from "@/lib/api";
 
@@ -8,7 +9,7 @@ const TYPE_BG: Record<string, string> = { USER: "#1565c0", SYSTEM: "#6a1b9a", SO
 
 export default function TraceabilityPage() {
   const [projects, setProjects]   = useState<Project[]>([]);
-  const [projectId, setProjectId] = useState("");
+  const [projectId, setProjectId] = useActiveProject();
   const [tree, setTree]           = useState<TreeNode[]>([]);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState("");

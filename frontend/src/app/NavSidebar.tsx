@@ -45,6 +45,28 @@ type Section = {
 
 const SECTIONS: Section[] = [
   {
+    id: "pm",
+    label: "PM",
+    icon: <IconPM />,
+    groups: [
+      {
+        group: "Projects",
+        items: [
+          { href: "/projects",          label: "All Projects" },
+          { href: "/projects/dashboard", label: "Project Dashboard" },
+        ],
+      },
+      {
+        group: "Compliance",
+        items: [
+          { href: "/audit",    label: "Activity Log" },
+          { href: "/users",    label: "Users" },
+          { href: "/training", label: "Training Records" },
+        ],
+      },
+    ],
+  },
+  {
     id: "design",
     label: "Design",
     icon: <IconDesign />,
@@ -116,76 +138,20 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        group: "Plans",
+        group: "Document Register",
         items: [
-          { href: "/documents?category=PLANS&type=SDP",   label: "Software Development Plan" },
-          { href: "/documents?category=PLANS&type=SMP",   label: "Software Maintenance Plan" },
-          { href: "/documents?category=PLANS&type=SPRP",  label: "Problem Resolution Plan" },
-          { href: "/documents?category=PLANS&type=SCP",   label: "Software Configuration Plan" },
-          { href: "/documents?category=PLANS&type=SVP",   label: "Software Verification Plan" },
-          { href: "/documents?category=PLANS&type=SBRP",  label: "Build & Release Plan" },
+          { href: "/documents",                          label: "All Documents" },
+          { href: "/documents?category=SOP",             label: "SOPs" },
+          { href: "/documents?category=PLANS",           label: "Plans" },
+          { href: "/documents?category=TECHNICAL",       label: "Technical" },
+          { href: "/documents?category=DEVELOPMENT",     label: "Development" },
+          { href: "/documents?category=STANDARDS",       label: "Standards Docs" },
         ],
       },
       {
-        group: "Technical Documents",
+        group: "Knowledge Base",
         items: [
-          { href: "/documents?category=TECHNICAL&type=SRS",    label: "Requirements Specification" },
-          { href: "/documents?category=TECHNICAL&type=SADS",   label: "Architecture Design Spec" },
-          { href: "/documents?category=TECHNICAL&type=SDDS",   label: "Detailed Design Spec" },
-          { href: "/documents?category=TECHNICAL&type=SVPROT", label: "Verification Protocol" },
-          { href: "/documents?category=TECHNICAL&type=SVREP",  label: "Verification Report" },
-        ],
-      },
-      {
-        group: "Development Documents",
-        items: [
-          { href: "/documents?category=DEVELOPMENT&type=SBD",  label: "Software Build Document" },
-          { href: "/documents?category=DEVELOPMENT&type=SII",  label: "Installation Instructions" },
-          { href: "/documents?category=DEVELOPMENT&type=CG",   label: "Coding Guidelines" },
-          { href: "/documents?category=DEVELOPMENT&type=SUTP", label: "Unit Test Protocol" },
-          { href: "/documents?category=DEVELOPMENT&type=SUTR", label: "Unit Test Report" },
-          { href: "/documents?category=DEVELOPMENT&type=SITP", label: "Integration Test Protocol" },
-          { href: "/documents?category=DEVELOPMENT&type=SITR", label: "Integration Test Report" },
-          { href: "/documents?category=DEVELOPMENT&type=SOUP", label: "SOUP List" },
-          { href: "/documents?category=DEVELOPMENT&type=CRR",  label: "Code Review Report" },
-          { href: "/documents?category=DEVELOPMENT&type=VDD",  label: "Version Description Doc" },
-          { href: "/documents?category=DEVELOPMENT&type=RHL",  label: "Revision History Log" },
-          { href: "/documents?category=DEVELOPMENT&type=UAL",  label: "Unresolved Anomaly List" },
-          { href: "/documents?category=DEVELOPMENT&type=TM",   label: "Traceability Matrix" },
-        ],
-      },
-      {
-        group: "SOPs",
-        items: [
-          { href: "/documents?category=SOP&type=SOP-SDLC", label: "SDLC" },
-          { href: "/documents?category=SOP&type=SOP-CM",   label: "Configuration Management" },
-          { href: "/documents?category=SOP&type=SOP-CR",   label: "Change Control" },
-          { href: "/documents?category=SOP&type=SOP-RA",   label: "Risk Management" },
-          { href: "/documents?category=SOP&type=SOP-VV",   label: "Verification & Validation" },
-          { href: "/documents?category=SOP&type=SOP-NCR",  label: "Non-Conformance & CAPA" },
-          { href: "/documents?category=SOP&type=SOP-AU",   label: "Internal Audit" },
-          { href: "/documents?category=SOP&type=SOP-TR",   label: "Training & Competency" },
-          { href: "/documents?category=SOP&type=SOP-DOC",  label: "Document Control" },
-          { href: "/documents?category=SOP&type=SOP-REL",  label: "Release Management" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "pm",
-    label: "PM",
-    icon: <IconPM />,
-    groups: [
-      {
-        group: "Projects",
-        items: [{ href: "/projects", label: "Projects" }],
-      },
-      {
-        group: "Compliance",
-        items: [
-          { href: "/audit",    label: "Audit Log" },
-          { href: "/users",    label: "Users" },
-          { href: "/training", label: "Training Records" },
+          { href: "/knowledge", label: "📚 Standards Library" },
         ],
       },
     ],
@@ -194,7 +160,12 @@ const SECTIONS: Section[] = [
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function detectActiveSection(pathname: string, type: string | null): Section["id"] | null {
+function parseQS(qs: string | undefined): Record<string, string> {
+  if (!qs) return {};
+  return Object.fromEntries(qs.split("&").map(p => p.split("=") as [string, string]));
+}
+
+function detectActiveSection(pathname: string, type: string | null, category?: string | null): Section["id"] | null {
   for (const s of SECTIONS) {
     for (const g of s.groups) {
       for (const item of g.items) {
@@ -202,8 +173,11 @@ function detectActiveSection(pathname: string, type: string | null): Section["id
         if (pathname === base || pathname.startsWith(base + "/")) return s.id;
         if (item.subItems?.some(sub => {
           const [sb, qs] = sub.href.split("?");
-          const t = qs?.split("type=")[1];
-          return pathname === sb && (!t || type === t);
+          const params = parseQS(qs);
+          if (pathname !== sb) return false;
+          if (params.type && params.type !== type) return false;
+          if (params.category && params.category !== category) return false;
+          return true;
         })) return s.id;
       }
     }
@@ -214,11 +188,12 @@ function detectActiveSection(pathname: string, type: string | null): Section["id
 // ── Inner component (needs useSearchParams) ──────────────────────────────────
 
 function NavSidebarInner() {
-  const pathname    = usePathname();
-  const searchParams = useSearchParams();
-  const currentType  = searchParams.get("type");
+  const pathname      = usePathname();
+  const searchParams  = useSearchParams();
+  const currentType   = searchParams.get("type");
+  const currentCat    = searchParams.get("category");
 
-  const autoSection = detectActiveSection(pathname, currentType) ?? "design";
+  const autoSection = detectActiveSection(pathname, currentType, currentCat) ?? "pm";
   const [activeId, setActiveId] = useState<Section["id"] | null>(autoSection);
 
   // ── Dynamic requirement categories ────────────────────────────────────────
@@ -226,6 +201,9 @@ function NavSidebarInner() {
 
   const loadCats = async (projectId: string) => {
     if (!projectId) { setDynCats([]); return; }
+    if (typeof window !== "undefined" && !localStorage.getItem("medsoft_auth")) {
+      setDynCats([]); return;
+    }
     try { setDynCats(await api.requirements.categories.list(projectId)); }
     catch { setDynCats([]); }
   };
@@ -251,8 +229,11 @@ function NavSidebarInner() {
         g.items.forEach(item => {
           if (item.subItems?.some(sub => {
             const [b, qs] = sub.href.split("?");
-            const t = qs?.split("type=")[1];
-            return pathname === b && (!t || currentType === t);
+            const params = parseQS(qs);
+            if (pathname !== b) return false;
+            if (params.type && params.type !== currentType) return false;
+            if (params.category && params.category !== currentCat) return false;
+            return true;
           })) init[item.href] = true;
         })
       )
@@ -273,8 +254,11 @@ function NavSidebarInner() {
 
   const isSubActive = (sub: SubItem) => {
     const [base, qs] = sub.href.split("?");
-    const t = qs?.split("type=")[1];
-    return pathname === base && (!t || currentType === t);
+    const params = parseQS(qs);
+    if (pathname !== base) return false;
+    if (params.type && params.type !== currentType) return false;
+    if (params.category && params.category !== currentCat) return false;
+    return true;
   };
 
   const activeSection = SECTIONS.find(s => s.id === activeId) ?? null;
@@ -284,16 +268,16 @@ function NavSidebarInner() {
 
       {/* ── Icon Rail ─────────────────────────────────────────────────────── */}
       <div style={{
-        width: 52,
-        minWidth: 52,
+        width: 56,
+        minWidth: 56,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        borderRight: "1px solid #1e293b",
-        background: "#080e1a",
-        paddingTop: "0.5rem",
-        paddingBottom: "0.5rem",
-        gap: "0.25rem",
+        borderRight: "1px solid #c7d2fe",
+        background: "linear-gradient(180deg, #1e3a8a 0%, #1e40af 60%, #1d4ed8 100%)",
+        paddingTop: "0.6rem",
+        paddingBottom: "0.6rem",
+        gap: "0.2rem",
       }}>
         {SECTIONS.map(s => {
           const isActive = activeId === s.id;
@@ -308,22 +292,22 @@ function NavSidebarInner() {
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                width: 42,
-                padding: "0.55rem 0.35rem",
-                background: isActive ? "rgba(59,130,246,0.18)" : "transparent",
+                width: 44,
+                padding: "0.6rem 0.3rem",
+                background: isActive ? "rgba(255,255,255,0.18)" : "transparent",
                 border: "none",
-                borderRadius: 7,
-                borderLeft: `3px solid ${isActive ? "#60a5fa" : "transparent"}`,
-                color: isActive ? "#93c5fd" : hasCurrentPath ? "#64748b" : "#334155",
+                borderRadius: 8,
+                borderLeft: `3px solid ${isActive ? "#93c5fd" : "transparent"}`,
+                color: isActive ? "#ffffff" : hasCurrentPath ? "#93c5fd" : "rgba(255,255,255,0.5)",
                 cursor: "pointer",
-                gap: "0.2rem",
+                gap: "0.22rem",
                 transition: "background 0.15s, color 0.15s",
               }}
-              onMouseOver={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)"; (e.currentTarget as HTMLElement).style.color = "#94a3b8"; } }}
-              onMouseOut={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = hasCurrentPath ? "#64748b" : "#334155"; } }}
+              onMouseOver={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.1)"; (e.currentTarget as HTMLElement).style.color = "#bfdbfe"; } }}
+              onMouseOut={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = hasCurrentPath ? "#93c5fd" : "rgba(255,255,255,0.5)"; } }}
             >
               {s.icon}
-              <span style={{ fontSize: "0.5rem", letterSpacing: "0.04em", textTransform: "uppercase", fontWeight: "700" }}>
+              <span style={{ fontSize: "0.48rem", letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "700" }}>
                 {s.label}
               </span>
             </button>
@@ -337,7 +321,7 @@ function NavSidebarInner() {
         overflowY: "auto",
         overflowX: "hidden",
         display: activeSection ? "block" : "none",
-        background: "#0f172a",
+        background: "#fafbff",
       }}>
         {/* Section header */}
         {activeSection && (
@@ -346,12 +330,13 @@ function NavSidebarInner() {
             alignItems: "center",
             gap: "0.4rem",
             padding: "0.65rem 0.75rem 0.45rem",
-            borderBottom: "1px solid #1e293b",
-            color: "#60a5fa",
+            borderBottom: "1px solid #e2e8f0",
+            color: "#1e40af",
             fontSize: "0.68rem",
             fontWeight: "700",
             letterSpacing: "0.09em",
             textTransform: "uppercase",
+            background: "#eff6ff",
           }}>
             {activeSection.icon}
             {activeSection.label}
@@ -363,11 +348,13 @@ function NavSidebarInner() {
           <div key={group.group} style={{ marginBottom: "0.15rem" }}>
             <div style={{
               padding: "0.5rem 0.75rem 0.18rem",
-              fontSize: "0.57rem",
-              fontWeight: "700",
-              letterSpacing: "0.08em",
+              fontSize: "0.56rem",
+              fontWeight: "800",
+              letterSpacing: "0.1em",
               textTransform: "uppercase",
-              color: "#3b82f6",
+              color: "#6366f1",
+              borderBottom: "1px solid #e0e7ff",
+              marginBottom: "0.1rem",
             }}>
               {group.group}
             </div>
@@ -386,23 +373,23 @@ function NavSidebarInner() {
                         alignItems: "center",
                         width: "100%",
                         padding: "0.32rem 0.75rem 0.32rem 0.9rem",
-                        background: active && !expanded ? "rgba(59,130,246,0.12)" : "transparent",
+                        background: active && !expanded ? "#eff6ff" : "transparent",
                         border: "none",
                         borderLeft: `2px solid ${active && !expanded ? "#3b82f6" : "transparent"}`,
-                        color: active ? "#e2e8f0" : "#cbd5e1",
+                        color: active ? "#1e40af" : "#374151",
                         fontSize: "0.78rem",
                         cursor: "pointer",
                         gap: "0.35rem",
                         boxSizing: "border-box",
                       }}
-                      onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = "rgba(59,130,246,0.08)"; }}
-                      onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = active && !expanded ? "rgba(59,130,246,0.12)" : "transparent"; }}
+                      onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = "rgba(59,130,246,0.05)"; }}
+                      onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = active && !expanded ? "#eff6ff" : "transparent"; }}
                     >
-                      <span style={{ fontSize: "0.58rem", color: expanded ? "#60a5fa" : "#475569", minWidth: 8 }}>
+                      <span style={{ fontSize: "0.58rem", color: expanded ? "#3b82f6" : "#94a3b8", minWidth: 8 }}>
                         {expanded ? "▼" : "▶"}
                       </span>
                       <span style={{ flex: 1, textAlign: "left" }}>{item.label}</span>
-                      <span style={{ fontSize: "0.55rem", color: "#60a5fa", background: "rgba(59,130,246,0.2)", borderRadius: 8, padding: "1px 6px", fontWeight: "600" }}>
+                      <span style={{ fontSize: "0.55rem", color: "#1d4ed8", background: "#dbeafe", borderRadius: 8, padding: "1px 6px", fontWeight: "600" }}>
                         {item.href === "/requirements" && dynCats.length > 0 ? dynCats.length : item.subItems.length}
                       </span>
                     </button>
@@ -413,7 +400,7 @@ function NavSidebarInner() {
                       style={{
                         paddingLeft: "0.9rem",
                         paddingRight: "0.75rem",
-                        ...(active ? { color: "#f1f5f9", borderLeftColor: "#3b82f6", background: "rgba(59,130,246,0.12)" } : {}),
+                        ...(active ? { color: "#1e40af", borderLeftColor: "#3b82f6", background: "#eff6ff" } : {}),
                       }}
                     >
                       {item.label}
@@ -440,7 +427,7 @@ function NavSidebarInner() {
                           top: 0,
                           bottom: 4,
                           width: 1,
-                          background: "#1e293b",
+                          background: "#e5e7eb",
                         }} />
                         {subs.map((sub, idx) => {
                           const subActive = isSubActive(sub);
@@ -452,7 +439,7 @@ function NavSidebarInner() {
                                 top: "50%",
                                 width: "0.55rem",
                                 height: 1,
-                                background: subActive ? "#60a5fa" : "#1e293b",
+                                background: subActive ? "#3b82f6" : "#e5e7eb",
                               }} />
                               <Link
                                 href={sub.href}
@@ -463,9 +450,9 @@ function NavSidebarInner() {
                                   paddingBottom: "0.25rem",
                                   fontSize: "0.74rem",
                                   flex: 1,
-                                  color: subActive ? "#e3f2fd" : "#b0bec5",
-                                  borderLeftColor: subActive ? "#42a5f5" : "transparent",
-                                  background: subActive ? "rgba(66,165,245,0.15)" : "transparent",
+                                  color: subActive ? "#1d4ed8" : "#64748b",
+                                  borderLeftColor: subActive ? "#3b82f6" : "transparent",
+                                  background: subActive ? "#eff6ff" : "transparent",
                                   fontWeight: subActive ? "600" : "normal",
                                 }}
                               >

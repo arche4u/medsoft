@@ -6,13 +6,96 @@ from app.core.database import get_db
 from app.modules.audit.service import audit
 from app.modules.audit.model import AuditAction
 from app.modules.requirements.model import Requirement
-from .model import DesignElement, DesignElementType, RequirementDesignLink
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from .model import DesignCategory, DesignElement, DesignElementType, RequirementDesignLink
 from .schema import (
+    DesignCategoryCreate, DesignCategoryRead, DesignCategoryUpdate,
     DesignElementCreate, DesignElementRead, DesignElementUpdate,
     RequirementDesignLinkCreate, RequirementDesignLinkRead,
 )
 
 router = APIRouter(prefix="/design", tags=["design"])
+
+_BUILTIN_DESIGN_CATEGORIES = [
+    {"name": "ARCHITECTURE", "label": "Architecture",    "color": "#4e342e", "sort_order": 0},
+    {"name": "DETAILED",     "label": "Detailed Design", "color": "#6d4c41", "sort_order": 1},
+]
+
+
+async def _ensure_design_builtins(db: AsyncSession, project_id: uuid.UUID) -> None:
+    for bc in _BUILTIN_DESIGN_CATEGORIES:
+        stmt = pg_insert(DesignCategory).values(
+            id=uuid.uuid4(), project_id=project_id,
+            name=bc["name"], label=bc["label"], color=bc["color"],
+            sort_order=bc["sort_order"], is_builtin=True,
+        ).on_conflict_do_nothing(constraint="uq_design_category_project_name")
+        await db.execute(stmt)
+
+
+# ── Design Category endpoints ─────────────────────────────────────────────────
+
+@router.get("/categories", response_model=list[DesignCategoryRead])
+async def list_design_categories(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await _ensure_design_builtins(db, project_id)
+    await db.commit()
+    cats = (await db.execute(
+        select(DesignCategory)
+        .where(DesignCategory.project_id == project_id)
+        .order_by(DesignCategory.sort_order, DesignCategory.name)
+    )).scalars().all()
+    return cats
+
+
+@router.post("/categories", response_model=DesignCategoryRead, status_code=201)
+async def create_design_category(body: DesignCategoryCreate, db: AsyncSession = Depends(get_db)):
+    existing = (await db.execute(
+        select(DesignCategory).where(
+            DesignCategory.project_id == body.project_id,
+            DesignCategory.name == body.name,
+        )
+    )).scalar_one_or_none()
+    if existing:
+        raise HTTPException(409, f"A category named '{body.name}' already exists for this project")
+    max_order = (await db.execute(
+        select(DesignCategory.sort_order)
+        .where(DesignCategory.project_id == body.project_id)
+        .order_by(DesignCategory.sort_order.desc()).limit(1)
+    )).scalar_one_or_none() or 1
+    cat = DesignCategory(project_id=body.project_id, name=body.name, label=body.label,
+                         color=body.color, is_builtin=False, sort_order=max_order + 1)
+    db.add(cat)
+    await db.commit()
+    await db.refresh(cat)
+    return cat
+
+
+@router.put("/categories/{category_id}", response_model=DesignCategoryRead)
+async def update_design_category(
+    category_id: uuid.UUID, body: DesignCategoryUpdate, db: AsyncSession = Depends(get_db)
+):
+    cat = (await db.execute(
+        select(DesignCategory).where(DesignCategory.id == category_id)
+    )).scalar_one_or_none()
+    if not cat:
+        raise HTTPException(404, "Category not found")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(cat, k, v)
+    await db.commit()
+    await db.refresh(cat)
+    return cat
+
+
+@router.delete("/categories/{category_id}", status_code=204)
+async def delete_design_category(category_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    cat = (await db.execute(
+        select(DesignCategory).where(DesignCategory.id == category_id)
+    )).scalar_one_or_none()
+    if not cat:
+        raise HTTPException(404, "Category not found")
+    if cat.is_builtin:
+        raise HTTPException(400, "Built-in design categories cannot be deleted")
+    await db.delete(cat)
+    await db.commit()
 
 _PREFIX = {
     DesignElementType.ARCHITECTURE: "ARC",
@@ -124,8 +207,6 @@ async def create_link(payload: RequirementDesignLinkCreate, db: AsyncSession = D
     req = await db.get(Requirement, payload.requirement_id)
     if not req:
         raise HTTPException(404, detail="Requirement not found")
-    if req.type != "SOFTWARE":
-        raise HTTPException(400, detail="Only SOFTWARE requirements can be linked to design elements")
     link = RequirementDesignLink(**payload.model_dump())
     db.add(link)
     await db.flush()
