@@ -18,6 +18,7 @@ class GenerateRequest(BaseModel):
     project_id: uuid.UUID
     product_description: str
     focus_area: str | None = None
+    count_per_category: int = 5   # 3 | 5 | 8 | 10 | 15
 
 
 class CategoryMeta(BaseModel):
@@ -73,6 +74,7 @@ def _build_prompt(
     categories: list[RequirementCategory],
     sop_context: str,
     existing_count: int,
+    count_per_category: int = 5,
 ) -> str:
     sorted_cats = sorted(categories, key=lambda c: c.sort_order)
     cat_lines = "\n".join(
@@ -81,7 +83,7 @@ def _build_prompt(
         for c in sorted_cats
     )
 
-    per_cat = max(3, min(8, 40 // max(len(categories), 1)))
+    per_cat = max(1, min(15, count_per_category))
 
     focus_line = f"\nPay special attention to: {focus}" if focus else ""
     existing_line = f"\nThe project already has {existing_count} requirements — generate complementary ones, avoid duplication." if existing_count else ""
@@ -95,7 +97,7 @@ DESCRIPTION:
 REQUIREMENT CATEGORIES FOR THIS PROJECT (use these type names exactly):
 {cat_lines}
 
-Generate approximately {per_cat} requirements per category, covering the full scope of the system.
+Generate EXACTLY {per_cat} requirements per category. You MUST generate requirements for EVERY category listed above — do not skip any category.
 Ensure traceability: lower-level requirements should derive from higher-level ones.{sop_section}"""
 
 
@@ -181,7 +183,7 @@ async def generate_requirements(
         )
     ).scalars().all()
 
-    prompt = _build_prompt(body.product_description, body.focus_area, list(categories), sop_context, len(existing))
+    prompt = _build_prompt(body.product_description, body.focus_area, list(categories), sop_context, len(existing), body.count_per_category)
 
     client = anthropic.Anthropic(api_key=api_key)
     try:

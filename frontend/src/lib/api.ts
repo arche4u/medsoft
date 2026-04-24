@@ -393,7 +393,7 @@ export const api = {
     delete: (id: string) => req<void>(`/documents/${id}`, { method: "DELETE" }),
   },
   ai: {
-    generateRequirements: (d: { project_id: string; product_description: string; focus_area?: string }) =>
+    generateRequirements: (d: { project_id: string; product_description: string; focus_area?: string; count_per_category?: number }) =>
       req<AIGenerateResponse>("/ai/generate-requirements", { method: "POST", body: JSON.stringify(d) }),
   },
   knowledge: {

@@ -66,6 +66,7 @@ function RequirementsPageInner() {
   const [showAI,        setShowAI]        = useState(false);
   const [aiDescription, setAiDescription] = useState("");
   const [aiFocus,       setAiFocus]       = useState("");
+  const [aiCountPerCat, setAiCountPerCat] = useState(5);
   const [aiGenerating,  setAiGenerating]  = useState(false);
   const [aiError,       setAiError]       = useState("");
   const [aiResults,     setAiResults]     = useState<AIGeneratedRequirement[]>([]);
@@ -181,6 +182,7 @@ function RequirementsPageInner() {
         project_id: projectId,
         product_description: aiDescription.trim(),
         focus_area: aiFocus.trim() || undefined,
+        count_per_category: aiCountPerCat,
       });
       setAiResults(res.requirements);
       setAiEdited(res.requirements.map(r => ({ ...r })));
@@ -278,16 +280,34 @@ function RequirementsPageInner() {
                       style={{ width: "100%", border: "1px solid #d1d5db", borderRadius: 6, padding: "0.6rem 0.8rem", fontSize: "0.85rem", resize: "vertical", boxSizing: "border-box", fontFamily: "inherit" }}
                     />
                   </div>
-                  <div style={{ marginBottom: "1.25rem" }}>
-                    <label style={{ display: "block", fontWeight: 600, fontSize: "0.85rem", marginBottom: 6, color: "#374151" }}>
-                      Focus area (optional)
-                    </label>
-                    <input
-                      value={aiFocus}
-                      onChange={e => setAiFocus(e.target.value)}
-                      placeholder="e.g. safety interlocks, image processing, data security, usability..."
-                      style={{ width: "100%", border: "1px solid #d1d5db", borderRadius: 6, padding: "0.5rem 0.8rem", fontSize: "0.85rem", boxSizing: "border-box" }}
-                    />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, marginBottom: "1.25rem" }}>
+                    <div>
+                      <label style={{ display: "block", fontWeight: 600, fontSize: "0.85rem", marginBottom: 6, color: "#374151" }}>
+                        Focus area (optional)
+                      </label>
+                      <input
+                        value={aiFocus}
+                        onChange={e => setAiFocus(e.target.value)}
+                        placeholder="e.g. safety interlocks, image processing, data security, usability..."
+                        style={{ width: "100%", border: "1px solid #d1d5db", borderRadius: 6, padding: "0.5rem 0.8rem", fontSize: "0.85rem", boxSizing: "border-box" }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: "block", fontWeight: 600, fontSize: "0.85rem", marginBottom: 6, color: "#374151" }}>
+                        Req. per category
+                      </label>
+                      <select
+                        value={aiCountPerCat}
+                        onChange={e => setAiCountPerCat(Number(e.target.value))}
+                        style={{ border: "1px solid #d1d5db", borderRadius: 6, padding: "0.5rem 0.6rem", fontSize: "0.85rem", width: "100%" }}
+                      >
+                        <option value={3}>3 — quick</option>
+                        <option value={5}>5 — standard</option>
+                        <option value={8}>8 — detailed</option>
+                        <option value={10}>10 — thorough</option>
+                        <option value={15}>15 — comprehensive</option>
+                      </select>
+                    </div>
                   </div>
                   {aiError && <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, padding: "0.6rem 0.8rem", color: "#b91c1c", fontSize: "0.82rem", marginBottom: "1rem" }}>{aiError}</div>}
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -877,15 +897,15 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
     return ids;
   })();
 
-  // Any req in the project: same level or below, not self, not already a child, not an ancestor
+  // Any req in the project: strictly lower level (any depth), not self, not already a child, not an ancestor
   const myCat = cats.find(c => c.name === req.type);
   const assignableReqs = allReqs.filter(r => {
     if (r.id === req.id) return false;
     if (r.parent_id === req.id) return false;
     if (ancestors.has(r.id)) return false;
     const rCat = cats.find(c => c.name === r.type);
-    // same sort_order or lower in hierarchy (higher number), or unknown type → include
-    return !myCat || !rCat || rCat.sort_order >= myCat.sort_order;
+    // strictly lower in hierarchy (higher sort_order number) — any depth allowed
+    return !myCat || !rCat || rCat.sort_order > myCat.sort_order;
   });
 
   const linkedDesignIds = new Set(designLinks.map(l => l.design_element_id));
@@ -971,14 +991,22 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
           <div style={{ display: "flex", gap: 5, alignItems: "center", marginTop: 4 }}>
             <select value={addChildId} onChange={e => setAddChildId(e.target.value)} style={assignSelectStyle}>
               <option value="">+ Assign child requirement…</option>
-              {assignableReqs.map(r => {
-                const c = catByName[r.type];
-                return (
-                  <option key={r.id} value={r.id}>
-                    {r.readable_id} [{c?.label ?? r.type}] {r.title}
-                  </option>
-                );
-              })}
+              {cats
+                .filter(c => !myCat || c.sort_order > myCat.sort_order)
+                .sort((a, b) => a.sort_order - b.sort_order)
+                .map(cat => {
+                  const group = assignableReqs.filter(r => r.type === cat.name);
+                  if (!group.length) return null;
+                  return (
+                    <optgroup key={cat.name} label={`── ${cat.label} (Level ${cat.sort_order})`}>
+                      {group.map(r => (
+                        <option key={r.id} value={r.id}>
+                          {r.readable_id} {r.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
             </select>
             <button onClick={assignChildReq} disabled={!addChildId || saving} style={assignBtnStyle}>
               Assign
