@@ -717,7 +717,7 @@ function ReqTree({ req, allReqs, cats, depth, onReload }: {
     <div>
       {/* Row */}
       <div style={{
-        display: "flex", gap: "0.5rem", alignItems: "center",
+        display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap",
         padding: "0.32rem 0.4rem 0.32rem 0",
         borderBottom: assigning ? "none" : "1px solid #f5f5f5",
         paddingLeft: `${depth * 1.5}rem`,
@@ -737,8 +737,8 @@ function ReqTree({ req, allReqs, cats, depth, onReload }: {
         </span>
         <span style={{ fontWeight: 500, fontSize: "0.84rem", flex: 1 }}>{localReq.title}</span>
         {localReq.description && (
-          <span style={{ color: "#999", fontSize: "0.76rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>
-            — {localReq.description}
+          <span style={{ color: "#6b7280", fontSize: "0.76rem", flexBasis: "100%", lineHeight: 1.5, marginTop: 2, paddingLeft: 2 }}>
+            {localReq.description}
           </span>
         )}
         {/* Inline child-count badge */}
