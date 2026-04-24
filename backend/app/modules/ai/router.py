@@ -1,11 +1,11 @@
 import json
-import os
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.modules.documents.model import Document
 from app.modules.requirements.model import Requirement, RequirementCategory
@@ -152,7 +152,7 @@ async def generate_requirements(
     body: GenerateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    api_key = settings.ANTHROPIC_API_KEY
     if not api_key or api_key.startswith("sk-ant-REPLACE"):
         raise HTTPException(503, "Anthropic API key not configured")
 
