@@ -625,9 +625,12 @@ function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
   const [parentId, setParentId] = useState(req.parent_id ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState("");
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const descRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    if (descRef.current) { descRef.current.style.height = "auto"; descRef.current.style.height = descRef.current.scrollHeight + "px"; }
+    for (const ref of [titleRef, descRef]) {
+      if (ref.current) { ref.current.style.height = "auto"; ref.current.style.height = ref.current.scrollHeight + "px"; }
+    }
   }, []);
 
   // Only show types with lower sort_order (higher in hierarchy) as valid parents
@@ -661,7 +664,15 @@ function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
       <div style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div style={{ flex: "2 1 200px" }}>
           <label style={editLabelStyle}>Title *</label>
-          <input value={title} onChange={e => setTitle(e.target.value)} required style={editInputStyle} />
+          <textarea
+            ref={titleRef}
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            onInput={e => { const t = e.currentTarget; t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; }}
+            required
+            rows={1}
+            style={{ ...editInputStyle, resize: "none", overflow: "hidden", lineHeight: "1.5", minHeight: 32 }}
+          />
         </div>
         <div style={{ flex: "3 1 280px" }}>
           <label style={editLabelStyle}>Description</label>
