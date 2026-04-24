@@ -181,6 +181,7 @@ export default function KnowledgePage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkCopying, setBulkCopying] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -238,13 +239,39 @@ export default function KnowledgePage() {
   };
 
   const handleSelectAll = () => {
-    const displayed = filterEntries(globalEntries);
-    const uncoppied = displayed.filter(e => !copiedGlobalIds.has(e.id));
-    if (selectedIds.size === uncoppied.length && uncoppied.length > 0) {
-      setSelectedIds(new Set());
+    if (tab === "global") {
+      const items = filterEntries(globalEntries).filter(e => !copiedGlobalIds.has(e.id));
+      if (items.length > 0 && items.every(e => selectedIds.has(e.id))) {
+        setSelectedIds(new Set());
+      } else {
+        setSelectedIds(new Set(items.map(e => e.id)));
+      }
     } else {
-      setSelectedIds(new Set(uncoppied.map(e => e.id)));
+      const items = filterEntries(projectEntries);
+      if (items.length > 0 && items.every(e => selectedIds.has(e.id))) {
+        setSelectedIds(new Set());
+      } else {
+        setSelectedIds(new Set(items.map(e => e.id)));
+      }
     }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} selected entries? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map(id => {
+          const entry = (tab === "global" ? globalEntries : projectEntries).find(e => e.id === id);
+          if (!entry) return Promise.resolve();
+          return entry.is_global ? api.knowledge.deleteGlobal(id) : api.knowledge.delete(id);
+        })
+      );
+      setSelectedIds(new Set());
+      if (tab === "global") reloadGlobal(); else reloadProject();
+    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    finally { setBulkDeleting(false); }
   };
 
   const handleBulkCopy = async () => {
@@ -338,6 +365,7 @@ export default function KnowledgePage() {
   const displayed = filterEntries(tab === "global" ? globalEntries : projectEntries);
   const displayedUncoppied = displayed.filter(e => !copiedGlobalIds.has(e.id));
   const allUncoppiedSelected = displayedUncoppied.length > 0 && displayedUncoppied.every(e => selectedIds.has(e.id));
+  const allProjectSelected = tab === "project" && displayed.length > 0 && displayed.every(e => selectedIds.has(e.id));
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     padding: "0.45rem 1.1rem", cursor: "pointer", border: "none", borderRadius: 6,
@@ -424,27 +452,37 @@ export default function KnowledgePage() {
         </div>
       )}
 
-      {/* Bulk action bar — only in global tab with a project selected */}
-      {tab === "global" && projectId && displayed.length > 0 && (
+      {/* Bulk action bar */}
+      {displayed.length > 0 && (tab === "project" || (tab === "global" && projectId)) && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "0.75rem", padding: "0.5rem 0.75rem", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 6 }}>
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.82rem", color: "#374151", cursor: "pointer", userSelect: "none" }}>
             <input
               type="checkbox"
-              checked={allUncoppiedSelected}
+              checked={tab === "global" ? allUncoppiedSelected : allProjectSelected}
               onChange={handleSelectAll}
               style={{ width: 14, height: 14, cursor: "pointer" }}
             />
-            Select all not yet copied
+            {tab === "global" ? "Select all not yet copied" : "Select all"}
           </label>
           {selectedIds.size > 0 && (
             <>
               <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>{selectedIds.size} selected</span>
-              <button
-                onClick={handleBulkCopy}
-                disabled={bulkCopying}
-                style={{ background: "#1e40af", color: "#fff", border: "none", borderRadius: 5, padding: "0.35rem 1rem", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600 }}>
-                {bulkCopying ? "Copying…" : `Copy ${selectedIds.size} to project`}
-              </button>
+              {tab === "global" && (
+                <button
+                  onClick={handleBulkCopy}
+                  disabled={bulkCopying}
+                  style={{ background: "#1e40af", color: "#fff", border: "none", borderRadius: 5, padding: "0.35rem 1rem", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600 }}>
+                  {bulkCopying ? "Copying…" : `Copy ${selectedIds.size} to project`}
+                </button>
+              )}
+              {tab === "project" && (
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={bulkDeleting}
+                  style={{ background: "#fef2f2", border: "1px solid #fca5a5", color: "#b91c1c", borderRadius: 5, padding: "0.35rem 1rem", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600 }}>
+                  {bulkDeleting ? "Deleting…" : `Delete ${selectedIds.size} selected`}
+                </button>
+              )}
               <button
                 onClick={() => setSelectedIds(new Set())}
                 style={{ background: "none", border: "1px solid #d1d5db", borderRadius: 5, padding: "0.35rem 0.7rem", cursor: "pointer", fontSize: "0.8rem", color: "#6b7280" }}>
@@ -474,7 +512,7 @@ export default function KnowledgePage() {
               onCopy={handleCopy}
               onEdit={handleEdit}
               onDelete={e => handleDelete(e)}
-              selectable={tab === "global" && !!projectId}
+              selectable={tab === "project" || (tab === "global" && !!projectId)}
               selected={selectedIds.has(entry.id)}
               onToggleSelect={handleToggleSelect}
               isCopied={tab === "global" ? copiedGlobalIds.has(entry.id) : undefined}
