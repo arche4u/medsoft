@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useActiveProject } from "@/lib/useActiveProject";
 import { api, KnowledgeEntry, Project } from "@/lib/api";
 
@@ -40,21 +40,40 @@ function EntryCard({
   onEdit,
   onDelete,
   projectId,
+  selectable,
+  selected,
+  onToggleSelect,
+  isCopied,
 }: {
   entry: KnowledgeEntry;
   onCopy?: (id: string) => void;
   onEdit?: (entry: KnowledgeEntry) => void;
   onDelete?: (entry: KnowledgeEntry) => void;
   projectId: string;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
+  isCopied?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, marginBottom: 10, overflow: "hidden", background: "#fff" }}>
+    <div style={{
+      border: `1px solid ${selected ? "#bfdbfe" : "#e5e7eb"}`,
+      borderRadius: 8, marginBottom: 10, overflow: "hidden",
+      background: selected ? "#f0f7ff" : "#fff",
+    }}>
       <div
         onClick={() => setExpanded(v => !v)}
         style={{ padding: "0.85rem 1rem", cursor: "pointer", display: "flex", alignItems: "flex-start", gap: 10 }}
       >
+        {selectable && (
+          <div onClick={e => { e.stopPropagation(); onToggleSelect?.(entry.id); }}
+            style={{ paddingTop: 2, flexShrink: 0, cursor: "pointer" }}>
+            <input type="checkbox" checked={!!selected} onChange={() => onToggleSelect?.(entry.id)}
+              style={{ width: 15, height: 15, cursor: "pointer" }} />
+          </div>
+        )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
             {standardChip(entry.standard)}
@@ -71,6 +90,11 @@ function EntryCard({
                 Global
               </span>
             )}
+            {isCopied && (
+              <span style={{ fontSize: "0.65rem", background: "#f0fdf4", color: "#16a34a", borderRadius: 4, padding: "1px 6px", border: "1px solid #bbf7d0" }}>
+                ✓ In project
+              </span>
+            )}
           </div>
           <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "#1f2937" }}>{entry.title}</div>
           {entry.summary && !expanded && (
@@ -85,9 +109,19 @@ function EntryCard({
             </button>
           )}
           {entry.is_global && onCopy && projectId && (
-            <button onClick={e => { e.stopPropagation(); onCopy(entry.id); }}
-              style={{ fontSize: "0.72rem", background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>
-              Copy to project
+            <button
+              onClick={e => { e.stopPropagation(); if (!isCopied) onCopy(entry.id); }}
+              disabled={isCopied}
+              style={{
+                fontSize: "0.72rem",
+                background: isCopied ? "#f0fdf4" : "#eff6ff",
+                border: `1px solid ${isCopied ? "#bbf7d0" : "#bfdbfe"}`,
+                color: isCopied ? "#16a34a" : "#1d4ed8",
+                borderRadius: 4, padding: "2px 8px",
+                cursor: isCopied ? "default" : "pointer",
+                opacity: isCopied ? 0.8 : 1,
+              }}>
+              {isCopied ? "Copied" : "Copy to project"}
             </button>
           )}
           {onDelete && (
@@ -145,6 +179,9 @@ export default function KnowledgePage() {
   const [filterCategory, setFilterCategory] = useState("");
   const [search, setSearch] = useState("");
 
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkCopying, setBulkCopying] = useState(false);
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingIsGlobal, setEditingIsGlobal] = useState(false);
@@ -168,6 +205,21 @@ export default function KnowledgePage() {
   const reloadGlobal = () => api.knowledge.listGlobal().then(setGlobalEntries).catch(console.error);
   const reloadProject = () => { if (projectId) api.knowledge.listProject(projectId).then(setProjectEntries); };
 
+  // Compute which global entries are already copied to the active project
+  const copiedGlobalIds = useMemo(() => {
+    const copied = new Set<string>();
+    for (const global of globalEntries) {
+      const alreadyIn = projectEntries.some(pe => {
+        if (global.standard && global.clause_ref) {
+          return pe.standard === global.standard && pe.clause_ref === global.clause_ref;
+        }
+        return pe.title === `${global.title} (customised)`;
+      });
+      if (alreadyIn) copied.add(global.id);
+    }
+    return copied;
+  }, [globalEntries, projectEntries]);
+
   const handleCopy = async (entryId: string) => {
     if (!projectId) { alert("Select a project first"); return; }
     try {
@@ -175,6 +227,40 @@ export default function KnowledgePage() {
       reloadProject();
       setTab("project");
     } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+  };
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    const displayed = filterEntries(globalEntries);
+    const uncoppied = displayed.filter(e => !copiedGlobalIds.has(e.id));
+    if (selectedIds.size === uncoppied.length && uncoppied.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(uncoppied.map(e => e.id)));
+    }
+  };
+
+  const handleBulkCopy = async () => {
+    if (!projectId) { alert("Select a project first"); return; }
+    if (selectedIds.size === 0) return;
+    setBulkCopying(true);
+    try {
+      const result = await api.knowledge.bulkCopyToProject(Array.from(selectedIds), projectId);
+      reloadProject();
+      setSelectedIds(new Set());
+      setTab("project");
+      if (result.skipped > 0) {
+        alert(`Copied ${result.copied} entries. ${result.skipped} already existed and were skipped.`);
+      }
+    } catch (e: unknown) { alert(e instanceof Error ? e.message : String(e)); }
+    finally { setBulkCopying(false); }
   };
 
   const closeForm = () => { setShowForm(false); setEditingId(null); setEditingIsGlobal(false); setForm(EMPTY_FORM); setError(""); };
@@ -250,6 +336,8 @@ export default function KnowledgePage() {
   };
 
   const displayed = filterEntries(tab === "global" ? globalEntries : projectEntries);
+  const displayedUncoppied = displayed.filter(e => !copiedGlobalIds.has(e.id));
+  const allUncoppiedSelected = displayedUncoppied.length > 0 && displayedUncoppied.every(e => selectedIds.has(e.id));
 
   const tabStyle = (active: boolean): React.CSSProperties => ({
     padding: "0.45rem 1.1rem", cursor: "pointer", border: "none", borderRadius: 6,
@@ -288,10 +376,10 @@ export default function KnowledgePage() {
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 6, marginBottom: "1rem" }}>
-        <button style={tabStyle(tab === "global")} onClick={() => setTab("global")}>
+        <button style={tabStyle(tab === "global")} onClick={() => { setTab("global"); setSelectedIds(new Set()); }}>
           📚 Global Standards Library ({globalEntries.length})
         </button>
-        <button style={tabStyle(tab === "project")} onClick={() => setTab("project")}>
+        <button style={tabStyle(tab === "project")} onClick={() => { setTab("project"); setSelectedIds(new Set()); }}>
           🏢 Project-Specific ({projectEntries.length})
         </button>
       </div>
@@ -336,6 +424,37 @@ export default function KnowledgePage() {
         </div>
       )}
 
+      {/* Bulk action bar — only in global tab with a project selected */}
+      {tab === "global" && projectId && displayed.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "0.75rem", padding: "0.5rem 0.75rem", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 6 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.82rem", color: "#374151", cursor: "pointer", userSelect: "none" }}>
+            <input
+              type="checkbox"
+              checked={allUncoppiedSelected}
+              onChange={handleSelectAll}
+              style={{ width: 14, height: 14, cursor: "pointer" }}
+            />
+            Select all not yet copied
+          </label>
+          {selectedIds.size > 0 && (
+            <>
+              <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>{selectedIds.size} selected</span>
+              <button
+                onClick={handleBulkCopy}
+                disabled={bulkCopying}
+                style={{ background: "#1e40af", color: "#fff", border: "none", borderRadius: 5, padding: "0.35rem 1rem", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600 }}>
+                {bulkCopying ? "Copying…" : `Copy ${selectedIds.size} to project`}
+              </button>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                style={{ background: "none", border: "1px solid #d1d5db", borderRadius: 5, padding: "0.35rem 0.7rem", cursor: "pointer", fontSize: "0.8rem", color: "#6b7280" }}>
+                Clear
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Entries */}
       {displayed.length === 0 ? (
         <div style={{ textAlign: "center", padding: "3rem", color: "#9ca3af", background: "#fafafa", borderRadius: 8, border: "1px solid #e5e7eb" }}>
@@ -355,6 +474,10 @@ export default function KnowledgePage() {
               onCopy={handleCopy}
               onEdit={handleEdit}
               onDelete={e => handleDelete(e)}
+              selectable={tab === "global" && !!projectId}
+              selected={selectedIds.has(entry.id)}
+              onToggleSelect={handleToggleSelect}
+              isCopied={tab === "global" ? copiedGlobalIds.has(entry.id) : undefined}
             />
           ))}
         </div>

@@ -422,5 +422,7 @@ export const api = {
     delete: (id: string) => req<void>(`/knowledge/entry/${id}`, { method: "DELETE" }),
     copyToProject: (entry_id: string, project_id: string) =>
       req<KnowledgeEntry>(`/knowledge/entry/${entry_id}/copy-to-project/${project_id}`, { method: "POST", body: JSON.stringify({}) }),
+    bulkCopyToProject: (entry_ids: string[], project_id: string) =>
+      req<{ copied: number; skipped: number }>(`/knowledge/bulk-copy-to-project/${project_id}`, { method: "POST", body: JSON.stringify({ entry_ids }) }),
   },
 };

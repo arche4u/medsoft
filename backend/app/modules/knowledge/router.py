@@ -37,6 +37,28 @@ class ProjectEntryCreate(BaseModel):
     sort_order: int = 99
 
 
+class BulkCopyBody(BaseModel):
+    entry_ids: list[uuid.UUID]
+
+
+async def _project_has_entry(db: AsyncSession, project_id: uuid.UUID, source: KnowledgeEntry) -> bool:
+    """Check if project already has a copy of this global entry (by standard+clause_ref or title)."""
+    if source.standard and source.clause_ref:
+        q = select(KnowledgeEntry).where(
+            KnowledgeEntry.project_id == project_id,
+            KnowledgeEntry.is_global == False,  # noqa: E712
+            KnowledgeEntry.standard == source.standard,
+            KnowledgeEntry.clause_ref == source.clause_ref,
+        )
+    else:
+        q = select(KnowledgeEntry).where(
+            KnowledgeEntry.project_id == project_id,
+            KnowledgeEntry.is_global == False,  # noqa: E712
+            KnowledgeEntry.title == f"{source.title} (customised)",
+        )
+    return (await db.execute(q)).scalar_one_or_none() is not None
+
+
 async def _ensure_global_entries(db: AsyncSession):
     """Seed built-in entries once — idempotent, keyed by (standard, clause_ref, title)."""
     existing = (
@@ -239,12 +261,15 @@ async def copy_to_project(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Copy a global entry into a project for customisation."""
+    """Copy a global entry into a project for customisation. Returns 409 if already copied."""
     source = (await db.execute(
         select(KnowledgeEntry).where(KnowledgeEntry.id == entry_id)
     )).scalar_one_or_none()
     if not source:
         raise HTTPException(404, "Source entry not found")
+
+    if await _project_has_entry(db, project_id, source):
+        raise HTTPException(409, "This entry has already been copied to the project")
 
     copy = KnowledgeEntry(
         project_id=project_id,
@@ -264,3 +289,42 @@ async def copy_to_project(
     await db.commit()
     await db.refresh(copy)
     return copy
+
+
+@router.post("/bulk-copy-to-project/{project_id}")
+async def bulk_copy_to_project(
+    project_id: uuid.UUID,
+    body: BulkCopyBody,
+    db: AsyncSession = Depends(get_db),
+):
+    """Copy multiple global entries to a project, silently skipping duplicates."""
+    copied = 0
+    skipped = 0
+    for entry_id in body.entry_ids:
+        source = (await db.execute(
+            select(KnowledgeEntry).where(KnowledgeEntry.id == entry_id)
+        )).scalar_one_or_none()
+        if not source:
+            continue
+        if await _project_has_entry(db, project_id, source):
+            skipped += 1
+            continue
+        copy = KnowledgeEntry(
+            project_id=project_id,
+            is_global=False,
+            category=source.category,
+            standard=source.standard,
+            clause_ref=source.clause_ref,
+            title=f"{source.title} (customised)",
+            summary=source.summary,
+            content=source.content,
+            tags=list(source.tags or []),
+            sort_order=source.sort_order,
+        )
+        db.add(copy)
+        await db.flush()
+        await audit(db, "KnowledgeEntry", copy.id, AuditAction.CREATE)
+        copied += 1
+
+    await db.commit()
+    return {"copied": copied, "skipped": skipped}
