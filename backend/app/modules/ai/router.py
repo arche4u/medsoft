@@ -187,7 +187,7 @@ async def generate_requirements(
     try:
         message = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=4096,
+            max_tokens=8192,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -201,6 +201,14 @@ async def generate_requirements(
             raw = raw[4:]
     raw = raw.strip()
 
+    # If truncated (hit max_tokens), salvage all complete requirement objects
+    if message.stop_reason == "max_tokens":
+        last_close = raw.rfind("},")
+        if last_close == -1:
+            last_close = raw.rfind("}")
+        if last_close != -1:
+            raw = raw[: last_close + 1] + "\n  ]\n}"
+
     try:
         data = json.loads(raw)
         valid_names = {c.name for c in categories}
@@ -209,12 +217,11 @@ async def generate_requirements(
             # Normalise type to uppercase and validate against project categories
             r["type"] = r["type"].strip().upper()
             if r["type"] not in valid_names:
-                # Try case-insensitive match
                 match = next((n for n in valid_names if n.upper() == r["type"]), None)
                 if match:
                     r["type"] = match
                 else:
-                    continue  # skip unknown types silently
+                    continue
             reqs.append(GeneratedRequirement(**r))
     except Exception:
         raise HTTPException(502, f"AI returned malformed JSON: {raw[:300]}")
