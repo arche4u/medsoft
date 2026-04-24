@@ -625,6 +625,10 @@ function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
   const [parentId, setParentId] = useState(req.parent_id ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState("");
+  const descRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (descRef.current) { descRef.current.style.height = "auto"; descRef.current.style.height = descRef.current.scrollHeight + "px"; }
+  }, []);
 
   // Only show types with lower sort_order (higher in hierarchy) as valid parents
   const myCat = cats.find(c => c.name === req.type);
@@ -661,7 +665,15 @@ function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
         </div>
         <div style={{ flex: "3 1 280px" }}>
           <label style={editLabelStyle}>Description</label>
-          <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optional" style={editInputStyle} />
+          <textarea
+            ref={descRef}
+            value={desc}
+            onChange={e => setDesc(e.target.value)}
+            onInput={e => { const t = e.currentTarget; t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; }}
+            placeholder="Optional"
+            rows={1}
+            style={{ ...editInputStyle, resize: "none", overflow: "hidden", lineHeight: "1.5", minHeight: 32 }}
+          />
         </div>
         {canHaveParent && (
           <div style={{ flex: "2 1 180px" }}>
