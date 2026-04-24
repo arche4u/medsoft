@@ -621,7 +621,7 @@ function RequirementsPageInner() {
           <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "0.75rem 1rem" }}>
             {rootReqs.length === 0 && <p style={{ color: "#aaa", fontSize: "0.82rem" }}>Nothing matches the current filter.</p>}
             {rootReqs.map(r => (
-              <ReqTree key={r.id} req={r} allReqs={visibleReqs} cats={categories} depth={0} onReload={reload} />
+              <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} />
             ))}
           </div>
         )}
