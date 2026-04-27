@@ -4,11 +4,18 @@ import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, Project, DesignElement, DesignElementType, Requirement } from "@/lib/api";
+import { InlineEditPanel, type FieldDef } from "@/components/InlineEditPanel";
 
 const TYPE_META: Record<DesignElementType, { label: string; color: string }> = {
   ARCHITECTURE: { label: "Architecture", color: "#1565c0" },
   DETAILED:     { label: "Detailed",     color: "#4a148c" },
 };
+
+// Shared field config used by all design element edit panels
+const designFields: FieldDef[] = [
+  { name: "title",       label: "Title",       type: "textarea", required: true, autoResize: true, flex: "2 1 200px" },
+  { name: "description", label: "Description", type: "textarea", autoResize: true, placeholder: "Optional", flex: "3 1 280px" },
+];
 
 // ── Mermaid renderer ──────────────────────────────────────────────────────────
 function MermaidPreview({ source }: { source: string }) {
@@ -216,9 +223,6 @@ function ElementRow({ el, onDelete, onUpdate, highlighted }: {
 }) {
   const [diagramOpen, setDiagramOpen] = useState(!!highlighted);
   const [editing,     setEditing]     = useState(false);
-  const [editTitle,   setEditTitle]   = useState(el.title);
-  const [editDesc,    setEditDesc]    = useState(el.description ?? "");
-  const [saving,      setSaving]      = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   const color = TYPE_META[el.type].color;
 
@@ -228,16 +232,6 @@ function ElementRow({ el, onDelete, onUpdate, highlighted }: {
     }
   }, [highlighted]);
 
-  async function saveEdit() {
-    if (!editTitle.trim()) return;
-    setSaving(true);
-    try {
-      const updated = await api.design.updateElement(el.id, { title: editTitle.trim(), description: editDesc.trim() || undefined });
-      onUpdate(updated);
-      setEditing(false);
-    } finally { setSaving(false); }
-  }
-
   return (
     <div ref={rowRef} style={{
       transition: "background 0.4s",
@@ -246,25 +240,27 @@ function ElementRow({ el, onDelete, onUpdate, highlighted }: {
       borderRadius: highlighted ? 4 : 0,
     }}>
       {editing ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderBottom: "1px solid #e0e0e0" }}>
-          <span style={{ background: color, color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-            {el.type === "ARCHITECTURE" ? "ARCH" : "DTL"}
-          </span>
-          {el.readable_id && (
-            <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color, flexShrink: 0 }}>{el.readable_id}</span>
-          )}
-          <input value={editTitle} onChange={e => setEditTitle(e.target.value)} autoFocus
-            style={{ flex: 1, padding: "4px 7px", border: "1px solid #c5cae9", borderRadius: 4, fontSize: 13 }} />
-          <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description (optional)"
-            style={{ flex: 1, padding: "4px 7px", border: "1px solid #c5cae9", borderRadius: 4, fontSize: 13 }} />
-          <button onClick={saveEdit} disabled={saving || !editTitle.trim()}
-            style={{ padding: "3px 10px", background: "#3949ab", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
-            {saving ? "…" : "Save"}
-          </button>
-          <button onClick={() => { setEditing(false); setEditTitle(el.title); setEditDesc(el.description ?? ""); }}
-            style={{ padding: "3px 10px", background: "#f0f0f0", color: "#555", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
-            Cancel
-          </button>
+        <div style={{ padding: "8px 12px", borderBottom: "1px solid #e0e0e0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <span style={{ background: color, color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700 }}>
+              {el.type === "ARCHITECTURE" ? "ARCH" : "DTL"}
+            </span>
+            {el.readable_id && (
+              <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color }}>{el.readable_id}</span>
+            )}
+          </div>
+          <InlineEditPanel
+            fields={designFields}
+            initialValues={{ title: el.title, description: el.description ?? "" }}
+            accentColor={color + "60"}
+            accentBg={color + "08"}
+            onSave={async (vals) => {
+              const updated = await api.design.updateElement(el.id, { title: vals.title.trim(), description: vals.description.trim() || undefined });
+              onUpdate(updated);
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+          />
         </div>
       ) : (
         <div style={{
@@ -323,38 +319,8 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
   const [diagram,      setDiagram]      = useState(false);
   const [detDiagramId, setDetDiagramId] = useState<string | null>(null);
   const [editingArch,  setEditingArch]  = useState(false);
-  const [archTitle,    setArchTitle]    = useState(arch.title);
-  const [archDesc,     setArchDesc]     = useState(arch.description ?? "");
   const [editingDetId, setEditingDetId] = useState<string | null>(null);
-  const [detEditVals,  setDetEditVals]  = useState<Record<string, { title: string; desc: string }>>({});
-  const [saving,       setSaving]       = useState(false);
   const archRef = useRef<HTMLDivElement>(null);
-
-  async function saveArch() {
-    if (!archTitle.trim()) return;
-    setSaving(true);
-    try {
-      const updated = await api.design.updateElement(arch.id, { title: archTitle.trim(), description: archDesc.trim() || undefined });
-      onUpdate(updated);
-      setEditingArch(false);
-    } finally { setSaving(false); }
-  }
-
-  function startEditDet(det: DesignElement) {
-    setDetEditVals(v => ({ ...v, [det.id]: { title: det.title, desc: det.description ?? "" } }));
-    setEditingDetId(det.id);
-  }
-
-  async function saveDet(det: DesignElement) {
-    const vals = detEditVals[det.id];
-    if (!vals?.title.trim()) return;
-    setSaving(true);
-    try {
-      const updated = await api.design.updateElement(det.id, { title: vals.title.trim(), description: vals.desc.trim() || undefined });
-      onUpdate(updated);
-      setEditingDetId(null);
-    } finally { setSaving(false); }
-  }
 
   useEffect(() => {
     if (archHighlighted && archRef.current) {
@@ -366,23 +332,25 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
     <div style={{ marginBottom: 4 }}>
       {/* ARCHITECTURE row */}
       {editingArch ? (
-        <div ref={archRef} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", background: "#e8eaf6", borderRadius: 6, borderLeft: "4px solid #1565c0" }}>
-          <span style={{ background: "#1565c0", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>ARCH</span>
-          {arch.readable_id && (
-            <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#1565c0", flexShrink: 0 }}>{arch.readable_id}</span>
-          )}
-          <input value={archTitle} onChange={e => setArchTitle(e.target.value)} autoFocus
-            style={{ flex: 1, padding: "4px 7px", border: "1px solid #9fa8da", borderRadius: 4, fontSize: 13 }} />
-          <input value={archDesc} onChange={e => setArchDesc(e.target.value)} placeholder="Description (optional)"
-            style={{ flex: 1, padding: "4px 7px", border: "1px solid #9fa8da", borderRadius: 4, fontSize: 13 }} />
-          <button onClick={saveArch} disabled={saving || !archTitle.trim()}
-            style={{ padding: "3px 10px", background: "#3949ab", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
-            {saving ? "…" : "Save"}
-          </button>
-          <button onClick={() => { setEditingArch(false); setArchTitle(arch.title); setArchDesc(arch.description ?? ""); }}
-            style={{ padding: "3px 10px", background: "#f0f0f0", color: "#555", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
-            Cancel
-          </button>
+        <div ref={archRef} style={{ padding: "8px 10px", background: "#e8eaf6", borderRadius: 6, borderLeft: "4px solid #1565c0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <span style={{ background: "#1565c0", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700 }}>ARCH</span>
+            {arch.readable_id && (
+              <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#1565c0" }}>{arch.readable_id}</span>
+            )}
+          </div>
+          <InlineEditPanel
+            fields={designFields}
+            initialValues={{ title: arch.title, description: arch.description ?? "" }}
+            accentColor="#9fa8da"
+            accentBg="#e8eaf6"
+            onSave={async (vals) => {
+              const updated = await api.design.updateElement(arch.id, { title: vals.title.trim(), description: vals.description.trim() || undefined });
+              onUpdate(updated);
+              setEditingArch(false);
+            }}
+            onCancel={() => setEditingArch(false)}
+          />
         </div>
       ) : (
       <div ref={archRef} style={{
@@ -444,32 +412,26 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
             style={{ transition: "background 0.4s", background: detHighlighted ? "#fefce8" : "transparent" }}
           >
             {editingDetId === det.id ? (
-              <div style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "6px 10px 6px 36px", borderBottom: "1px solid #e0e0e0",
-                borderLeft: "4px solid #ce93d8", marginLeft: 12,
-              }}>
-                <span style={{ color: "#aaa", fontSize: 12, flexShrink: 0 }}>└</span>
-                <span style={{ background: "#4a148c", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>DTL</span>
-                {det.readable_id && (
-                  <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#4a148c", flexShrink: 0 }}>{det.readable_id}</span>
-                )}
-                <input value={detEditVals[det.id]?.title ?? det.title}
-                  onChange={e => setDetEditVals(v => ({ ...v, [det.id]: { ...v[det.id], title: e.target.value } }))}
-                  autoFocus
-                  style={{ flex: 1, padding: "4px 7px", border: "1px solid #ce93d8", borderRadius: 4, fontSize: 13 }} />
-                <input value={detEditVals[det.id]?.desc ?? det.description ?? ""}
-                  onChange={e => setDetEditVals(v => ({ ...v, [det.id]: { ...v[det.id], desc: e.target.value } }))}
-                  placeholder="Description (optional)"
-                  style={{ flex: 1, padding: "4px 7px", border: "1px solid #ce93d8", borderRadius: 4, fontSize: 13 }} />
-                <button onClick={() => saveDet(det)} disabled={saving || !(detEditVals[det.id]?.title ?? det.title).trim()}
-                  style={{ padding: "3px 10px", background: "#6a1b9a", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
-                  {saving ? "…" : "Save"}
-                </button>
-                <button onClick={() => setEditingDetId(null)}
-                  style={{ padding: "3px 10px", background: "#f0f0f0", color: "#555", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
-                  Cancel
-                </button>
+              <div style={{ padding: "6px 10px 6px 36px", borderLeft: "4px solid #ce93d8", marginLeft: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <span style={{ color: "#aaa", fontSize: 12 }}>└</span>
+                  <span style={{ background: "#4a148c", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700 }}>DTL</span>
+                  {det.readable_id && (
+                    <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#4a148c" }}>{det.readable_id}</span>
+                  )}
+                </div>
+                <InlineEditPanel
+                  fields={designFields}
+                  initialValues={{ title: det.title, description: det.description ?? "" }}
+                  accentColor="#ce93d8"
+                  accentBg="#fdf4ff"
+                  onSave={async (vals) => {
+                    const updated = await api.design.updateElement(det.id, { title: vals.title.trim(), description: vals.description.trim() || undefined });
+                    onUpdate(updated);
+                    setEditingDetId(null);
+                  }}
+                  onCancel={() => setEditingDetId(null)}
+                />
               </div>
             ) : (
               <div style={{
@@ -495,7 +457,7 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
                     diagram
                   </span>
                 )}
-                <button onClick={() => startEditDet(det)} style={editBtnStyle} title="Edit">✎</button>
+                <button onClick={() => setEditingDetId(det.id)} style={editBtnStyle} title="Edit">✎</button>
                 <button
                   onClick={() => setDetDiagramId(id => id === det.id ? null : det.id)}
                   title="Edit diagram"

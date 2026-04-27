@@ -4,6 +4,7 @@ import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, Project, Requirement, RequirementCategory, UploadSummary, DesignElement, DesignLink, TestCase, TraceLink, AIGeneratedRequirement, AICategoryMeta } from "@/lib/api";
+import { InlineEditPanel, type FieldDef } from "@/components/InlineEditPanel";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -662,7 +663,7 @@ function RequirementsPageInner() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-/** Inline edit form for a single requirement */
+/** Inline edit form for a single requirement — configures InlineEditPanel */
 function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
   req: Requirement;
   cats: RequirementCategory[];
@@ -670,97 +671,47 @@ function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
   onSave: (updated: Requirement) => void;
   onCancel: () => void;
 }) {
-  const [title, setTitle]   = useState(req.title);
-  const [desc, setDesc]     = useState(req.description ?? "");
-  const [parentId, setParentId] = useState(req.parent_id ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState("");
-  const titleRef = useRef<HTMLTextAreaElement>(null);
-  const descRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    for (const ref of [titleRef, descRef]) {
-      if (ref.current) { ref.current.style.height = "auto"; ref.current.style.height = ref.current.scrollHeight + "px"; }
-    }
-  }, []);
-
-  // Only show types with lower sort_order (higher in hierarchy) as valid parents
-  const myCat = cats.find(c => c.name === req.type);
-  const eligibleParents = allReqs.filter(r => {
-    if (r.id === req.id) return false;
-    const parentCat = cats.find(c => c.name === r.type);
-    return myCat && parentCat && parentCat.sort_order < myCat.sort_order;
-  });
+  const myCat         = cats.find(c => c.name === req.type);
   const canHaveParent = !!myCat && cats.some(c => c.sort_order < myCat.sort_order);
+  const eligibleParents = canHaveParent
+    ? allReqs.filter(r => {
+        if (r.id === req.id) return false;
+        const pc = cats.find(c => c.name === r.type);
+        return pc && myCat && pc.sort_order < myCat.sort_order;
+      })
+    : [];
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true); setError("");
-    try {
-      const updated = await api.requirements.update(req.id, {
-        title: title.trim(),
-        description: desc.trim() || null,
-        parent_id: parentId || null,
-      });
-      onSave(updated);
-    } catch (e: any) { setError(e.message); }
-    finally { setSaving(false); }
-  }
+  const fields: FieldDef[] = [
+    { name: "title",       label: "Title",       type: "textarea", required: true,  autoResize: true, flex: "2 1 200px" },
+    { name: "description", label: "Description", type: "textarea", autoResize: true, placeholder: "Optional", flex: "3 1 280px" },
+    ...(canHaveParent ? [{
+      name:    "parent_id",
+      label:   "Parent requirement",
+      type:    "select" as const,
+      flex:    "2 1 180px",
+      options: eligibleParents.map(r => ({
+        value: r.id,
+        label: `${r.readable_id} [${cats.find(c => c.name === r.type)?.label ?? r.type}] ${r.title}`,
+      })),
+    }] : []),
+  ];
 
   return (
-    <form onSubmit={handleSubmit} style={{
-      background: "#fffde7", border: "1px solid #ffd54f",
-      borderRadius: 6, padding: "10px 12px", marginBottom: 4,
-    }}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "flex-start", flexWrap: "wrap" }}>
-        <div style={{ flex: "2 1 200px" }}>
-          <label style={editLabelStyle}>Title *</label>
-          <textarea
-            ref={titleRef}
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            onInput={e => { const t = e.currentTarget; t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; }}
-            required
-            rows={1}
-            style={{ ...editInputStyle, resize: "none", overflow: "hidden", lineHeight: "1.5", minHeight: 32 }}
-          />
-        </div>
-        <div style={{ flex: "3 1 280px" }}>
-          <label style={editLabelStyle}>Description</label>
-          <textarea
-            ref={descRef}
-            value={desc}
-            onChange={e => setDesc(e.target.value)}
-            onInput={e => { const t = e.currentTarget; t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; }}
-            placeholder="Optional"
-            rows={1}
-            style={{ ...editInputStyle, resize: "none", overflow: "hidden", lineHeight: "1.5", minHeight: 32 }}
-          />
-        </div>
-        {canHaveParent && (
-          <div style={{ flex: "2 1 180px" }}>
-            <label style={editLabelStyle}>Parent requirement</label>
-            <select value={parentId} onChange={e => setParentId(e.target.value)} style={editInputStyle}>
-              <option value="">— None</option>
-              {eligibleParents.map(r => {
-                const c = cats.find(c => c.name === r.type);
-                return (
-                  <option key={r.id} value={r.id}>
-                    {r.readable_id} [{c?.label ?? r.type}] {r.title}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-        )}
-      </div>
-      {error && <p style={{ color: "red", margin: "0 0 6px", fontSize: 12 }}>{error}</p>}
-      <div style={{ display: "flex", gap: 6 }}>
-        <button type="submit" disabled={saving} style={editSaveStyle}>
-          {saving ? "Saving…" : "Save"}
-        </button>
-        <button type="button" onClick={onCancel} style={editCancelStyle}>Cancel</button>
-      </div>
-    </form>
+    <InlineEditPanel
+      fields={fields}
+      initialValues={{ title: req.title, description: req.description ?? "", parent_id: req.parent_id ?? "" }}
+      accentColor="#ffd54f"
+      accentBg="#fffde7"
+      onSave={async (vals) => {
+        const updated = await api.requirements.update(req.id, {
+          title:       vals.title.trim(),
+          description: vals.description.trim() || null,
+          parent_id:   vals.parent_id || null,
+        });
+        onSave(updated);
+      }}
+      onCancel={onCancel}
+    />
   );
 }
 
@@ -1416,10 +1367,6 @@ export default function RequirementsPage() {
 const cardStyle: React.CSSProperties     = { background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "1.5rem" };
 const inputStyle: React.CSSProperties    = { padding: "0.42rem 0.65rem", border: "1px solid #ccc", borderRadius: 4, fontFamily: "monospace", fontSize: "0.84rem", width: "100%", boxSizing: "border-box" };
 const btnStyle: React.CSSProperties      = { padding: "0.52rem 1.1rem", background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontFamily: "monospace", alignSelf: "flex-start" };
-const editInputStyle: React.CSSProperties  = { padding: "5px 8px", border: "1px solid #ccc", borderRadius: 4, fontSize: "0.82rem", width: "100%", boxSizing: "border-box" as const };
-const editLabelStyle: React.CSSProperties  = { display: "block", fontSize: "0.65rem", color: "#777", fontWeight: 600, marginBottom: 2, textTransform: "uppercase" as const, letterSpacing: "0.04em" };
-const editSaveStyle: React.CSSProperties   = { padding: "4px 14px", background: "#1565c0", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: "0.78rem" };
-const editCancelStyle: React.CSSProperties = { padding: "4px 12px", background: "#f5f5f5", color: "#555", border: "1px solid #ddd", borderRadius: 4, cursor: "pointer", fontSize: "0.78rem" };
 const assignSectionHead: React.CSSProperties = { fontWeight: 600, color: "#1a237e", fontSize: "0.7rem", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 6 };
 const assignEmptyStyle: React.CSSProperties  = { color: "#aaa", fontStyle: "italic", fontSize: "0.75rem" };
 const assignChipStyle: React.CSSProperties   = { display: "inline-flex", alignItems: "center", gap: 3, background: "#fff", border: "1px solid #ccc", borderRadius: 4, padding: "2px 6px" };

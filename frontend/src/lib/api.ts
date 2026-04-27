@@ -204,6 +204,7 @@ export const api = {
   testcases: {
     list: (project_id?: string) => req<TestCase[]>(`/testcases/${project_id ? `?project_id=${project_id}` : ""}`),
     create: (d: { project_id: string; title: string; description?: string; expected_result?: string }) => req<TestCase>("/testcases/", { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: { title?: string; description?: string; expected_result?: string }) => req<TestCase>(`/testcases/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     categories: {
       list:   (project_id: string) => req<TestCategory[]>(`/testcases/categories?project_id=${project_id}`),
       create: (d: { project_id: string; name: string; label: string; color: string }) =>

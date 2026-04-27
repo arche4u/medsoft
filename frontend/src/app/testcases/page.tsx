@@ -4,10 +4,13 @@ import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, Project, TestCase, Requirement, TraceLink } from "@/lib/api";
+import { InlineEditPanel } from "@/components/InlineEditPanel";
 
 // ── Collapsible test case row ─────────────────────────────────────────────────
-function TestCaseRow({ tc, linkedReqs, highlighted }: { tc: TestCase; linkedReqs: Requirement[]; highlighted?: boolean }) {
-  const [open, setOpen] = useState(!!highlighted);
+function TestCaseRow({ tc: initialTc, linkedReqs, highlighted, onUpdated }: { tc: TestCase; linkedReqs: Requirement[]; highlighted?: boolean; onUpdated: (updated: TestCase) => void }) {
+  const [tc,      setTc]      = useState(initialTc);
+  const [open,    setOpen]    = useState(!!highlighted);
+  const [editing, setEditing] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -20,9 +23,41 @@ function TestCaseRow({ tc, linkedReqs, highlighted }: { tc: TestCase; linkedReqs
     <div ref={rowRef} style={{ borderBottom: "1px solid #f0f0f0", transition: "background 0.4s",
       background: highlighted ? "#fefce8" : "transparent",
       outline: highlighted ? "2px solid #fbbf24" : "none", borderRadius: highlighted ? 4 : 0 }}>
+      {editing && (
+        <div style={{ padding: "8px 12px", borderBottom: "1px solid #e0e0e0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            {tc.readable_id && (
+              <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#fff", background: "#1565c0", borderRadius: 3, padding: "1px 6px" }}>
+                {tc.readable_id}
+              </span>
+            )}
+          </div>
+          <InlineEditPanel
+            fields={[
+              { name: "title",           label: "Title",           type: "textarea", required: true, autoResize: true, flex: "2 1 200px" },
+              { name: "description",     label: "Test Steps",      type: "textarea", autoResize: true, placeholder: "Optional", flex: "3 1 280px" },
+              { name: "expected_result", label: "Expected Result", type: "textarea", autoResize: true, placeholder: "What the system must do to pass", flex: "3 1 280px" },
+            ]}
+            initialValues={{ title: tc.title, description: tc.description ?? "", expected_result: tc.expected_result ?? "" }}
+            accentColor="#90caf9"
+            accentBg="#e3f2fd"
+            onSave={async (vals) => {
+              const updated = await api.testcases.update(tc.id, {
+                title:           vals.title.trim(),
+                description:     vals.description.trim() || undefined,
+                expected_result: vals.expected_result.trim() || undefined,
+              });
+              setTc(updated);
+              onUpdated(updated);
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        </div>
+      )}
       <div
-        onClick={() => setOpen(o => !o)}
-        style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", cursor: "pointer" }}
+        onClick={() => { if (!editing) setOpen(o => !o); }}
+        style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", cursor: editing ? "default" : "pointer" }}
       >
         <span style={{ color: "#999", fontSize: 12, minWidth: 14 }}>{open ? "▾" : "▸"}</span>
         {tc.readable_id && (
@@ -40,6 +75,12 @@ function TestCaseRow({ tc, linkedReqs, highlighted }: { tc: TestCase; linkedReqs
         <span style={{ fontSize: 11, color: "#bbb" }}>
           {new Date(tc.created_at).toLocaleDateString()}
         </span>
+        <button
+          onClick={e => { e.stopPropagation(); setEditing(v => !v); setOpen(true); }}
+          title="Edit"
+          style={{ background: "none", border: "1px solid #c5cae9", color: "#546e7a", cursor: "pointer", fontSize: 12, padding: "1px 7px", borderRadius: 4, flexShrink: 0 }}>
+          ✎
+        </button>
       </div>
       {open && (
         <div style={{ padding: "6px 36px 12px", background: "#fafafa" }}>
@@ -213,7 +254,7 @@ function TestCasesPageInner() {
               color="#1565c0"
               defaultOpen={true}
             >
-              {linked.map(tc => <TestCaseRow key={tc.id} tc={tc} linkedReqs={linkedReqsForTc(tc.id)} highlighted={tc.id === highlightId} />)}
+              {linked.map(tc => <TestCaseRow key={tc.id} tc={tc} linkedReqs={linkedReqsForTc(tc.id)} highlighted={tc.id === highlightId} onUpdated={updated => setTestcases(prev => prev.map(t => t.id === updated.id ? updated : t))} />)}
             </CollapsibleGroup>
           )}
 
@@ -224,7 +265,7 @@ function TestCasesPageInner() {
               color="#757575"
               defaultOpen={true}
             >
-              {unlinked.map(tc => <TestCaseRow key={tc.id} tc={tc} linkedReqs={[]} highlighted={tc.id === highlightId} />)}
+              {unlinked.map(tc => <TestCaseRow key={tc.id} tc={tc} linkedReqs={[]} highlighted={tc.id === highlightId} onUpdated={updated => setTestcases(prev => prev.map(t => t.id === updated.id ? updated : t))} />)}
             </CollapsibleGroup>
           )}
         </>
