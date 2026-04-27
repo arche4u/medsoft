@@ -29,6 +29,7 @@ function descendantNames(cats: RequirementCategory[], id: string): string[] {
   return [cat.name, ...children.flatMap(ch => descendantNames(cats, ch.id))];
 }
 
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 function RequirementsPageInner() {
@@ -39,7 +40,6 @@ function RequirementsPageInner() {
   const [reqs,       setReqs]       = useState<Requirement[]>([]);
   const [categories, setCategories] = useState<RequirementCategory[]>([]);
   const [projectId,  setProjectId]  = useActiveProject();
-  const [filterType, setFilterType] = useState<string>(urlType || "ALL");
 
   // Linked-item maps for inline chips on each row
   const [tcMap,  setTcMap]  = useState<Map<string, TestCase[]>>(new Map());
@@ -60,6 +60,8 @@ function RequirementsPageInner() {
   const [newColor,     setNewColor]     = useState("#546e7a");
   const [newParentCat, setNewParentCat] = useState("");   // parent CATEGORY id
   const [typeErr,      setTypeErr]      = useState("");
+
+  const [focusType, setFocusType] = useState("");
 
   // Upload state
   const fileRef = useRef<HTMLInputElement>(null);
@@ -82,7 +84,7 @@ function RequirementsPageInner() {
   const [aiCategories,  setAiCategories]  = useState<AICategoryMeta[]>([]);
 
   useEffect(() => {
-    if (urlType) { setFilterType(urlType); setFormType(urlType); }
+    if (urlType) { setFormType(urlType); }
   }, [urlType]);
 
   useEffect(() => { api.projects.list().then(setProjects).catch(console.error); }, []);
@@ -245,23 +247,6 @@ function RequirementsPageInner() {
     } catch (e: any) { setAiError(e.message); }
     finally { setAiImporting(false); }
   }
-
-  // ── Tree building ───────────────────────────────────────────────────────
-
-  // For display: filter reqs by filterType (include sub-category descendants)
-  const visibleReqs = (() => {
-    if (filterType === "ALL") return reqs;
-    const cat = categories.find(c => c.name === filterType);
-    if (!cat) return reqs.filter(r => r.type === filterType);
-    const names = descendantNames(categories, cat.id);
-    return reqs.filter(r => names.includes(r.type));
-  })();
-
-  // Build requirement tree: each req may have a parent_id pointing to another req
-  const reqById = Object.fromEntries(reqs.map(r => [r.id, r]));
-  const visibleIds = new Set(visibleReqs.map(r => r.id));
-  const rootReqs = visibleReqs.filter(r => !r.parent_id || !visibleIds.has(r.parent_id));
-  const childReqs = (parentId: string) => visibleReqs.filter(r => r.parent_id === parentId);
 
   const catByName = Object.fromEntries(categories.map(c => [c.name, c]));
 
@@ -462,6 +447,74 @@ function RequirementsPageInner() {
         </select>
       </div>
 
+      {/* ── Add Requirement form ─────────────────────────────────────── */}
+      {projectId && categories.length > 0 && (() => {
+        const myCat = categories.find(c => c.name === formType);
+        const eligibleParents = myCat
+          ? reqs.filter(r => { const pc = categories.find(c => c.name === r.type); return pc && pc.sort_order < myCat.sort_order; })
+          : [];
+        return (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+            <section style={cardStyle}>
+              <h2 style={{ marginTop: 0, fontSize: 15 }}>Add Requirement</h2>
+              <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <select value={formType} onChange={e => { setFormType(e.target.value); setFormParent(""); }} required style={inputStyle}>
+                  <option value="">— Type *</option>
+                  {[...categories].sort((a, b) => a.sort_order - b.sort_order).map(c => (
+                    <option key={c.id} value={c.name}>{c.label}</option>
+                  ))}
+                </select>
+                {eligibleParents.length > 0 && (
+                  <select value={formParent} onChange={e => setFormParent(e.target.value)} style={inputStyle}>
+                    <option value="">— Parent requirement (optional)</option>
+                    {eligibleParents.map(r => (
+                      <option key={r.id} value={r.id}>{r.readable_id ? `${r.readable_id} ` : ""}{r.title}</option>
+                    ))}
+                  </select>
+                )}
+                <input placeholder="Title *" value={formTitle} onChange={e => setFormTitle(e.target.value)} required style={inputStyle} />
+                <textarea placeholder="Description (optional)" value={formDesc} onChange={e => setFormDesc(e.target.value)}
+                  rows={3} style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
+                {formError && <p style={{ color: "red", margin: 0, fontSize: 13 }}>{formError}</p>}
+                <button type="submit" disabled={saving || !formType || !formTitle.trim()} style={btnStyle}>
+                  {saving ? "Saving…" : "Add Requirement"}
+                </button>
+              </form>
+            </section>
+
+            <section style={cardStyle}>
+              <h2 style={{ marginTop: 0, fontSize: "1rem" }}>Upload Excel</h2>
+              <p style={{ color: "#666", fontSize: "0.78rem", margin: "0 0 0.75rem" }}>
+                Columns: <code>type</code>, <code>title</code>, <code>description</code>, <code>parent_title</code>
+                <br /><span style={{ color: "#888" }}>parent_title is optional for all types.</span>
+              </p>
+              <form onSubmit={handleUpload} style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+                <input type="file" accept=".xlsx" ref={fileRef} style={inputStyle} />
+                {uploadError && <p style={{ color: "red", margin: 0, fontSize: "0.82rem" }}>{uploadError}</p>}
+                <button type="submit" disabled={uploading || !projectId} style={btnStyle}>
+                  {uploading ? "Uploading…" : "Upload .xlsx"}
+                </button>
+              </form>
+              {uploadResult && (
+                <div style={{ marginTop: "1rem" }}>
+                  <p style={{ color: "#2e7d32", margin: "0 0 0.25rem" }}>✓ Added: {uploadResult.total_added}</p>
+                  {uploadResult.total_skipped > 0 && (
+                    <details>
+                      <summary style={{ color: "#e65100", cursor: "pointer", fontSize: "0.82rem" }}>
+                        ⚠ Skipped: {uploadResult.total_skipped}
+                      </summary>
+                      <ul style={{ fontSize: "0.78rem", margin: "0.4rem 0" }}>
+                        {uploadResult.skipped.map((s, i) => <li key={i}><b>{s.title}</b>: {s.reason}</li>)}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
+            </section>
+          </div>
+        );
+      })()}
+
       {/* ── Type Manager (hidden — now in Projects page) ─────────────── */}
       {false && showMgr && projectId && (
         <div style={{ ...cardStyle, marginBottom: "1.5rem", background: "#f8f9ff", border: "1px solid #c5cae9" }}>
@@ -535,88 +588,164 @@ function RequirementsPageInner() {
         </div>
       )}
 
-      {/* ── Filter tabs (dynamic, category tree aware) ────────────────── */}
-      {projectId && categories.length > 0 && (
-        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "1.5rem" }}>
-          <FilterTab label="All" value="ALL" count={reqs.length}
-            active={filterType === "ALL"} color="#546e7a" onClick={() => setFilterType("ALL")} />
-          {buildCatTree(categories).map(root => (
-            <CategoryTabGroup
-              key={root.id}
-              root={root}
-              all={categories}
-              reqs={reqs}
-              filterType={filterType}
-              onFilter={setFilterType}
-            />
-          ))}
-        </div>
-      )}
 
-      {/* ── Create + Upload forms ─────────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
-        <section style={cardStyle}>
-          <h2 style={{ marginTop: 0, fontSize: "1rem" }}>Add Requirement</h2>
-          <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
-            {/* Type selector — hierarchical options */}
+      {/* ── Requirements folder tree ──────────────────────────────────── */}
+      <section style={{ marginTop: "1.5rem" }}>
+        {!projectId ? (
+          <p style={{ color: "#888" }}>Select a project.</p>
+        ) : categories.length === 0 ? (
+          <p style={{ color: "#888" }}>No requirement types defined. Add them in Project Settings.</p>
+        ) : (() => {
+          const sortedCats = [...categories].sort((a, b) => a.sort_order - b.sort_order);
+          const focusCat = sortedCats.find(c => c.name === focusType) ?? null;
+          const rootsToShow = focusCat
+            ? [focusCat]
+            : buildCatTree(categories).sort((a, b) => a.sort_order - b.sort_order);
+
+          return (
             <div>
-              <label style={{ fontSize: "0.7rem", color: "#555", display: "block", marginBottom: 3 }}>Type</label>
-              <select value={formType} onChange={e => { setFormType(e.target.value); setFormParent(""); }}
-                style={inputStyle} disabled={!projectId}>
-                {categories.length === 0 && <option value="">— Select project first</option>}
-                {buildCatTree(categories).map(root => (
-                  <CategoryOptGroup key={root.id} root={root} all={categories} />
-                ))}
-              </select>
-            </div>
-
-            {/* Parent requirement — only shown when eligible parent types exist */}
-            {canHaveParent && (
-              <div>
-                <label style={{ fontSize: "0.7rem", color: "#555", display: "block", marginBottom: 3 }}>
-                  Parent requirement <span style={{ color: "#999" }}>(optional)</span>
-                  {eligibleParentTypes.size > 0 && (
-                    <span style={{ marginLeft: 6, color: "#888", fontStyle: "italic" }}>
-                      — from: {[...eligibleParentTypes].map(t => catByName[t]?.label ?? t).join(", ")}
-                    </span>
-                  )}
-                </label>
-                <select value={formParent} onChange={e => setFormParent(e.target.value)} style={inputStyle}>
-                  <option value="">— None (standalone)</option>
-                  {eligibleParents.map(r => {
-                    const c = catByName[r.type];
-                    return (
-                      <option key={r.id} value={r.id}>
-                        {r.readable_id} [{c?.label ?? r.type}] {r.title}
-                      </option>
-                    );
-                  })}
-                </select>
-                {eligibleParents.length === 0 && (
-                  <div style={{ fontSize: 11, color: "#e65100", marginTop: 3 }}>
-                    No eligible parent requirements yet — add {[...eligibleParentTypes].map(t => catByName[t]?.label ?? t).join(" or ")} requirements first.
-                  </div>
-                )}
+              {/* Filter tabs */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
+                <button
+                  onClick={() => setFocusType("")}
+                  style={{
+                    padding: "4px 14px", borderRadius: 20, border: "none", cursor: "pointer",
+                    fontSize: 12, fontWeight: 500,
+                    background: !focusType ? "#374151" : "#f0f0f0",
+                    color: !focusType ? "#fff" : "#555",
+                  }}
+                >
+                  All <span style={{ opacity: 0.75 }}>({reqs.length})</span>
+                </button>
+                {sortedCats.map(c => {
+                  const count = reqs.filter(r => r.type === c.name).length;
+                  const active = focusType === c.name;
+                  return (
+                    <button key={c.id} onClick={() => setFocusType(active ? "" : c.name)}
+                      style={{
+                        padding: "4px 14px", borderRadius: 20, border: `1px solid ${active ? c.color : "#e0e0e0"}`,
+                        cursor: "pointer", fontSize: 12, fontWeight: 500,
+                        background: active ? c.color : "#f9fafb",
+                        color: active ? "#fff" : "#555",
+                      }}
+                    >
+                      {c.label} <span style={{ opacity: 0.75 }}>({count})</span>
+                    </button>
+                  );
+                })}
               </div>
-            )}
 
-            <input placeholder="Title *" value={formTitle} onChange={e => setFormTitle(e.target.value)} required style={inputStyle} />
-            <textarea placeholder="Description (optional)" value={formDesc} onChange={e => setFormDesc(e.target.value)}
-              style={{ ...inputStyle, height: 56, resize: "vertical" }} />
-            {formError && <p style={{ color: "red", margin: 0, fontSize: "0.82rem" }}>{formError}</p>}
-            <button type="submit" disabled={saving || !projectId || !formType} style={btnStyle}>
-              {saving ? "Saving…" : "Add Requirement"}
-            </button>
-          </form>
-        </section>
+              {focusCat ? (
+                // Focus mode: group focused-type reqs under their parent reqs as section headers
+                (() => {
+                  const focusReqs = reqs.filter(r => r.type === focusCat.name);
+                  // Group by parent_id
+                  const withParent    = focusReqs.filter(r => r.parent_id);
+                  const orphans       = focusReqs.filter(r => !r.parent_id);
+                  // Unique parent req ids, preserving order they appear in reqs list
+                  const parentIds = [...new Set(withParent.map(r => r.parent_id as string))];
+                  const parentReqs = parentIds.map(pid => reqs.find(r => r.id === pid)).filter(Boolean) as typeof reqs;
 
-        <section style={cardStyle}>
-          <h2 style={{ marginTop: 0, fontSize: "1rem" }}>Upload Excel</h2>
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {parentReqs.map(parent => {
+                        const parentCat = categories.find(c => c.name === parent.type);
+                        const parentColor = parentCat?.color ?? "#9ca3af";
+                        const children = focusReqs.filter(r => r.parent_id === parent.id);
+                        return (
+                          <div key={parent.id} style={{ border: `1px solid ${parentColor}30`, borderRadius: 6, overflow: "hidden" }}>
+                            {/* Parent req header */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", background: parentColor + "10", borderBottom: `1px solid ${parentColor}20` }}>
+                              <span style={{ background: parentColor, color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: "0.67rem", fontWeight: 700, flexShrink: 0 }}>
+                                {parentCat?.label ?? parent.type}
+                              </span>
+                              <span style={{ fontFamily: "monospace", fontSize: "0.72rem", fontWeight: 700, color: parentColor, flexShrink: 0 }}>{parent.readable_id}</span>
+                              <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "#374151", flex: 1 }}>{parent.title}</span>
+                              <span style={{ fontSize: 11, color: "#9ca3af" }}>{children.length} {focusCat.label}</span>
+                            </div>
+                            {/* Focused-type children */}
+                            <div style={{ background: "#fff" }}>
+                              {children.map(r => (
+                                <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={true} />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {orphans.length > 0 && (
+                        <div style={{ border: "1px solid #e5e7eb", borderRadius: 6, overflow: "hidden" }}>
+                          <div style={{ padding: "7px 12px", background: "#f9fafb", borderBottom: "1px solid #e5e7eb", fontSize: "0.78rem", fontWeight: 600, color: "#6b7280" }}>
+                            No parent assigned
+                          </div>
+                          <div style={{ background: "#fff" }}>
+                            {orphans.map(r => (
+                              <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={true} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {focusReqs.length === 0 && (
+                        <p style={{ color: "#aaa", fontSize: "0.82rem" }}>No {focusCat.label} requirements yet.</p>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : (
+                rootsToShow.map(root => (
+                  <CategoryFolder
+                    key={root.id}
+                    cat={root}
+                    allCats={categories}
+                    reqs={reqs}
+                    allReqs={reqs}
+                    cats={categories}
+                    projectId={projectId}
+                    depth={0}
+                    onReload={reload}
+                    tcMap={tcMap}
+                    deMap={deMap}
+                    showCrossTypeChildren={false}
+                  />
+                ))
+              )}
+              {reqs.length === 0 && (
+                <p style={{ color: "#aaa", fontSize: "0.82rem", padding: "0.5rem 0" }}>No requirements yet — use the + Req button inside a folder to add one.</p>
+              )}
+            </div>
+          );
+        })()}
+      </section>
+    </div>
+  );
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+/** Collapsible Upload Excel section */
+function UploadSection({ projectId, fileRef, uploading, uploadError, uploadResult, onUpload }: {
+  projectId: string;
+  fileRef: React.RefObject<HTMLInputElement | null>;
+  uploading: boolean;
+  uploadError: string;
+  uploadResult: UploadSummary | null;
+  onUpload: (e: React.FormEvent) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: "1rem" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{ background: "none", border: "1px solid #d1d5db", borderRadius: 4, padding: "4px 12px", fontSize: "0.75rem", color: "#6b7280", cursor: "pointer" }}
+      >
+        {open ? "▾" : "▸"} Upload Excel (.xlsx)
+      </button>
+      {open && (
+        <div style={{ ...cardStyle, marginTop: 8 }}>
           <p style={{ color: "#666", fontSize: "0.78rem", margin: "0 0 0.75rem" }}>
             Columns: <code>type</code>, <code>title</code>, <code>description</code>, <code>parent_title</code>
-            <br /><span style={{ color: "#888" }}>parent_title is optional for all types.</span>
           </p>
-          <form onSubmit={handleUpload} style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+          <form onSubmit={onUpload} style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
             <input type="file" accept=".xlsx" ref={fileRef} style={inputStyle} />
             {uploadError && <p style={{ color: "red", margin: 0, fontSize: "0.82rem" }}>{uploadError}</p>}
             <button type="submit" disabled={uploading || !projectId} style={btnStyle}>
@@ -638,30 +767,217 @@ function RequirementsPageInner() {
               )}
             </div>
           )}
-        </section>
-      </div>
-
-      {/* ── Requirements tree ─────────────────────────────────────────── */}
-      <section style={{ marginTop: "2rem" }}>
-        <h2>Requirements ({visibleReqs.length}{filterType !== "ALL" ? ` — ${catByName[filterType]?.label ?? filterType}` : ""})</h2>
-        {!projectId ? (
-          <p style={{ color: "#888" }}>Select a project.</p>
-        ) : reqs.length === 0 ? (
-          <p style={{ color: "#888" }}>No requirements yet.</p>
-        ) : (
-          <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "0.75rem 1rem" }}>
-            {rootReqs.length === 0 && <p style={{ color: "#aaa", fontSize: "0.82rem" }}>Nothing matches the current filter.</p>}
-            {rootReqs.map(r => (
-              <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} tcMap={tcMap} deMap={deMap} />
-            ))}
-          </div>
-        )}
-      </section>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+/** Inline form to create a new requirement of a specific category type */
+function InlineCreateReq({ catName, catColor: color, allReqs, cats, projectId, onCreated, onCancel }: {
+  catName: string;
+  catColor: string;
+  allReqs: Requirement[];
+  cats: RequirementCategory[];
+  projectId: string;
+  onCreated: () => void;
+  onCancel: () => void;
+}) {
+  const [title,   setTitle]   = useState("");
+  const [desc,    setDesc]    = useState("");
+  const [parent,  setParent]  = useState("");
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState("");
+
+  const myCat = cats.find(c => c.name === catName);
+  const eligibleParentTypes = new Set(cats.filter(c => myCat && c.sort_order < myCat.sort_order).map(c => c.name));
+  const eligibleParents = allReqs.filter(r => eligibleParentTypes.has(r.type));
+  const canHaveParent = eligibleParents.length > 0;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setSaving(true); setError("");
+    try {
+      await api.requirements.create({
+        project_id: projectId,
+        type: catName,
+        parent_id: parent || undefined,
+        title: title.trim(),
+        description: desc.trim() || undefined,
+      });
+      onCreated();
+    } catch (e: any) { setError(e.message); setSaving(false); }
+  }
+
+  return (
+    <div style={{ background: color + "08", border: `1px solid ${color}40`, borderRadius: 6, padding: "8px 12px", marginBottom: 6 }}>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {canHaveParent && (
+          <select value={parent} onChange={e => setParent(e.target.value)}
+            style={{ ...inputStyle, fontSize: "0.78rem", padding: "4px 8px" }}>
+            <option value="">— Parent requirement (optional)</option>
+            {eligibleParents.map(r => {
+              const c = cats.find(cc => cc.name === r.type);
+              return <option key={r.id} value={r.id}>{r.readable_id} [{c?.label ?? r.type}] {r.title}</option>;
+            })}
+          </select>
+        )}
+        <input
+          autoFocus
+          placeholder="Requirement title *"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          required
+          style={{ ...inputStyle, fontSize: "0.84rem" }}
+        />
+        <textarea
+          placeholder="Description (optional)"
+          value={desc}
+          onChange={e => setDesc(e.target.value)}
+          rows={2}
+          style={{ ...inputStyle, resize: "vertical", fontSize: "0.78rem", height: 48 }}
+        />
+        {error && <p style={{ color: "red", margin: 0, fontSize: "0.78rem" }}>{error}</p>}
+        <div style={{ display: "flex", gap: 6 }}>
+          <button type="submit" disabled={saving || !title.trim()}
+            style={{ ...btnStyle, padding: "4px 14px", fontSize: "0.78rem", background: color }}>
+            {saving ? "Saving…" : "Create"}
+          </button>
+          <button type="button" onClick={onCancel}
+            style={{ padding: "4px 10px", background: "#f5f5f5", border: "1px solid #ddd", borderRadius: 4, cursor: "pointer", fontSize: "0.78rem" }}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/** Inline form to create a sub-category folder */
+
+/** Category folder node — collapsible, contains reqs and sub-category folders */
+function CategoryFolder({ cat, allCats, reqs, allReqs, cats, projectId, depth, onReload, tcMap, deMap, showCrossTypeChildren }: {
+  cat: RequirementCategory;
+  allCats: RequirementCategory[];
+  reqs: Requirement[];
+  allReqs: Requirement[];
+  cats: RequirementCategory[];
+  projectId: string;
+  depth: number;
+  onReload: () => void;
+  tcMap: Map<string, TestCase[]>;
+  deMap: Map<string, { id: string; readable_id: string | null; title: string }[]>;
+  showCrossTypeChildren?: boolean;
+}) {
+  const [open,       setOpen]       = useState(true);
+  const [showNewReq, setShowNewReq] = useState(false);
+
+  const subCats = childCats(allCats, cat.id).sort((a, b) => a.sort_order - b.sort_order);
+  const color = cat.color ?? "#546e7a";
+
+  // Root requirements of this category (no parent req, or parent is in a higher-level category)
+  const catReqIds = new Set(reqs.filter(r => r.type === cat.name).map(r => r.id));
+  const catRootReqs = reqs.filter(r => {
+    if (r.type !== cat.name) return false;
+    if (!r.parent_id) return true;
+    const parentReq = allReqs.find(x => x.id === r.parent_id);
+    return !parentReq || parentReq.type !== cat.name;
+  });
+
+  // Total count for this folder (all descendants)
+  const allDescNames = descendantNames(allCats, cat.id);
+  const totalCount = reqs.filter(r => allDescNames.includes(r.type)).length;
+
+  const indent = depth * 20;
+
+  return (
+    <div style={{ marginLeft: indent }}>
+      {/* Folder header */}
+      <div
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "6px 10px",
+          background: color + "12",
+          borderLeft: `3px solid ${color}`,
+          borderRadius: "0 4px 4px 0",
+          marginBottom: 1,
+          cursor: "pointer",
+          userSelect: "none",
+        }}
+        onClick={() => setOpen(o => !o)}
+      >
+        <span style={{ color, fontSize: "0.75rem", minWidth: 12 }}>{open ? "▾" : "▸"}</span>
+        <span style={{ fontSize: "0.82rem", fontWeight: 700, color }}>{cat.label}</span>
+        <span style={{
+          background: color, color: "#fff",
+          borderRadius: 10, padding: "1px 8px",
+          fontSize: "0.65rem", fontWeight: 700,
+        }}>{totalCount}</span>
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={e => { e.stopPropagation(); setShowNewReq(v => !v); }}
+          title="Add requirement in this folder"
+          style={{
+            fontSize: "0.68rem", padding: "1px 8px", borderRadius: 4,
+            background: showNewReq ? color + "30" : "transparent",
+            border: `1px solid ${color}60`,
+            color, cursor: "pointer", fontWeight: 600,
+          }}
+        >
+          + Req
+        </button>
+      </div>
+
+      {open && (
+        <div style={{
+          borderLeft: `2px solid ${color}25`,
+          marginLeft: 14,
+          paddingLeft: 8,
+          paddingTop: 2,
+          paddingBottom: 2,
+        }}>
+          {showNewReq && (
+            <InlineCreateReq
+              catName={cat.name}
+              catColor={color}
+              allReqs={allReqs}
+              cats={cats}
+              projectId={projectId}
+              onCreated={() => { setShowNewReq(false); onReload(); }}
+              onCancel={() => setShowNewReq(false)}
+            />
+          )}
+          {/* Requirements in this category */}
+          {catRootReqs.length === 0 && subCats.length === 0 && !showNewReq && (
+            <p style={{ color: "#bbb", fontSize: "0.75rem", margin: "4px 0 4px 4px", fontStyle: "italic" }}>Empty folder</p>
+          )}
+          {catRootReqs.map(r => (
+            <ReqTree key={r.id} req={r} allReqs={allReqs} cats={cats} depth={0} onReload={onReload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={showCrossTypeChildren} />
+          ))}
+
+          {/* Sub-category folders */}
+          {subCats.map(sub => (
+            <CategoryFolder
+              key={sub.id}
+              cat={sub}
+              allCats={allCats}
+              reqs={reqs}
+              allReqs={allReqs}
+              cats={cats}
+              projectId={projectId}
+              depth={0}
+              onReload={onReload}
+              tcMap={tcMap}
+              deMap={deMap}
+              showCrossTypeChildren={showCrossTypeChildren}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Inline edit form for a single requirement — configures InlineEditPanel */
 function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
@@ -716,11 +1032,12 @@ function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
 }
 
 /** Renders a requirement and all its visible children recursively */
-function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap }: {
+function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap, showCrossTypeChildren }: {
   req: Requirement; allReqs: Requirement[]; cats: RequirementCategory[];
   depth: number; onReload: () => void;
   tcMap: Map<string, TestCase[]>;
   deMap: Map<string, { id: string; readable_id: string | null; title: string }[]>;
+  showCrossTypeChildren?: boolean;
 }) {
   const [editing,    setEditing]    = useState(false);
   const [assigning,  setAssigning]  = useState(false);
@@ -728,7 +1045,7 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap }: {
 
   const cat      = cats.find(c => c.name === localReq.type);
   const color    = catColor(cat);
-  const children = allReqs.filter(r => r.parent_id === req.id);
+  const children = allReqs.filter(r => r.parent_id === req.id && (showCrossTypeChildren || r.type === req.type));
   const childCount = children.length;
   const linkedTCs = tcMap.get(req.id) ?? [];
   const linkedDEs = deMap.get(req.id) ?? [];
@@ -860,7 +1177,7 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap }: {
       )}
 
       {children.map(c => (
-        <ReqTree key={c.id} req={c} allReqs={allReqs} cats={cats} depth={depth + 1} onReload={onReload} tcMap={tcMap} deMap={deMap} />
+        <ReqTree key={c.id} req={c} allReqs={allReqs} cats={cats} depth={depth + 1} onReload={onReload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={showCrossTypeChildren} />
       ))}
     </div>
   );
@@ -1284,75 +1601,6 @@ function CategoryOptGroup({ root, all }: { root: RequirementCategory; all: Requi
   );
 }
 
-/** Filter tab group: root cat + expandable sub-cats */
-function CategoryTabGroup({ root, all, reqs, filterType, onFilter }: {
-  root: RequirementCategory; all: RequirementCategory[];
-  reqs: Requirement[]; filterType: string; onFilter: (v: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const children = childCats(all, root.id);
-  const rootNames = descendantNames(all, root.id);
-  const rootCount = reqs.filter(r => rootNames.includes(r.type)).length;
-  const rootActive = filterType === root.name || children.some(c => filterType === c.name);
-
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-      <FilterTab
-        label={root.label}
-        value={root.name}
-        count={rootCount}
-        active={filterType === root.name}
-        color={catColor(root)}
-        onClick={() => { onFilter(root.name); }}
-      />
-      {children.length > 0 && (
-        <>
-          <button
-            onClick={() => setExpanded(v => !v)}
-            title="Show sub-types"
-            style={{
-              background: rootActive ? catColor(root) + "20" : "transparent",
-              border: `1px solid ${catColor(root)}60`,
-              borderRadius: 10, color: catColor(root),
-              fontSize: "0.6rem", cursor: "pointer", padding: "0.15rem 0.35rem",
-            }}
-          >
-            {expanded ? "▲" : "▼"}
-          </button>
-          {expanded && children.map(ch => (
-            <FilterTab
-              key={ch.id}
-              label={`└ ${ch.label}`}
-              value={ch.name}
-              count={reqs.filter(r => r.type === ch.name).length}
-              active={filterType === ch.name}
-              color={catColor(ch)}
-              onClick={() => onFilter(ch.name)}
-            />
-          ))}
-        </>
-      )}
-    </div>
-  );
-}
-
-function FilterTab({ label, value, count, active, color, onClick }: {
-  label: string; value: string; count: number; active: boolean; color: string; onClick: () => void;
-}) {
-  return (
-    <button onClick={onClick} style={{
-      padding: "0.26rem 0.8rem", borderRadius: 16,
-      border: `1px solid ${color}`,
-      background: active ? color : "transparent",
-      color: active ? "#fff" : color,
-      fontSize: "0.73rem", cursor: "pointer",
-      fontWeight: active ? "bold" : "normal",
-      whiteSpace: "nowrap",
-    }}>
-      {label} <span style={{ opacity: 0.7 }}>({count})</span>
-    </button>
-  );
-}
 
 // ── Export ────────────────────────────────────────────────────────────────────
 

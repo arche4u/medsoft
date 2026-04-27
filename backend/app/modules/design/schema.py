@@ -42,6 +42,7 @@ class DesignElementCreate(BaseModel):
     project_id: uuid.UUID
     type: DesignElementType
     parent_id: uuid.UUID | None = None
+    category_id: uuid.UUID | None = None
     title: str
     description: str | None = None
 
@@ -58,6 +59,7 @@ class DesignElementUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     diagram_source: str | None = None
+    category_id: uuid.UUID | None = None
 
 
 class DesignElementRead(BaseModel):
@@ -66,6 +68,7 @@ class DesignElementRead(BaseModel):
     readable_id: str | None
     type: DesignElementType
     parent_id: uuid.UUID | None
+    category_id: uuid.UUID | None = None
     title: str
     description: str | None
     diagram_source: str | None = None

@@ -19,6 +19,7 @@ class DesignElement(Base, TimestampMixin):
     readable_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
     type: Mapped[DesignElementType] = mapped_column(SAEnum(DesignElementType, name="designelementtype"), nullable=False)
     parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("design_elements.id"), nullable=True)
+    category_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("design_categories.id", ondelete="SET NULL"), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     diagram_source: Mapped[str | None] = mapped_column(Text, nullable=True)

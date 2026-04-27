@@ -1,10 +1,38 @@
 import uuid
+from datetime import datetime
 from typing import Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+# ── Risk Category ─────────────────────────────────────────────────────────────
+
+class RiskCategoryCreate(BaseModel):
+    project_id: uuid.UUID
+    name: str
+    label: str
+    color: str = "#546e7a"
+
+class RiskCategoryUpdate(BaseModel):
+    label: str | None = None
+    color: str | None = None
+    sort_order: int | None = None
+
+class RiskCategoryRead(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    name: str
+    label: str
+    color: str
+    sort_order: int
+    is_builtin: bool
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RiskCreate(BaseModel):
     requirement_id: uuid.UUID
+    category_id: uuid.UUID | None = None
     hazard: str
     hazardous_situation: str
     harm: str
@@ -14,6 +42,7 @@ class RiskCreate(BaseModel):
 
 
 class RiskUpdate(BaseModel):
+    category_id: uuid.UUID | None = None
     hazard: str | None = None
     hazardous_situation: str | None = None
     harm: str | None = None
@@ -25,6 +54,7 @@ class RiskUpdate(BaseModel):
 class RiskRead(BaseModel):
     id: uuid.UUID
     requirement_id: uuid.UUID
+    category_id: uuid.UUID | None = None
     hazard: str
     hazardous_situation: str
     harm: str

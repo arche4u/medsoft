@@ -39,6 +39,7 @@ class TestCategoryRead(BaseModel):
 
 class TestCaseBase(BaseModel):
     project_id: uuid.UUID
+    category_id: uuid.UUID | None = None
     title: str
     description: str | None = None
     expected_result: str | None = None
@@ -49,6 +50,7 @@ class TestCaseCreate(TestCaseBase):
 
 
 class TestCaseUpdate(BaseModel):
+    category_id: uuid.UUID | None = None
     title: str | None = None
     description: str | None = None
     expected_result: str | None = None

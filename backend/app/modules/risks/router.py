@@ -4,10 +4,78 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.requirements.model import Requirement
-from .model import Risk, SoftwareSafetyProfile, _compute_level
-from .schema import RiskCreate, RiskRead, RiskUpdate, SafetyProfileCreate, SafetyProfileRead, SafetyProfileUpdate
+from .model import Risk, RiskCategory, SoftwareSafetyProfile, _compute_level
+from .schema import (
+    RiskCreate, RiskRead, RiskUpdate,
+    RiskCategoryCreate, RiskCategoryRead, RiskCategoryUpdate,
+    SafetyProfileCreate, SafetyProfileRead, SafetyProfileUpdate,
+)
 
 router = APIRouter(prefix="/risks", tags=["risks"])
+
+
+# ── Risk Categories ───────────────────────────────────────────────────────────
+
+@router.get("/categories", response_model=list[RiskCategoryRead])
+async def list_risk_categories(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    cats = (await db.execute(
+        select(RiskCategory)
+        .where(RiskCategory.project_id == project_id)
+        .order_by(RiskCategory.sort_order, RiskCategory.name)
+    )).scalars().all()
+    return cats
+
+
+@router.post("/categories", response_model=RiskCategoryRead, status_code=201)
+async def create_risk_category(body: RiskCategoryCreate, db: AsyncSession = Depends(get_db)):
+    existing = (await db.execute(
+        select(RiskCategory).where(
+            RiskCategory.project_id == body.project_id,
+            RiskCategory.name == body.name,
+        )
+    )).scalar_one_or_none()
+    if existing:
+        raise HTTPException(409, f"A category named '{body.name}' already exists for this project")
+    max_order = (await db.execute(
+        select(RiskCategory.sort_order)
+        .where(RiskCategory.project_id == body.project_id)
+        .order_by(RiskCategory.sort_order.desc()).limit(1)
+    )).scalar_one_or_none() or 0
+    cat = RiskCategory(project_id=body.project_id, name=body.name, label=body.label,
+                       color=body.color, is_builtin=False, sort_order=max_order + 1)
+    db.add(cat)
+    await db.commit()
+    await db.refresh(cat)
+    return cat
+
+
+@router.put("/categories/{category_id}", response_model=RiskCategoryRead)
+async def update_risk_category(
+    category_id: uuid.UUID, body: RiskCategoryUpdate, db: AsyncSession = Depends(get_db)
+):
+    cat = (await db.execute(
+        select(RiskCategory).where(RiskCategory.id == category_id)
+    )).scalar_one_or_none()
+    if not cat:
+        raise HTTPException(404, "Category not found")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(cat, k, v)
+    await db.commit()
+    await db.refresh(cat)
+    return cat
+
+
+@router.delete("/categories/{category_id}", status_code=204)
+async def delete_risk_category(category_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    cat = (await db.execute(
+        select(RiskCategory).where(RiskCategory.id == category_id)
+    )).scalar_one_or_none()
+    if not cat:
+        raise HTTPException(404, "Category not found")
+    if cat.is_builtin:
+        raise HTTPException(400, "Built-in risk categories cannot be deleted")
+    await db.delete(cat)
+    await db.commit()
 
 
 @router.get("/", response_model=list[RiskRead])

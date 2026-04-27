@@ -5,6 +5,24 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.base import Base, TimestampMixin
 
 
+class RiskCategory(Base, TimestampMixin):
+    """Per-project risk folder/category definitions."""
+    __tablename__ = "risk_categories"
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_risk_category_project_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    color: Mapped[str] = mapped_column(String(20), nullable=False, default="#546e7a")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=99)
+    is_builtin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
 def _compute_level(severity: int, probability: int) -> str:
     score = severity * probability
     if score <= 4:
@@ -19,6 +37,7 @@ class Risk(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     requirement_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("requirements.id", ondelete="CASCADE"), nullable=False)
+    category_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("risk_categories.id", ondelete="SET NULL"), nullable=True)
     hazard: Mapped[str] = mapped_column(String(500), nullable=False)
     hazardous_situation: Mapped[str] = mapped_column(String(500), nullable=False)
     harm: Mapped[str] = mapped_column(String(500), nullable=False)
