@@ -50,40 +50,76 @@ function IdChip({ req, size = 12, onClick }: { req: Requirement; size?: number; 
 }
 
 // ── Inline test-link panel (shown when a req is focused) ─────────────────────
-function InlineLinkPanel({ req, testcases, tracelinks, onLink, onClose }: {
+function InlineLinkPanel({ req, testcases, tracelinks, onReload, onClose }: {
   req: Requirement;
   testcases: TestCase[];
   tracelinks: TraceLink[];
-  onLink: (tcId: string) => Promise<void>;
+  onReload: () => Promise<void>;
   onClose: () => void;
 }) {
-  const [tcId,    setTcId]    = useState("");
-  const [saving,  setSaving]  = useState(false);
-  const [msg,     setMsg]     = useState("");
   const panelRef = useRef<HTMLTableRowElement>(null);
 
-  const linkedTcIds  = new Set(tracelinks.filter(l => l.requirement_id === req.id).map(l => l.testcase_id));
-  const linkedTcs    = testcases.filter(tc => linkedTcIds.has(tc.id));
-  const availableTcs = testcases.filter(tc => !linkedTcIds.has(tc.id));
+  // Local mirror of links for this req (so updates feel instant)
+  const [localLinks, setLocalLinks] = useState<TraceLink[]>(() =>
+    tracelinks.filter(l => l.requirement_id === req.id)
+  );
+  const [localTcs, setLocalTcs] = useState<TestCase[]>(testcases);
 
-  // Scroll panel into view on open
+  const [addTcId,    setAddTcId]    = useState("");
+  const [showForm,   setShowForm]   = useState(false);
+  const [tcTitle,    setTcTitle]    = useState("");
+  const [tcDesc,     setTcDesc]     = useState("");
+  const [tcExpected, setTcExpected] = useState("");
+  const [saving,     setSaving]     = useState(false);
+  const [msg,        setMsg]        = useState("");
+
   useEffect(() => {
     panelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
-  async function handleLink(e: React.FormEvent) {
-    e.preventDefault();
-    if (!tcId) return;
+  const linkedTcIds  = new Set(localLinks.map(l => l.testcase_id));
+  const linkedTcs    = localTcs.filter(tc => linkedTcIds.has(tc.id));
+  const availableTcs = localTcs.filter(tc => !linkedTcIds.has(tc.id));
+
+  async function linkExisting() {
+    if (!addTcId) return;
     setSaving(true); setMsg("");
     try {
-      await onLink(tcId);
-      setTcId("");
-      setMsg("✓ Test case linked successfully.");
-    } catch (err: any) {
-      setMsg("✗ " + err.message);
-    } finally {
-      setSaving(false);
-    }
+      const link = await api.tracelinks.create({ requirement_id: req.id, testcase_id: addTcId });
+      setLocalLinks(prev => [...prev, link]);
+      setAddTcId("");
+      await onReload();
+    } catch (e: any) { setMsg("Error: " + e.message); }
+    finally { setSaving(false); }
+  }
+
+  async function createAndLink() {
+    if (!tcTitle.trim()) return;
+    setSaving(true); setMsg("");
+    try {
+      const tc = await api.testcases.create({
+        project_id: req.project_id,
+        title: tcTitle.trim(),
+        description: tcDesc.trim() || undefined,
+        expected_result: tcExpected.trim() || undefined,
+      });
+      setLocalTcs(prev => [...prev, tc]);
+      const link = await api.tracelinks.create({ requirement_id: req.id, testcase_id: tc.id });
+      setLocalLinks(prev => [...prev, link]);
+      setTcTitle(""); setTcDesc(""); setTcExpected(""); setShowForm(false);
+      await onReload();
+    } catch (e: any) { setMsg("Error: " + e.message); }
+    finally { setSaving(false); }
+  }
+
+  async function unlink(linkId: string) {
+    setSaving(true);
+    try {
+      await api.tracelinks.delete(linkId);
+      setLocalLinks(prev => prev.filter(l => l.id !== linkId));
+      await onReload();
+    } catch (e: any) { setMsg("Error: " + e.message); }
+    finally { setSaving(false); }
   }
 
   const color = TYPE_COLOR[req.type] ?? "#546e7a";
@@ -101,99 +137,117 @@ function InlineLinkPanel({ req, testcases, tracelinks, onLink, onClose }: {
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <span style={{
-                  fontFamily: "monospace", fontWeight: 800, fontSize: 14, color,
-                  background: bg, border: `1px solid ${color}40`,
-                  borderRadius: 4, padding: "2px 8px",
-                }}>{req.readable_id}</span>
-                <span style={{
-                  background: color, color: "#fff", borderRadius: 3,
-                  padding: "1px 7px", fontSize: 10, fontWeight: 700,
-                }}>{req.type}</span>
+                <span style={{ fontFamily: "monospace", fontWeight: 800, fontSize: 14, color, background: bg, border: `1px solid ${color}40`, borderRadius: 4, padding: "2px 8px" }}>
+                  {req.readable_id}
+                </span>
+                <span style={{ background: color, color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>
+                  {req.type}
+                </span>
               </div>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#111" }}>{req.title}</div>
-              {req.description && (
-                <div style={{ fontSize: 12, color: "#666", marginTop: 3 }}>{req.description}</div>
-              )}
+              {req.description && <div style={{ fontSize: 12, color: "#666", marginTop: 3 }}>{req.description}</div>}
             </div>
-            <button onClick={onClose} style={{
-              background: "none", border: "none", cursor: "pointer",
-              fontSize: 18, color: "#999", lineHeight: 1, padding: "2px 6px",
-            }} title="Close">✕</button>
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "#999", lineHeight: 1, padding: "2px 6px" }} title="Close">✕</button>
+          </div>
+
+          {msg && <div style={{ marginBottom: 10, fontSize: 12, color: msg.startsWith("Error") ? "#b71c1c" : "#2e7d32" }}>{msg}</div>}
+
+          {/* Linked test cases */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+              Linked Test Cases ({linkedTcs.length})
+            </div>
+            {linkedTcs.length === 0 ? (
+              <div style={{ padding: "8px 12px", background: "#fff8e1", border: "1px dashed #ffca28", borderRadius: 6, fontSize: 12, color: "#f57f17" }}>
+                ⚠ No test cases linked — this {req.type} requirement has no verification coverage.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {linkedTcs.map(tc => {
+                  const link = localLinks.find(l => l.testcase_id === tc.id);
+                  return (
+                    <span key={tc.id} style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      background: "#f1f8e9", border: "1px solid #a5d6a7", borderRadius: 5,
+                      padding: "4px 8px", fontSize: 12,
+                    }}>
+                      <a href={`/testcases?highlight=${tc.id}`} style={{ fontFamily: "monospace", fontWeight: 700, color: "#1b5e20", textDecoration: "none" }}>
+                        {tc.readable_id ?? "TC"}
+                      </a>
+                      <span style={{ color: "#33691e" }}>{tc.title}</span>
+                      {tc.expected_result && (
+                        <span style={{ fontSize: 10, color: "#558b2f", fontStyle: "italic" }}>· has expected result</span>
+                      )}
+                      <button onClick={() => link && unlink(link.id)} disabled={saving}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#c62828", fontSize: 13, padding: "0 2px", lineHeight: 1 }}
+                        title="Unlink">×</button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            {/* Existing linked test cases */}
+            {/* Create new TC */}
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
-                Currently Linked Test Cases ({linkedTcs.length})
-              </div>
-              {linkedTcs.length === 0 ? (
-                <div style={{
-                  padding: "10px 12px", background: "#fff8e1",
-                  border: "1px dashed #ffca28", borderRadius: 6,
-                  fontSize: 12, color: "#f57f17",
-                }}>
-                  ⚠ No test cases linked — this {req.type} requirement has no verification coverage.
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Create New Test Case
                 </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  {linkedTcs.map(tc => (
-                    <div key={tc.id} style={{
-                      display: "flex", alignItems: "center", gap: 8,
-                      padding: "6px 10px", background: "#f1f8e9",
-                      border: "1px solid #c8e6c9", borderRadius: 5,
-                    }}>
-                      <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 12, color: "#1b5e20" }}>
-                        {tc.readable_id ?? "TC-?"}
-                      </span>
-                      <span style={{ fontSize: 12, color: "#33691e", flex: 1 }}>{tc.title}</span>
-                      <span style={{ fontSize: 11, color: "#2e7d32" }}>✓ Linked</span>
-                    </div>
-                  ))}
+                <button onClick={() => { setShowForm(v => !v); setTcTitle(""); setTcDesc(""); setTcExpected(""); }}
+                  style={{ fontSize: 11, padding: "2px 9px", borderRadius: 4, cursor: "pointer", border: "1px solid #6ee7b7", background: showForm ? "#d1fae5" : "#fff", color: "#059669" }}>
+                  {showForm ? "▲ Cancel" : "+ New TC"}
+                </button>
+              </div>
+              {showForm && (
+                <div style={{ background: "#f0fdf4", border: "1px solid #6ee7b7", borderRadius: 6, padding: "10px 12px" }}>
+                  <div style={{ marginBottom: 6 }}>
+                    <label style={{ fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: 3, color: "#065f46" }}>Title *</label>
+                    <input value={tcTitle} onChange={e => setTcTitle(e.target.value)} autoFocus
+                      placeholder="e.g. Verify system response within 50ms"
+                      style={{ width: "100%", border: "1px solid #6ee7b7", borderRadius: 4, padding: "5px 8px", fontSize: 13, boxSizing: "border-box" as const }} />
+                  </div>
+                  <div style={{ marginBottom: 6 }}>
+                    <label style={{ fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: 3, color: "#065f46" }}>Test Steps</label>
+                    <textarea value={tcDesc} onChange={e => setTcDesc(e.target.value)} rows={3}
+                      placeholder={"1. Set up the system\n2. Perform action\n3. Observe output"}
+                      style={{ width: "100%", border: "1px solid #6ee7b7", borderRadius: 4, padding: "5px 8px", fontSize: 12, resize: "vertical", boxSizing: "border-box" as const, fontFamily: "inherit" }} />
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={{ fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: 3, color: "#065f46" }}>Expected Result *</label>
+                    <textarea value={tcExpected} onChange={e => setTcExpected(e.target.value)} rows={2}
+                      placeholder="What the system must do/output to pass"
+                      style={{ width: "100%", border: "1px solid #6ee7b7", borderRadius: 4, padding: "5px 8px", fontSize: 12, resize: "vertical", boxSizing: "border-box" as const, fontFamily: "inherit" }} />
+                  </div>
+                  <button onClick={createAndLink} disabled={saving || !tcTitle.trim()}
+                    style={{ padding: "5px 14px", background: "#059669", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                    {saving ? "Saving…" : "Create & Link"}
+                  </button>
                 </div>
               )}
             </div>
 
-            {/* Add new test case */}
+            {/* Link existing TC */}
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
-                Link a Test Case
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                Link Existing Test Case
               </div>
               {availableTcs.length === 0 ? (
-                <div style={{ fontSize: 12, color: "#888", fontStyle: "italic" }}>
-                  All test cases are already linked.
-                </div>
+                <div style={{ fontSize: 12, color: "#888", fontStyle: "italic" }}>All test cases are already linked.</div>
               ) : (
-                <form onSubmit={handleLink} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <select
-                    value={tcId}
-                    onChange={e => setTcId(e.target.value)}
-                    style={{ ...inputStyle, fontSize: 13 }}
-                    required
-                  >
-                    <option value="">— Select test case to link *</option>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <select value={addTcId} onChange={e => setAddTcId(e.target.value)} style={{ ...inputStyle, flex: 1, fontSize: 12 }}>
+                    <option value="">— Select test case…</option>
                     {availableTcs.map(tc => (
-                      <option key={tc.id} value={tc.id}>
-                        {tc.readable_id ? `${tc.readable_id} — ` : ""}{tc.title}
-                      </option>
+                      <option key={tc.id} value={tc.id}>{tc.readable_id ? `${tc.readable_id} — ` : ""}{tc.title}</option>
                     ))}
                   </select>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <button
-                      type="submit"
-                      disabled={saving || !tcId}
-                      style={{ ...btnStyle, background: color }}
-                    >
-                      {saving ? "Linking…" : "Link Test Case →"}
-                    </button>
-                    {msg && (
-                      <span style={{ fontSize: 12, color: msg.startsWith("✓") ? "#2e7d32" : "#b71c1c" }}>
-                        {msg}
-                      </span>
-                    )}
-                  </div>
-                </form>
+                  <button onClick={linkExisting} disabled={saving || !addTcId}
+                    style={{ ...btnStyle, background: color, padding: "7px 14px", whiteSpace: "nowrap" as const }}>
+                    {saving ? "…" : "Link →"}
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -648,8 +702,7 @@ function TraceMatrixInner() {
     reload(projectId);
   }, [projectId]);
 
-  async function handleLink(reqId: string, tcId: string) {
-    await api.tracelinks.create({ requirement_id: reqId, testcase_id: tcId });
+  async function handleReload() {
     if (projectId) await reload(projectId);
   }
 
@@ -695,7 +748,7 @@ function TraceMatrixInner() {
             req={r}
             testcases={testcases}
             tracelinks={tracelinks}
-            onLink={(tcId) => handleLink(r.id, tcId)}
+            onReload={handleReload}
             onClose={() => setFocus(null)}
           />
         );
