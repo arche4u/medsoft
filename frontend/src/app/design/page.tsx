@@ -208,20 +208,33 @@ function DiagramPanel({ element, onSaved }: {
 }
 
 // ── Single element row used in filtered (non-ALL) view ───────────────────────
-function ElementRow({ el, onDelete, onUpdate }: {
+function ElementRow({ el, onDelete, onUpdate, highlighted }: {
   el: DesignElement;
   onDelete: (id: string) => void;
   onUpdate: (el: DesignElement) => void;
+  highlighted?: boolean;
 }) {
-  const [diagramOpen, setDiagramOpen] = useState(false);
+  const [diagramOpen, setDiagramOpen] = useState(!!highlighted);
+  const rowRef = useRef<HTMLDivElement>(null);
   const color = TYPE_META[el.type].color;
 
+  useEffect(() => {
+    if (highlighted && rowRef.current) {
+      rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlighted]);
+
   return (
-    <div>
+    <div ref={rowRef} style={{
+      transition: "background 0.4s",
+      background: highlighted ? "#fefce8" : "transparent",
+      outline: highlighted ? "2px solid #fbbf24" : "none",
+      borderRadius: highlighted ? 4 : 0,
+    }}>
       <div style={{
         display: "flex", alignItems: "center", gap: 8,
         padding: "9px 12px",
-        borderBottom: diagramOpen ? "none" : "1px solid #f5f5f5",
+        borderBottom: diagramOpen ? "none" : "1px solid #e0e0e0",
       }}>
         <span style={{
           background: color, color: "#fff",
@@ -260,26 +273,37 @@ function ElementRow({ el, onDelete, onUpdate }: {
 }
 
 // ── Collapsible ARCHITECTURE node ─────────────────────────────────────────────
-function ArchNode({ arch, children, onDelete, onUpdate }: {
+function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
   arch: DesignElement;
   children: DesignElement[];
   onDelete: (id: string) => void;
   onUpdate: (el: DesignElement) => void;
+  highlightId?: string;
 }) {
+  const archHighlighted = arch.id === highlightId;
   const [open,    setOpen]    = useState(true);
   const [diagram, setDiagram] = useState(false);
   const [detDiagramId, setDetDiagramId] = useState<string | null>(null);
+  const archRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (archHighlighted && archRef.current) {
+      archRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [archHighlighted]);
 
   return (
     <div style={{ marginBottom: 4 }}>
       {/* ARCHITECTURE row */}
-      <div style={{
+      <div ref={archRef} style={{
         display: "flex", alignItems: "center", gap: 8,
         padding: "8px 10px",
-        background: diagram ? "#e8eaf6" : "#e8eaf6",
+        background: archHighlighted ? "#fefce8" : "#e8eaf6",
         borderRadius: diagram ? "6px 6px 0 0" : 6,
         borderLeft: "4px solid #1565c0",
         borderBottom: diagram ? "none" : undefined,
+        transition: "background 0.4s",
+        outline: archHighlighted ? "2px solid #fbbf24" : "none",
       }}>
         <span onClick={() => setOpen(o => !o)} style={{ color: "#1565c0", fontSize: 13, fontWeight: 700, cursor: "pointer", userSelect: "none", minWidth: 16 }}>
           {open ? "▾" : "▸"}
@@ -320,51 +344,57 @@ function ArchNode({ arch, children, onDelete, onUpdate }: {
       )}
 
       {/* DETAILED children */}
-      {open && children.map(det => (
-        <div key={det.id}>
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "7px 10px 7px 36px",
-            borderBottom: detDiagramId === det.id ? "none" : "1px solid #f0f0f0",
-            borderLeft: "4px solid #e8eaf6",
-            marginLeft: 12,
-          }}>
-            <span style={{ color: "#aaa", fontSize: 12, flexShrink: 0 }}>└</span>
-            <span style={{ background: "#4a148c", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-              DTL
-            </span>
-            {det.readable_id && (
-              <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#4a148c", background: "#f3e5f5", borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
-                {det.readable_id}
+      {open && children.map(det => {
+        const detHighlighted = det.id === highlightId;
+        return (
+          <div key={det.id}
+            ref={el => { if (detHighlighted && el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+            style={{ transition: "background 0.4s", background: detHighlighted ? "#fefce8" : "transparent" }}
+          >
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "7px 10px 7px 36px",
+              borderBottom: detDiagramId === det.id ? "none" : "1px solid #e0e0e0",
+              borderLeft: detHighlighted ? "4px solid #fbbf24" : "4px solid #e8eaf6",
+              marginLeft: 12,
+            }}>
+              <span style={{ color: "#aaa", fontSize: 12, flexShrink: 0 }}>└</span>
+              <span style={{ background: "#4a148c", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                DTL
               </span>
-            )}
-            <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{det.title}</span>
-            {det.description && <span style={{ color: "#888", fontSize: 12 }}>{det.description}</span>}
-            {det.diagram_source && (
-              <span style={{ fontSize: 11, color: "#6d28d9", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "1px 7px" }}>
-                diagram
-              </span>
-            )}
-            <button
-              onClick={() => setDetDiagramId(id => id === det.id ? null : det.id)}
-              title="Edit diagram"
-              style={{
-                padding: "2px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
-                border: `1px solid ${detDiagramId === det.id ? "#6d28d9" : "#c5cae9"}`,
-                background: detDiagramId === det.id ? "#f5f3ff" : "#fff",
-                color: detDiagramId === det.id ? "#6d28d9" : "#64748b",
-              }}>
-              ◈ Diagram
-            </button>
-            <button onClick={() => onDelete(det.id)} style={deleteBtnStyle}>✕</button>
-          </div>
-          {detDiagramId === det.id && (
-            <div style={{ marginLeft: 12 }}>
-              <DiagramPanel element={det} onSaved={updated => { onUpdate(updated); }} />
+              {det.readable_id && (
+                <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#4a148c", background: "#f3e5f5", borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
+                  {det.readable_id}
+                </span>
+              )}
+              <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{det.title}</span>
+              {det.description && <span style={{ color: "#888", fontSize: 12 }}>{det.description}</span>}
+              {det.diagram_source && (
+                <span style={{ fontSize: 11, color: "#6d28d9", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "1px 7px" }}>
+                  diagram
+                </span>
+              )}
+              <button
+                onClick={() => setDetDiagramId(id => id === det.id ? null : det.id)}
+                title="Edit diagram"
+                style={{
+                  padding: "2px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
+                  border: `1px solid ${detDiagramId === det.id ? "#6d28d9" : "#c5cae9"}`,
+                  background: detDiagramId === det.id ? "#f5f3ff" : "#fff",
+                  color: detDiagramId === det.id ? "#6d28d9" : "#64748b",
+                }}>
+                ◈ Diagram
+              </button>
+              <button onClick={() => onDelete(det.id)} style={deleteBtnStyle}>✕</button>
             </div>
-          )}
-        </div>
-      ))}
+            {detDiagramId === det.id && (
+              <div style={{ marginLeft: 12 }}>
+                <DiagramPanel element={det} onSaved={updated => { onUpdate(updated); }} />
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {open && children.length === 0 && (
         <div style={{ padding: "5px 10px 5px 48px", color: "#ccc", fontSize: 12, fontStyle: "italic" }}>
@@ -377,14 +407,15 @@ function ArchNode({ arch, children, onDelete, onUpdate }: {
 
 // ── Inner page ────────────────────────────────────────────────────────────────
 function DesignPageInner() {
-  const params    = useSearchParams();
-  const typeParam = params.get("type") ?? "ALL";
+  const params      = useSearchParams();
+  const typeParam   = params.get("type") ?? "ALL";
+  const highlightId = params.get("highlight") ?? "";
 
   const [projects, setProjects]   = useState<Project[]>([]);
   const [elements, setElements]   = useState<DesignElement[]>([]);
   const [swReqs, setSwReqs]       = useState<Requirement[]>([]);
   const [projectId, setProjectId] = useActiveProject();
-  const [filter, setFilter]       = useState<string>(typeParam);
+  const [filter, setFilter]       = useState<string>(highlightId ? "ALL" : typeParam);
 
   // create form
   const [elType, setElType]     = useState<DesignElementType>("ARCHITECTURE");
@@ -557,6 +588,7 @@ function DesignPageInner() {
                     children={detailedOf(arch.id)}
                     onDelete={handleDelete}
                     onUpdate={handleElementUpdate}
+                    highlightId={highlightId}
                   />
                 ))
             }
@@ -564,7 +596,7 @@ function DesignPageInner() {
         ) : (
           <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, overflow: "hidden" }}>
             {filteredElements.map(el => (
-              <ElementRow key={el.id} el={el} onDelete={handleDelete} onUpdate={handleElementUpdate} />
+              <ElementRow key={el.id} el={el} onDelete={handleDelete} onUpdate={handleElementUpdate} highlighted={el.id === highlightId} />
             ))}
           </div>
         )}

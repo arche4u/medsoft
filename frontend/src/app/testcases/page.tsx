@@ -1,15 +1,25 @@
 "use client";
 
 import { useActiveProject } from "@/lib/useActiveProject";
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, Project, TestCase, Requirement, TraceLink } from "@/lib/api";
 
 // ── Collapsible test case row ─────────────────────────────────────────────────
-function TestCaseRow({ tc, linkedReqs }: { tc: TestCase; linkedReqs: Requirement[] }) {
-  const [open, setOpen] = useState(false);
+function TestCaseRow({ tc, linkedReqs, highlighted }: { tc: TestCase; linkedReqs: Requirement[]; highlighted?: boolean }) {
+  const [open, setOpen] = useState(!!highlighted);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (highlighted && rowRef.current) {
+      rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlighted]);
+
   return (
-    <div style={{ borderBottom: "1px solid #f0f0f0" }}>
+    <div ref={rowRef} style={{ borderBottom: "1px solid #f0f0f0", transition: "background 0.4s",
+      background: highlighted ? "#fefce8" : "transparent",
+      outline: highlighted ? "2px solid #fbbf24" : "none", borderRadius: highlighted ? 4 : 0 }}>
       <div
         onClick={() => setOpen(o => !o)}
         style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", cursor: "pointer" }}
@@ -59,8 +69,9 @@ function TestCaseRow({ tc, linkedReqs }: { tc: TestCase; linkedReqs: Requirement
 
 // ── Inner page ────────────────────────────────────────────────────────────────
 function TestCasesPageInner() {
-  const params    = useSearchParams();
-  const projParam = params.get("project_id") ?? "";
+  const params      = useSearchParams();
+  const projParam   = params.get("project_id") ?? "";
+  const highlightId = params.get("highlight") ?? "";
 
   const [projects, setProjects]     = useState<Project[]>([]);
   const [testcases, setTestcases]   = useState<TestCase[]>([]);
@@ -188,7 +199,7 @@ function TestCasesPageInner() {
               color="#1565c0"
               defaultOpen={true}
             >
-              {linked.map(tc => <TestCaseRow key={tc.id} tc={tc} linkedReqs={linkedReqsForTc(tc.id)} />)}
+              {linked.map(tc => <TestCaseRow key={tc.id} tc={tc} linkedReqs={linkedReqsForTc(tc.id)} highlighted={tc.id === highlightId} />)}
             </CollapsibleGroup>
           )}
 
@@ -199,7 +210,7 @@ function TestCasesPageInner() {
               color="#757575"
               defaultOpen={true}
             >
-              {unlinked.map(tc => <TestCaseRow key={tc.id} tc={tc} linkedReqs={[]} />)}
+              {unlinked.map(tc => <TestCaseRow key={tc.id} tc={tc} linkedReqs={[]} highlighted={tc.id === highlightId} />)}
             </CollapsibleGroup>
           )}
         </>

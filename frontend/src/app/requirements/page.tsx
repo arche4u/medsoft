@@ -796,7 +796,7 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap }: {
       <div style={{
         display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap",
         padding: "0.32rem 0.4rem 0.32rem 0",
-        borderBottom: assigning ? "none" : "1px solid #f5f5f5",
+        borderBottom: assigning ? "none" : "1px solid #d1d5db",
         paddingLeft: `${depth * 1.5}rem`,
       }}>
         {depth > 0 && <span style={{ color: "#ccc", fontSize: "0.78rem", flexShrink: 0 }}>└</span>}
@@ -816,7 +816,7 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap }: {
 
         {/* Linked TC chips */}
         {linkedTCs.map(tc => (
-          <a key={tc.id} href="/testcases"
+          <a key={tc.id} href={`/testcases?highlight=${tc.id}`}
             onClick={e => { e.stopPropagation(); }}
             title={tc.title}
             style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3,
@@ -829,7 +829,7 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap }: {
 
         {/* Linked Design Element chips */}
         {linkedDEs.map(de => (
-          <a key={de.id} href="/design"
+          <a key={de.id} href={`/design?highlight=${de.id}`}
             onClick={e => { e.stopPropagation(); }}
             title={de.title}
             style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3,
@@ -890,7 +890,7 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap }: {
 
       {/* Assignment panel */}
       {assigning && (
-        <div style={{ paddingLeft: `${depth * 1.5 + 0.5}rem`, borderBottom: "1px solid #f5f5f5" }}>
+        <div style={{ paddingLeft: `${depth * 1.5 + 0.5}rem`, borderBottom: "1px solid #d1d5db" }}>
           <AssignmentPanel req={localReq} allReqs={allReqs} cats={cats} onReload={onReload} />
         </div>
       )}
