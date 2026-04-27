@@ -215,6 +215,10 @@ function ElementRow({ el, onDelete, onUpdate, highlighted }: {
   highlighted?: boolean;
 }) {
   const [diagramOpen, setDiagramOpen] = useState(!!highlighted);
+  const [editing,     setEditing]     = useState(false);
+  const [editTitle,   setEditTitle]   = useState(el.title);
+  const [editDesc,    setEditDesc]    = useState(el.description ?? "");
+  const [saving,      setSaving]      = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   const color = TYPE_META[el.type].color;
 
@@ -224,6 +228,16 @@ function ElementRow({ el, onDelete, onUpdate, highlighted }: {
     }
   }, [highlighted]);
 
+  async function saveEdit() {
+    if (!editTitle.trim()) return;
+    setSaving(true);
+    try {
+      const updated = await api.design.updateElement(el.id, { title: editTitle.trim(), description: editDesc.trim() || undefined });
+      onUpdate(updated);
+      setEditing(false);
+    } finally { setSaving(false); }
+  }
+
   return (
     <div ref={rowRef} style={{
       transition: "background 0.4s",
@@ -231,41 +245,65 @@ function ElementRow({ el, onDelete, onUpdate, highlighted }: {
       outline: highlighted ? "2px solid #fbbf24" : "none",
       borderRadius: highlighted ? 4 : 0,
     }}>
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8,
-        padding: "9px 12px",
-        borderBottom: diagramOpen ? "none" : "1px solid #e0e0e0",
-      }}>
-        <span style={{
-          background: color, color: "#fff",
-          borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0,
-        }}>{el.type === "ARCHITECTURE" ? "ARCH" : "DTL"}</span>
-        {el.readable_id && (
-          <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color, borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
-            {el.readable_id}
+      {editing ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderBottom: "1px solid #e0e0e0" }}>
+          <span style={{ background: color, color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+            {el.type === "ARCHITECTURE" ? "ARCH" : "DTL"}
           </span>
-        )}
-        <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{el.title}</span>
-        {el.description && <span style={{ color: "#888", fontSize: 12 }}>{el.description}</span>}
-        {el.diagram_source && (
-          <span style={{ fontSize: 11, color, background: "#f5f5f5", border: "1px solid #ddd", borderRadius: 10, padding: "1px 7px" }}>
-            diagram
-          </span>
-        )}
-        <button
-          onClick={() => setDiagramOpen(o => !o)}
-          title="Edit diagram"
-          style={{
-            padding: "2px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
-            border: `1px solid ${diagramOpen ? color : "#c5cae9"}`,
-            background: diagramOpen ? color + "20" : "#fff",
-            color: diagramOpen ? color : "#64748b",
-          }}>
-          ◈ Diagram
-        </button>
-        <button onClick={() => onDelete(el.id)} style={deleteBtnStyle}>✕</button>
-      </div>
-      {diagramOpen && (
+          {el.readable_id && (
+            <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color, flexShrink: 0 }}>{el.readable_id}</span>
+          )}
+          <input value={editTitle} onChange={e => setEditTitle(e.target.value)} autoFocus
+            style={{ flex: 1, padding: "4px 7px", border: "1px solid #c5cae9", borderRadius: 4, fontSize: 13 }} />
+          <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description (optional)"
+            style={{ flex: 1, padding: "4px 7px", border: "1px solid #c5cae9", borderRadius: 4, fontSize: 13 }} />
+          <button onClick={saveEdit} disabled={saving || !editTitle.trim()}
+            style={{ padding: "3px 10px", background: "#3949ab", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
+            {saving ? "…" : "Save"}
+          </button>
+          <button onClick={() => { setEditing(false); setEditTitle(el.title); setEditDesc(el.description ?? ""); }}
+            style={{ padding: "3px 10px", background: "#f0f0f0", color: "#555", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "9px 12px",
+          borderBottom: diagramOpen ? "none" : "1px solid #e0e0e0",
+        }}>
+          <span style={{
+            background: color, color: "#fff",
+            borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0,
+          }}>{el.type === "ARCHITECTURE" ? "ARCH" : "DTL"}</span>
+          {el.readable_id && (
+            <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color, borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
+              {el.readable_id}
+            </span>
+          )}
+          <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{el.title}</span>
+          {el.description && <span style={{ color: "#888", fontSize: 12 }}>{el.description}</span>}
+          {el.diagram_source && (
+            <span style={{ fontSize: 11, color, background: "#f5f5f5", border: "1px solid #ddd", borderRadius: 10, padding: "1px 7px" }}>
+              diagram
+            </span>
+          )}
+          <button onClick={() => setEditing(true)} style={editBtnStyle} title="Edit">✎</button>
+          <button
+            onClick={() => setDiagramOpen(o => !o)}
+            title="Edit diagram"
+            style={{
+              padding: "2px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
+              border: `1px solid ${diagramOpen ? color : "#c5cae9"}`,
+              background: diagramOpen ? color + "20" : "#fff",
+              color: diagramOpen ? color : "#64748b",
+            }}>
+            ◈ Diagram
+          </button>
+          <button onClick={() => onDelete(el.id)} style={deleteBtnStyle}>✕</button>
+        </div>
+      )}
+      {!editing && diagramOpen && (
         <DiagramPanel element={el} onSaved={updated => { onUpdate(updated); setDiagramOpen(true); }} />
       )}
     </div>
@@ -281,10 +319,42 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
   highlightId?: string;
 }) {
   const archHighlighted = arch.id === highlightId;
-  const [open,    setOpen]    = useState(true);
-  const [diagram, setDiagram] = useState(false);
+  const [open,         setOpen]         = useState(true);
+  const [diagram,      setDiagram]      = useState(false);
   const [detDiagramId, setDetDiagramId] = useState<string | null>(null);
+  const [editingArch,  setEditingArch]  = useState(false);
+  const [archTitle,    setArchTitle]    = useState(arch.title);
+  const [archDesc,     setArchDesc]     = useState(arch.description ?? "");
+  const [editingDetId, setEditingDetId] = useState<string | null>(null);
+  const [detEditVals,  setDetEditVals]  = useState<Record<string, { title: string; desc: string }>>({});
+  const [saving,       setSaving]       = useState(false);
   const archRef = useRef<HTMLDivElement>(null);
+
+  async function saveArch() {
+    if (!archTitle.trim()) return;
+    setSaving(true);
+    try {
+      const updated = await api.design.updateElement(arch.id, { title: archTitle.trim(), description: archDesc.trim() || undefined });
+      onUpdate(updated);
+      setEditingArch(false);
+    } finally { setSaving(false); }
+  }
+
+  function startEditDet(det: DesignElement) {
+    setDetEditVals(v => ({ ...v, [det.id]: { title: det.title, desc: det.description ?? "" } }));
+    setEditingDetId(det.id);
+  }
+
+  async function saveDet(det: DesignElement) {
+    const vals = detEditVals[det.id];
+    if (!vals?.title.trim()) return;
+    setSaving(true);
+    try {
+      const updated = await api.design.updateElement(det.id, { title: vals.title.trim(), description: vals.desc.trim() || undefined });
+      onUpdate(updated);
+      setEditingDetId(null);
+    } finally { setSaving(false); }
+  }
 
   useEffect(() => {
     if (archHighlighted && archRef.current) {
@@ -295,6 +365,26 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
   return (
     <div style={{ marginBottom: 4 }}>
       {/* ARCHITECTURE row */}
+      {editingArch ? (
+        <div ref={archRef} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", background: "#e8eaf6", borderRadius: 6, borderLeft: "4px solid #1565c0" }}>
+          <span style={{ background: "#1565c0", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>ARCH</span>
+          {arch.readable_id && (
+            <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#1565c0", flexShrink: 0 }}>{arch.readable_id}</span>
+          )}
+          <input value={archTitle} onChange={e => setArchTitle(e.target.value)} autoFocus
+            style={{ flex: 1, padding: "4px 7px", border: "1px solid #9fa8da", borderRadius: 4, fontSize: 13 }} />
+          <input value={archDesc} onChange={e => setArchDesc(e.target.value)} placeholder="Description (optional)"
+            style={{ flex: 1, padding: "4px 7px", border: "1px solid #9fa8da", borderRadius: 4, fontSize: 13 }} />
+          <button onClick={saveArch} disabled={saving || !archTitle.trim()}
+            style={{ padding: "3px 10px", background: "#3949ab", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
+            {saving ? "…" : "Save"}
+          </button>
+          <button onClick={() => { setEditingArch(false); setArchTitle(arch.title); setArchDesc(arch.description ?? ""); }}
+            style={{ padding: "3px 10px", background: "#f0f0f0", color: "#555", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
+            Cancel
+          </button>
+        </div>
+      ) : (
       <div ref={archRef} style={{
         display: "flex", alignItems: "center", gap: 8,
         padding: "8px 10px",
@@ -324,6 +414,7 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
           </span>
         )}
         <span style={{ fontSize: 12, color: "#888" }}>{children.length} detailed</span>
+        <button onClick={e => { e.stopPropagation(); setEditingArch(true); }} style={editBtnStyle} title="Edit">✎</button>
         <button
           onClick={e => { e.stopPropagation(); setDiagram(d => !d); setOpen(true); }}
           title="Edit diagram"
@@ -337,6 +428,7 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
         </button>
         <button onClick={e => { e.stopPropagation(); onDelete(arch.id); }} style={deleteBtnStyle}>✕</button>
       </div>
+      )}
 
       {/* Diagram panel for ARCH */}
       {diagram && (
@@ -351,43 +443,74 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
             ref={el => { if (detHighlighted && el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }}
             style={{ transition: "background 0.4s", background: detHighlighted ? "#fefce8" : "transparent" }}
           >
-            <div style={{
-              display: "flex", alignItems: "center", gap: 8,
-              padding: "7px 10px 7px 36px",
-              borderBottom: detDiagramId === det.id ? "none" : "1px solid #e0e0e0",
-              borderLeft: detHighlighted ? "4px solid #fbbf24" : "4px solid #e8eaf6",
-              marginLeft: 12,
-            }}>
-              <span style={{ color: "#aaa", fontSize: 12, flexShrink: 0 }}>└</span>
-              <span style={{ background: "#4a148c", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                DTL
-              </span>
-              {det.readable_id && (
-                <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#4a148c", background: "#f3e5f5", borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
-                  {det.readable_id}
+            {editingDetId === det.id ? (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "6px 10px 6px 36px", borderBottom: "1px solid #e0e0e0",
+                borderLeft: "4px solid #ce93d8", marginLeft: 12,
+              }}>
+                <span style={{ color: "#aaa", fontSize: 12, flexShrink: 0 }}>└</span>
+                <span style={{ background: "#4a148c", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>DTL</span>
+                {det.readable_id && (
+                  <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#4a148c", flexShrink: 0 }}>{det.readable_id}</span>
+                )}
+                <input value={detEditVals[det.id]?.title ?? det.title}
+                  onChange={e => setDetEditVals(v => ({ ...v, [det.id]: { ...v[det.id], title: e.target.value } }))}
+                  autoFocus
+                  style={{ flex: 1, padding: "4px 7px", border: "1px solid #ce93d8", borderRadius: 4, fontSize: 13 }} />
+                <input value={detEditVals[det.id]?.desc ?? det.description ?? ""}
+                  onChange={e => setDetEditVals(v => ({ ...v, [det.id]: { ...v[det.id], desc: e.target.value } }))}
+                  placeholder="Description (optional)"
+                  style={{ flex: 1, padding: "4px 7px", border: "1px solid #ce93d8", borderRadius: 4, fontSize: 13 }} />
+                <button onClick={() => saveDet(det)} disabled={saving || !(detEditVals[det.id]?.title ?? det.title).trim()}
+                  style={{ padding: "3px 10px", background: "#6a1b9a", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
+                  {saving ? "…" : "Save"}
+                </button>
+                <button onClick={() => setEditingDetId(null)}
+                  style={{ padding: "3px 10px", background: "#f0f0f0", color: "#555", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "7px 10px 7px 36px",
+                borderBottom: detDiagramId === det.id ? "none" : "1px solid #e0e0e0",
+                borderLeft: detHighlighted ? "4px solid #fbbf24" : "4px solid #e8eaf6",
+                marginLeft: 12,
+              }}>
+                <span style={{ color: "#aaa", fontSize: 12, flexShrink: 0 }}>└</span>
+                <span style={{ background: "#4a148c", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                  DTL
                 </span>
-              )}
-              <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{det.title}</span>
-              {det.description && <span style={{ color: "#888", fontSize: 12 }}>{det.description}</span>}
-              {det.diagram_source && (
-                <span style={{ fontSize: 11, color: "#6d28d9", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "1px 7px" }}>
-                  diagram
-                </span>
-              )}
-              <button
-                onClick={() => setDetDiagramId(id => id === det.id ? null : det.id)}
-                title="Edit diagram"
-                style={{
-                  padding: "2px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
-                  border: `1px solid ${detDiagramId === det.id ? "#6d28d9" : "#c5cae9"}`,
-                  background: detDiagramId === det.id ? "#f5f3ff" : "#fff",
-                  color: detDiagramId === det.id ? "#6d28d9" : "#64748b",
-                }}>
-                ◈ Diagram
-              </button>
-              <button onClick={() => onDelete(det.id)} style={deleteBtnStyle}>✕</button>
-            </div>
-            {detDiagramId === det.id && (
+                {det.readable_id && (
+                  <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#4a148c", background: "#f3e5f5", borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
+                    {det.readable_id}
+                  </span>
+                )}
+                <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{det.title}</span>
+                {det.description && <span style={{ color: "#888", fontSize: 12 }}>{det.description}</span>}
+                {det.diagram_source && (
+                  <span style={{ fontSize: 11, color: "#6d28d9", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "1px 7px" }}>
+                    diagram
+                  </span>
+                )}
+                <button onClick={() => startEditDet(det)} style={editBtnStyle} title="Edit">✎</button>
+                <button
+                  onClick={() => setDetDiagramId(id => id === det.id ? null : det.id)}
+                  title="Edit diagram"
+                  style={{
+                    padding: "2px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
+                    border: `1px solid ${detDiagramId === det.id ? "#6d28d9" : "#c5cae9"}`,
+                    background: detDiagramId === det.id ? "#f5f3ff" : "#fff",
+                    color: detDiagramId === det.id ? "#6d28d9" : "#64748b",
+                  }}>
+                  ◈ Diagram
+                </button>
+                <button onClick={() => onDelete(det.id)} style={deleteBtnStyle}>✕</button>
+              </div>
+            )}
+            {editingDetId !== det.id && detDiagramId === det.id && (
               <div style={{ marginLeft: 12 }}>
                 <DiagramPanel element={det} onSaved={updated => { onUpdate(updated); }} />
               </div>
@@ -621,3 +744,4 @@ const cardStyle: React.CSSProperties      = { background: "#fff", border: "1px s
 const inputStyle: React.CSSProperties     = { padding: "8px 10px", border: "1px solid #ccc", borderRadius: 4, fontSize: 14, width: "100%", boxSizing: "border-box" as const };
 const btnStyle: React.CSSProperties       = { padding: "8px 18px", background: "#1565c0", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 14, alignSelf: "flex-start" };
 const deleteBtnStyle: React.CSSProperties = { background: "none", border: "none", color: "#c62828", cursor: "pointer", fontSize: 13, flexShrink: 0, padding: "2px 4px" };
+const editBtnStyle: React.CSSProperties   = { background: "none", border: "1px solid #c5cae9", color: "#546e7a", cursor: "pointer", fontSize: 13, flexShrink: 0, padding: "2px 7px", borderRadius: 4 };
