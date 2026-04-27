@@ -40,6 +40,10 @@ function RequirementsPageInner() {
   const [projectId,  setProjectId]  = useActiveProject();
   const [filterType, setFilterType] = useState<string>(urlType || "ALL");
 
+  // Linked-item maps for inline chips on each row
+  const [tcMap,  setTcMap]  = useState<Map<string, TestCase[]>>(new Map());
+  const [deMap,  setDeMap]  = useState<Map<string, { id: string; readable_id: string | null; title: string }[]>>(new Map());
+
   // Create-form state
   const [formType,    setFormType]   = useState("");
   const [formParent,  setFormParent] = useState("");
@@ -88,11 +92,37 @@ function RequirementsPageInner() {
   }, [projectId]);
 
   const reload = async () => {
-    const [r, c] = await Promise.all([
+    const [r, c, tcs, tlinks, dels, dlinks] = await Promise.all([
       api.requirements.list(projectId),
       api.requirements.categories.list(projectId),
+      api.testcases.list(projectId),
+      api.tracelinks.list(),
+      api.design.listElements(projectId),
+      api.design.listLinks(),
     ]);
     setReqs(r);
+
+    // Build req_id → TestCase[] map
+    const tcById = Object.fromEntries(tcs.map(t => [t.id, t]));
+    const newTcMap = new Map<string, TestCase[]>();
+    for (const tl of tlinks) {
+      const tc = tcById[tl.testcase_id];
+      if (!tc) continue;
+      if (!newTcMap.has(tl.requirement_id)) newTcMap.set(tl.requirement_id, []);
+      newTcMap.get(tl.requirement_id)!.push(tc);
+    }
+    setTcMap(newTcMap);
+
+    // Build req_id → DesignElement[] map
+    const deById = Object.fromEntries(dels.map(d => [d.id, d]));
+    const newDeMap = new Map<string, { id: string; readable_id: string | null; title: string }[]>();
+    for (const dl of dlinks) {
+      const de = deById[dl.design_element_id];
+      if (!de) continue;
+      if (!newDeMap.has(dl.requirement_id)) newDeMap.set(dl.requirement_id, []);
+      newDeMap.get(dl.requirement_id)!.push(de);
+    }
+    setDeMap(newDeMap);
     setCategories(c);
     // default form type to first root-level category (e.g. USER, not SOFTWARE)
     if (!formType && c.length > 0) {
@@ -621,7 +651,7 @@ function RequirementsPageInner() {
           <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "0.75rem 1rem" }}>
             {rootReqs.length === 0 && <p style={{ color: "#aaa", fontSize: "0.82rem" }}>Nothing matches the current filter.</p>}
             {rootReqs.map(r => (
-              <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} />
+              <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} tcMap={tcMap} deMap={deMap} />
             ))}
           </div>
         )}
@@ -735,9 +765,11 @@ function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
 }
 
 /** Renders a requirement and all its visible children recursively */
-function ReqTree({ req, allReqs, cats, depth, onReload }: {
+function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap }: {
   req: Requirement; allReqs: Requirement[]; cats: RequirementCategory[];
   depth: number; onReload: () => void;
+  tcMap: Map<string, TestCase[]>;
+  deMap: Map<string, { id: string; readable_id: string | null; title: string }[]>;
 }) {
   const [editing,    setEditing]    = useState(false);
   const [assigning,  setAssigning]  = useState(false);
@@ -747,6 +779,8 @@ function ReqTree({ req, allReqs, cats, depth, onReload }: {
   const color    = catColor(cat);
   const children = allReqs.filter(r => r.parent_id === req.id);
   const childCount = children.length;
+  const linkedTCs = tcMap.get(req.id) ?? [];
+  const linkedDEs = deMap.get(req.id) ?? [];
 
   async function handleDelete() {
     if (!confirm(`Delete "${localReq.readable_id} ${localReq.title}"? This cannot be undone.`)) return;
@@ -779,6 +813,33 @@ function ReqTree({ req, allReqs, cats, depth, onReload }: {
           {cat?.label ?? localReq.type}
         </span>
         <span style={{ fontWeight: 500, fontSize: "0.84rem", flex: 1 }}>{localReq.title}</span>
+
+        {/* Linked TC chips */}
+        {linkedTCs.map(tc => (
+          <a key={tc.id} href="/testcases"
+            onClick={e => { e.stopPropagation(); }}
+            title={tc.title}
+            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3,
+              background: "#f0fdf4", border: "1px solid #6ee7b7", borderRadius: 4,
+              padding: "1px 7px", fontSize: "0.66rem", fontWeight: 700, color: "#059669",
+              flexShrink: 0, cursor: "pointer", fontFamily: "monospace" }}>
+            🧪 {tc.readable_id ?? "TC"}
+          </a>
+        ))}
+
+        {/* Linked Design Element chips */}
+        {linkedDEs.map(de => (
+          <a key={de.id} href="/design"
+            onClick={e => { e.stopPropagation(); }}
+            title={de.title}
+            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3,
+              background: "#fdf4ff", border: "1px solid #d8b4fe", borderRadius: 4,
+              padding: "1px 7px", fontSize: "0.66rem", fontWeight: 700, color: "#7e22ce",
+              flexShrink: 0, cursor: "pointer", fontFamily: "monospace" }}>
+            ⚙ {de.readable_id ?? "DE"}
+          </a>
+        ))}
+
         {localReq.description && (
           <span style={{ color: "#6b7280", fontSize: "0.76rem", flexBasis: "100%", lineHeight: 1.5, marginTop: 2, paddingLeft: 2 }}>
             {localReq.description}
@@ -848,7 +909,7 @@ function ReqTree({ req, allReqs, cats, depth, onReload }: {
       )}
 
       {children.map(c => (
-        <ReqTree key={c.id} req={c} allReqs={allReqs} cats={cats} depth={depth + 1} onReload={onReload} />
+        <ReqTree key={c.id} req={c} allReqs={allReqs} cats={cats} depth={depth + 1} onReload={onReload} tcMap={tcMap} deMap={deMap} />
       ))}
     </div>
   );
