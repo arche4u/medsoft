@@ -41,6 +41,7 @@ class TestCaseBase(BaseModel):
     project_id: uuid.UUID
     title: str
     description: str | None = None
+    expected_result: str | None = None
 
 
 class TestCaseCreate(TestCaseBase):
@@ -50,6 +51,7 @@ class TestCaseCreate(TestCaseBase):
 class TestCaseUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
+    expected_result: str | None = None
 
 
 class TestCaseRead(TestCaseBase):

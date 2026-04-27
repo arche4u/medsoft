@@ -31,7 +31,7 @@ export type Project     = { id: string; name: string; description: string | null
 export type ReqType     = string;  // open: USER | SYSTEM | SOFTWARE | custom
 export type RequirementCategory = { id: string; project_id: string; name: string; label: string; color: string; is_builtin: boolean; sort_order: number; parent_id: string | null };
 export type Requirement = { id: string; project_id: string; type: string; readable_id: string; parent_id: string | null; title: string; description: string | null; created_at: string };
-export type TestCase    = { id: string; project_id: string; readable_id: string | null; title: string; description: string | null; created_at: string };
+export type TestCase    = { id: string; project_id: string; readable_id: string | null; title: string; description: string | null; expected_result: string | null; created_at: string };
 export type TraceLink   = { id: string; requirement_id: string; testcase_id: string };
 export type Risk        = { id: string; requirement_id: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; risk_level: string; mitigation: string | null };
 export type SafetyProfile = {
@@ -56,7 +56,7 @@ export type DesignLink        = { id: string; requirement_id: string; design_ele
 export type DesignCategory    = { id: string; project_id: string; name: string; label: string; color: string; sort_order: number; is_builtin: boolean };
 export type TestCategory      = { id: string; project_id: string; name: string; label: string; color: string; sort_order: number; is_builtin: boolean };
 export type ExecStatus        = "PASS" | "FAIL" | "BLOCKED";
-export type TestExecution     = { id: string; testcase_id: string; status: ExecStatus; executed_at: string; notes: string | null };
+export type TestExecution     = { id: string; testcase_id: string; status: ExecStatus; executed_at: string; notes: string | null; actual_result: string | null };
 export type ValidationStatus  = "PLANNED" | "PASSED" | "FAILED";
 export type ValidationRecord  = { id: string; project_id: string; related_requirement_id: string; description: string; status: ValidationStatus; created_at: string };
 export type AuditLog          = { id: string; entity_type: string; entity_id: string; action: "CREATE" | "UPDATE" | "DELETE"; timestamp: string; actor_name: string | null; details: string | null };
@@ -203,7 +203,7 @@ export const api = {
   },
   testcases: {
     list: (project_id?: string) => req<TestCase[]>(`/testcases/${project_id ? `?project_id=${project_id}` : ""}`),
-    create: (d: { project_id: string; title: string; description?: string }) => req<TestCase>("/testcases/", { method: "POST", body: JSON.stringify(d) }),
+    create: (d: { project_id: string; title: string; description?: string; expected_result?: string }) => req<TestCase>("/testcases/", { method: "POST", body: JSON.stringify(d) }),
     categories: {
       list:   (project_id: string) => req<TestCategory[]>(`/testcases/categories?project_id=${project_id}`),
       create: (d: { project_id: string; name: string; label: string; color: string }) =>
@@ -263,7 +263,7 @@ export const api = {
   },
   verification: {
     listExecutions: (testcase_id?: string) => req<TestExecution[]>(`/verification/executions${testcase_id ? `?testcase_id=${testcase_id}` : ""}`),
-    execute: (d: { testcase_id: string; status: ExecStatus; notes?: string }) =>
+    execute: (d: { testcase_id: string; status: ExecStatus; notes?: string; actual_result?: string }) =>
       req<TestExecution>("/verification/executions", { method: "POST", body: JSON.stringify(d) }),
     latest: (testcase_id: string) => req<TestExecution | null>(`/verification/executions/latest?testcase_id=${testcase_id}`),
   },

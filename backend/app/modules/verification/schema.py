@@ -8,6 +8,7 @@ class TestExecutionCreate(BaseModel):
     testcase_id: uuid.UUID
     status: ExecutionStatus
     notes: str | None = None
+    actual_result: str | None = None
 
 
 class TestExecutionRead(BaseModel):
@@ -16,5 +17,6 @@ class TestExecutionRead(BaseModel):
     status: ExecutionStatus
     executed_at: datetime
     notes: str | None
+    actual_result: str | None
 
     model_config = {"from_attributes": True}

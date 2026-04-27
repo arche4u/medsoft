@@ -934,6 +934,7 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
   const [showTcForm,  setShowTcForm]  = useState(false);
   const [tcTitle,     setTcTitle]     = useState("");
   const [tcDesc,      setTcDesc]      = useState("");
+  const [tcExpected,  setTcExpected]  = useState("");
   const [saving,      setSaving]      = useState(false);
   const [msg,         setMsg]         = useState("");
 
@@ -1037,11 +1038,11 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
     if (!tcTitle.trim()) return;
     setSaving(true); setMsg("");
     try {
-      const tc = await api.testcases.create({ project_id: req.project_id, title: tcTitle.trim(), description: tcDesc.trim() || undefined });
+      const tc = await api.testcases.create({ project_id: req.project_id, title: tcTitle.trim(), description: tcDesc.trim() || undefined, expected_result: tcExpected.trim() || undefined });
       setAllTCs(prev => [...prev, tc]);
       const link = await api.tracelinks.create({ requirement_id: req.id, testcase_id: tc.id });
       setTraceLinks(prev => [...prev, link]);
-      setTcTitle(""); setTcDesc(""); setShowTcForm(false);
+      setTcTitle(""); setTcDesc(""); setTcExpected(""); setShowTcForm(false);
     } catch (e: any) { setMsg("Error: " + e.message); }
     setSaving(false);
   }
@@ -1179,7 +1180,7 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
         <div style={{ ...assignSectionHead, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span>🧪 Test Cases</span>
           <button
-            onClick={() => { setShowTcForm(v => !v); setTcTitle(""); setTcDesc(""); }}
+            onClick={() => { setShowTcForm(v => !v); setTcTitle(""); setTcDesc(""); setTcExpected(""); }}
             style={{ fontSize: "0.68rem", background: showTcForm ? "#e8eaf6" : "#eff6ff", border: `1px solid ${showTcForm ? "#9fa8da" : "#bfdbfe"}`, color: showTcForm ? "#3949ab" : "#1d4ed8", borderRadius: 4, padding: "1px 8px", cursor: "pointer", fontWeight: 600 }}>
             {showTcForm ? "✕ Cancel" : "+ New Test Case"}
           </button>
@@ -1221,13 +1222,23 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
                 style={{ width: "100%", border: "1px solid #6ee7b7", borderRadius: 5, padding: "5px 8px", fontSize: "0.8rem", boxSizing: "border-box" as const }}
               />
             </div>
-            <div style={{ marginBottom: 8 }}>
-              <label style={{ fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: 3, color: "#065f46" }}>Steps / Expected Result</label>
+            <div style={{ marginBottom: 6 }}>
+              <label style={{ fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: 3, color: "#065f46" }}>Test Steps</label>
               <textarea
                 value={tcDesc}
                 onChange={e => setTcDesc(e.target.value)}
-                placeholder="1. Set up the system&#10;2. Perform action&#10;Expected: ..."
+                placeholder="1. Set up the system&#10;2. Perform action&#10;3. Observe output"
                 rows={3}
+                style={{ width: "100%", border: "1px solid #6ee7b7", borderRadius: 5, padding: "5px 8px", fontSize: "0.78rem", resize: "vertical", boxSizing: "border-box" as const, fontFamily: "inherit", lineHeight: 1.5 }}
+              />
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: 3, color: "#065f46" }}>Expected Result *</label>
+              <textarea
+                value={tcExpected}
+                onChange={e => setTcExpected(e.target.value)}
+                placeholder="What the system must do/output to pass this test"
+                rows={2}
                 style={{ width: "100%", border: "1px solid #6ee7b7", borderRadius: 5, padding: "5px 8px", fontSize: "0.78rem", resize: "vertical", boxSizing: "border-box" as const, fontFamily: "inherit", lineHeight: 1.5 }}
               />
             </div>

@@ -46,6 +46,12 @@ function TestCaseRow({ tc, linkedReqs, highlighted }: { tc: TestCase; linkedReqs
           {tc.description && (
             <p style={{ margin: "0 0 8px", fontSize: 13, color: "#555" }}>{tc.description}</p>
           )}
+          {tc.expected_result && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: "#388e3c", fontWeight: 600, marginBottom: 2 }}>EXPECTED RESULT</div>
+              <p style={{ margin: 0, fontSize: 13, color: "#2e7d32", background: "#f1f8e9", border: "1px solid #c5e1a5", borderRadius: 4, padding: "6px 10px", whiteSpace: "pre-wrap" }}>{tc.expected_result}</p>
+            </div>
+          )}
           {linkedReqs.length > 0 ? (
             <div>
               <div style={{ fontSize: 11, color: "#888", fontWeight: 600, marginBottom: 4 }}>LINKED REQUIREMENTS</div>
@@ -80,10 +86,11 @@ function TestCasesPageInner() {
   const [projectId, setProjectId]   = useActiveProject();
 
   // create form
-  const [title, setTitle]       = useState("");
-  const [desc, setDesc]         = useState("");
-  const [formError, setFormError] = useState("");
-  const [saving, setSaving]     = useState(false);
+  const [title, setTitle]           = useState("");
+  const [desc, setDesc]             = useState("");
+  const [expectedResult, setExpectedResult] = useState("");
+  const [formError, setFormError]   = useState("");
+  const [saving, setSaving]         = useState(false);
 
   // link form
   const [linkReqId, setLinkReqId] = useState("");
@@ -115,8 +122,8 @@ function TestCasesPageInner() {
     if (!projectId) { setFormError("Select a project"); return; }
     setSaving(true); setFormError("");
     try {
-      await api.testcases.create({ project_id: projectId, title: title.trim(), description: desc.trim() || undefined });
-      setTitle(""); setDesc("");
+      await api.testcases.create({ project_id: projectId, title: title.trim(), description: desc.trim() || undefined, expected_result: expectedResult.trim() || undefined });
+      setTitle(""); setDesc(""); setExpectedResult("");
       await reload();
     } catch (e: any) { setFormError(e.message); }
     finally { setSaving(false); }
@@ -161,7 +168,14 @@ function TestCasesPageInner() {
           <h2 style={{ marginTop: 0, fontSize: 15 }}>Add Test Case</h2>
           <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <input placeholder="Title *" value={title} onChange={e => setTitle(e.target.value)} required style={inputStyle} />
-            <input placeholder="Description (optional)" value={desc} onChange={e => setDesc(e.target.value)} style={inputStyle} />
+            <input placeholder="Description / test steps (optional)" value={desc} onChange={e => setDesc(e.target.value)} style={inputStyle} />
+            <textarea
+              placeholder="Expected result (optional) — what the system must do to pass"
+              value={expectedResult}
+              onChange={e => setExpectedResult(e.target.value)}
+              rows={3}
+              style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }}
+            />
             {formError && <p style={{ color: "red", margin: 0, fontSize: 13 }}>{formError}</p>}
             <button type="submit" disabled={saving || !projectId} style={btnStyle}>{saving ? "Saving…" : "Add Test Case"}</button>
           </form>

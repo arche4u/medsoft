@@ -31,6 +31,7 @@ class TestCase(Base, TimestampMixin):
     readable_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    expected_result: Mapped[str | None] = mapped_column(Text)
 
     project: Mapped["Project"] = relationship(back_populates="testcases")
     tracelinks: Mapped[list["TraceLink"]] = relationship(back_populates="testcase", cascade="all, delete-orphan", passive_deletes=True)

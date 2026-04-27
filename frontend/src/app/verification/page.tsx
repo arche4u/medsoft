@@ -16,10 +16,11 @@ export default function VerificationPage() {
   const [selectedTc, setSelectedTc]   = useState("");
 
   // run form
-  const [status, setStatus]   = useState<ExecStatus>("PASS");
-  const [notes, setNotes]     = useState("");
-  const [running, setRunning] = useState(false);
-  const [runMsg, setRunMsg]   = useState("");
+  const [status, setStatus]         = useState<ExecStatus>("PASS");
+  const [notes, setNotes]           = useState("");
+  const [actualResult, setActualResult] = useState("");
+  const [running, setRunning]       = useState(false);
+  const [runMsg, setRunMsg]         = useState("");
 
   useEffect(() => { api.projects.list().then(setProjects).catch(console.error); }, []);
 
@@ -47,8 +48,8 @@ export default function VerificationPage() {
     if (!selectedTc) return;
     setRunning(true); setRunMsg("");
     try {
-      await api.verification.execute({ testcase_id: selectedTc, status, notes: notes.trim() || undefined });
-      setNotes("");
+      await api.verification.execute({ testcase_id: selectedTc, status, notes: notes.trim() || undefined, actual_result: actualResult.trim() || undefined });
+      setNotes(""); setActualResult("");
       setExecutions(await api.verification.listExecutions(selectedTc));
       // update latest map
       const ex = await api.verification.latest(selectedTc);
@@ -81,7 +82,7 @@ export default function VerificationPage() {
                 <th style={thStyle}>Test Case</th>
                 <th style={thStyle}>Latest Status</th>
                 <th style={thStyle}>Executed At</th>
-                <th style={thStyle}>Notes</th>
+                <th style={thStyle}>Actual Result / Notes</th>
                 <th style={thStyle}>Action</th>
               </tr>
             </thead>
@@ -99,7 +100,7 @@ export default function VerificationPage() {
                       ) : <span style={{ color: "#aaa" }}>Not run</span>}
                     </td>
                     <td style={{ ...tdStyle, fontSize: "0.8rem" }}>{ex ? new Date(ex.executed_at).toLocaleString() : "—"}</td>
-                    <td style={{ ...tdStyle, fontSize: "0.8rem" }}>{ex?.notes ?? "—"}</td>
+                    <td style={{ ...tdStyle, fontSize: "0.8rem" }}>{ex?.actual_result ?? ex?.notes ?? "—"}</td>
                     <td style={tdStyle}>
                       <button
                         onClick={() => setSelectedTc(tc.id === selectedTc ? "" : tc.id)}
@@ -123,6 +124,15 @@ export default function VerificationPage() {
             <h2 style={{ marginTop: 0 }}>
               Record Execution — <span style={{ color: "#1565c0" }}>{testcases.find((tc) => tc.id === selectedTc)?.title}</span>
             </h2>
+            {(() => {
+              const tc = testcases.find(t => t.id === selectedTc);
+              return tc?.expected_result ? (
+                <div style={{ marginBottom: "1rem", padding: "8px 12px", background: "#f1f8e9", border: "1px solid #c5e1a5", borderRadius: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#388e3c", marginBottom: 3 }}>EXPECTED RESULT</div>
+                  <p style={{ margin: 0, fontSize: 13, color: "#2e7d32", whiteSpace: "pre-wrap" }}>{tc.expected_result}</p>
+                </div>
+              ) : null;
+            })()}
             <form onSubmit={handleRun} style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
               <div style={{ display: "flex", gap: "0.75rem" }}>
                 {(["PASS", "FAIL", "BLOCKED"] as ExecStatus[]).map((s) => (
@@ -133,11 +143,19 @@ export default function VerificationPage() {
                 ))}
               </div>
               <textarea
+                placeholder="Actual result — what the system did during this execution"
+                value={actualResult}
+                onChange={(e) => setActualResult(e.target.value)}
+                rows={3}
+                style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit",
+                  borderColor: status === "FAIL" ? "#ef9a9a" : status === "PASS" ? "#a5d6a7" : "#ffcc80" }}
+              />
+              <textarea
                 placeholder="Notes (optional)"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                rows={3}
-                style={{ ...inputStyle, resize: "vertical" }}
+                rows={2}
+                style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }}
               />
               {runMsg && <p style={{ color: runMsg.startsWith("Error") ? "red" : "green", margin: 0, fontSize: "0.85rem" }}>{runMsg}</p>}
               <button type="submit" disabled={running} style={{ ...btnStyle, background: STATUS_COLOR[status] }}>
@@ -156,7 +174,13 @@ export default function VerificationPage() {
                       <span style={{ background: STATUS_BG[ex.status], color: STATUS_COLOR[ex.status], padding: "1px 7px", borderRadius: "3px", fontWeight: "bold", fontSize: "0.8rem" }}>{ex.status}</span>
                       <span style={{ color: "#666", fontSize: "0.8rem" }}>{new Date(ex.executed_at).toLocaleString()}</span>
                     </div>
-                    {ex.notes && <div style={{ fontSize: "0.8rem", color: "#444" }}>{ex.notes}</div>}
+                    {ex.actual_result && (
+                      <div style={{ marginTop: 4, marginBottom: 2 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#555", textTransform: "uppercase" }}>Actual: </span>
+                        <span style={{ fontSize: "0.8rem", color: "#333", whiteSpace: "pre-wrap" }}>{ex.actual_result}</span>
+                      </div>
+                    )}
+                    {ex.notes && <div style={{ fontSize: "0.8rem", color: "#888", fontStyle: "italic" }}>{ex.notes}</div>}
                   </div>
                 ))}
               </div>

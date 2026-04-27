@@ -21,3 +21,4 @@ class TestExecution(Base):
     status: Mapped[ExecutionStatus] = mapped_column(SAEnum(ExecutionStatus, name="executionstatus"), nullable=False)
     executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+    actual_result: Mapped[str | None] = mapped_column(Text)
