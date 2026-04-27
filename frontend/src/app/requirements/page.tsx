@@ -1142,12 +1142,15 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
               if (!el) return null;
               const elColor = el.type === "ARCHITECTURE" ? "#4e342e" : "#6d4c41";
               return (
-                <span key={link.id} style={{ ...assignChipStyle, border: `1px solid ${elColor}` }}>
-                  <span style={{ fontFamily: "monospace", fontWeight: 700, color: elColor, fontSize: "0.68rem" }}>
-                    {el.readable_id ?? el.type.slice(0, 4)}
-                  </span>
-                  <span style={{ fontSize: "0.6rem", color: "#888", marginLeft: 2 }}>[{el.type}]</span>
-                  <span style={{ color: "#444", fontSize: "0.72rem", marginLeft: 2 }}>{el.title}</span>
+                <span key={link.id} style={{ ...assignChipStyle, border: `1px solid ${elColor}`, padding: 0, overflow: "hidden" }}>
+                  <a href={`/design?highlight=${el.id}`} title={el.title}
+                    style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 6px" }}>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, color: elColor, fontSize: "0.68rem" }}>
+                      {el.readable_id ?? el.type.slice(0, 4)}
+                    </span>
+                    <span style={{ fontSize: "0.6rem", color: "#888" }}>[{el.type}]</span>
+                    <span style={{ color: "#444", fontSize: "0.72rem" }}>{el.title}</span>
+                  </a>
                   <button onClick={() => unassignDesignEl(link.id)} disabled={saving}
                     style={assignChipRemoveStyle} title="Unlink">×</button>
                 </span>
@@ -1197,11 +1200,14 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
               const tc = tcById[link.testcase_id];
               if (!tc) return null;
               return (
-                <span key={link.id} style={{ ...assignChipStyle, border: "1px solid #6ee7b7" }}>
-                  <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#059669", fontSize: "0.68rem" }}>
-                    {tc.readable_id ?? "TC"}
-                  </span>
-                  <span style={{ color: "#444", fontSize: "0.72rem", marginLeft: 2 }}>{tc.title}</span>
+                <span key={link.id} style={{ ...assignChipStyle, border: "1px solid #6ee7b7", padding: 0, overflow: "hidden" }}>
+                  <a href={`/testcases?highlight=${tc.id}`} title={tc.title}
+                    style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 6px" }}>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#059669", fontSize: "0.68rem" }}>
+                      {tc.readable_id ?? "TC"}
+                    </span>
+                    <span style={{ color: "#444", fontSize: "0.72rem" }}>{tc.title}</span>
+                  </a>
                   <button onClick={() => unlinkTc(link.id)} disabled={saving}
                     style={assignChipRemoveStyle} title="Unlink">×</button>
                 </span>
