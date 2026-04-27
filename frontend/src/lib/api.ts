@@ -216,6 +216,7 @@ export const api = {
   tracelinks: {
     list: (requirement_id?: string) => req<TraceLink[]>(`/tracelinks/${requirement_id ? `?requirement_id=${requirement_id}` : ""}`),
     create: (d: { requirement_id: string; testcase_id: string }) => req<TraceLink>("/tracelinks/", { method: "POST", body: JSON.stringify(d) }),
+    delete: (link_id: string) => req<void>(`/tracelinks/${link_id}`, { method: "DELETE" }),
   },
   risks: {
     list: (requirement_id?: string, project_id?: string) => {

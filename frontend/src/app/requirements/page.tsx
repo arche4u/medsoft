@@ -3,7 +3,7 @@
 import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { api, Project, Requirement, RequirementCategory, UploadSummary, DesignElement, DesignLink, AIGeneratedRequirement, AICategoryMeta } from "@/lib/api";
+import { api, Project, Requirement, RequirementCategory, UploadSummary, DesignElement, DesignLink, TestCase, TraceLink, AIGeneratedRequirement, AICategoryMeta } from "@/lib/api";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -863,9 +863,16 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
 }) {
   const [designEls,   setDesignEls]   = useState<DesignElement[]>([]);
   const [designLinks, setDesignLinks] = useState<DesignLink[]>([]);
+  const [traceLinks,  setTraceLinks]  = useState<TraceLink[]>([]);
+  const [allTCs,      setAllTCs]      = useState<TestCase[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [addChildId,  setAddChildId]  = useState("");
   const [addDesignId, setAddDesignId] = useState("");
+  const [addTcId,     setAddTcId]     = useState("");
+  // inline new test case form
+  const [showTcForm,  setShowTcForm]  = useState(false);
+  const [tcTitle,     setTcTitle]     = useState("");
+  const [tcDesc,      setTcDesc]      = useState("");
   const [saving,      setSaving]      = useState(false);
   const [msg,         setMsg]         = useState("");
 
@@ -875,12 +882,16 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
     async function load() {
       setLoading(true);
       try {
-        const [els, links] = await Promise.all([
+        const [els, links, tlinks, tcs] = await Promise.all([
           api.design.listElements(req.project_id),
           api.design.listLinks(req.id),
+          api.tracelinks.list(req.id),
+          api.testcases.list(req.project_id),
         ]);
         setDesignEls(els);
         setDesignLinks(links);
+        setTraceLinks(tlinks);
+        setAllTCs(tcs);
       } catch { /* ignore */ }
       setLoading(false);
     }
@@ -949,6 +960,43 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
     } catch (e: any) { setMsg("Error: " + e.message); }
     setSaving(false);
   }
+
+  async function linkExistingTc() {
+    if (!addTcId) return;
+    setSaving(true); setMsg("");
+    try {
+      const link = await api.tracelinks.create({ requirement_id: req.id, testcase_id: addTcId });
+      setTraceLinks(prev => [...prev, link]);
+      setAddTcId("");
+    } catch (e: any) { setMsg("Error: " + e.message); }
+    setSaving(false);
+  }
+
+  async function createAndLinkTc() {
+    if (!tcTitle.trim()) return;
+    setSaving(true); setMsg("");
+    try {
+      const tc = await api.testcases.create({ project_id: req.project_id, title: tcTitle.trim(), description: tcDesc.trim() || undefined });
+      setAllTCs(prev => [...prev, tc]);
+      const link = await api.tracelinks.create({ requirement_id: req.id, testcase_id: tc.id });
+      setTraceLinks(prev => [...prev, link]);
+      setTcTitle(""); setTcDesc(""); setShowTcForm(false);
+    } catch (e: any) { setMsg("Error: " + e.message); }
+    setSaving(false);
+  }
+
+  async function unlinkTc(linkId: string) {
+    setSaving(true); setMsg("");
+    try {
+      await api.tracelinks.delete(linkId);
+      setTraceLinks(prev => prev.filter(l => l.id !== linkId));
+    } catch (e: any) { setMsg("Error: " + e.message); }
+    setSaving(false);
+  }
+
+  const linkedTcIds = new Set(traceLinks.map(l => l.testcase_id));
+  const tcById = Object.fromEntries(allTCs.map(t => [t.id, t]));
+  const linkableTcs = allTCs.filter(t => !linkedTcIds.has(t.id));
 
   return (
     <div style={{
@@ -1064,6 +1112,91 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
           <span style={{ fontSize: "0.7rem", color: "#aaa", fontStyle: "italic" }}>No design elements in this project yet</span>
         )}
       </div>
+
+      {/* ── Section C: Test Cases ── */}
+      <div style={{ gridColumn: "1/-1", borderTop: "1px solid #e8eaf6", paddingTop: 10, marginTop: 4 }}>
+        <div style={{ ...assignSectionHead, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>🧪 Test Cases</span>
+          <button
+            onClick={() => { setShowTcForm(v => !v); setTcTitle(""); setTcDesc(""); }}
+            style={{ fontSize: "0.68rem", background: showTcForm ? "#e8eaf6" : "#eff6ff", border: `1px solid ${showTcForm ? "#9fa8da" : "#bfdbfe"}`, color: showTcForm ? "#3949ab" : "#1d4ed8", borderRadius: 4, padding: "1px 8px", cursor: "pointer", fontWeight: 600 }}>
+            {showTcForm ? "✕ Cancel" : "+ New Test Case"}
+          </button>
+        </div>
+
+        {/* Linked test cases */}
+        {loading ? (
+          <span style={assignEmptyStyle}>Loading…</span>
+        ) : traceLinks.length === 0 && !showTcForm ? (
+          <span style={assignEmptyStyle}>No test cases linked yet</span>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+            {traceLinks.map(link => {
+              const tc = tcById[link.testcase_id];
+              if (!tc) return null;
+              return (
+                <span key={link.id} style={{ ...assignChipStyle, border: "1px solid #6ee7b7" }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#059669", fontSize: "0.68rem" }}>
+                    {tc.readable_id ?? "TC"}
+                  </span>
+                  <span style={{ color: "#444", fontSize: "0.72rem", marginLeft: 2 }}>{tc.title}</span>
+                  <button onClick={() => unlinkTc(link.id)} disabled={saving}
+                    style={assignChipRemoveStyle} title="Unlink">×</button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Inline create form */}
+        {showTcForm && (
+          <div style={{ background: "#f0fdf4", border: "1px solid #6ee7b7", borderRadius: 6, padding: "10px 12px", marginBottom: 6 }}>
+            <div style={{ marginBottom: 6 }}>
+              <label style={{ fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: 3, color: "#065f46" }}>Test Case Title *</label>
+              <input
+                value={tcTitle}
+                onChange={e => setTcTitle(e.target.value)}
+                placeholder="e.g. Verify surgeon can control probe with joystick within 50ms"
+                style={{ width: "100%", border: "1px solid #6ee7b7", borderRadius: 5, padding: "5px 8px", fontSize: "0.8rem", boxSizing: "border-box" as const }}
+              />
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: 3, color: "#065f46" }}>Steps / Expected Result</label>
+              <textarea
+                value={tcDesc}
+                onChange={e => setTcDesc(e.target.value)}
+                placeholder="1. Set up the system&#10;2. Perform action&#10;Expected: ..."
+                rows={3}
+                style={{ width: "100%", border: "1px solid #6ee7b7", borderRadius: 5, padding: "5px 8px", fontSize: "0.78rem", resize: "vertical", boxSizing: "border-box" as const, fontFamily: "inherit", lineHeight: 1.5 }}
+              />
+            </div>
+            <button
+              onClick={createAndLinkTc}
+              disabled={!tcTitle.trim() || saving}
+              style={{ background: "#059669", color: "#fff", border: "none", borderRadius: 5, padding: "4px 14px", cursor: "pointer", fontSize: "0.78rem", fontWeight: 600 }}>
+              {saving ? "Saving…" : "Create & Link Test Case"}
+            </button>
+          </div>
+        )}
+
+        {/* Link existing test case */}
+        {!loading && linkableTcs.length > 0 && (
+          <div style={{ display: "flex", gap: 5, alignItems: "center", marginTop: 4 }}>
+            <select value={addTcId} onChange={e => setAddTcId(e.target.value)} style={assignSelectStyle}>
+              <option value="">+ Link existing test case…</option>
+              {linkableTcs.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.readable_id ?? "TC"} {t.title}
+                </option>
+              ))}
+            </select>
+            <button onClick={linkExistingTc} disabled={!addTcId || saving} style={assignBtnStyle}>
+              Link
+            </button>
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
