@@ -60,7 +60,7 @@ export default function VerificationPage() {
   }
 
   return (
-    <div>
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px" }}>
       <h1>Test Execution</h1>
 
       <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>

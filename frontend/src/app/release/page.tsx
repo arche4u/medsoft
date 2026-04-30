@@ -142,7 +142,7 @@ export default function ReleasePage() {
   const badge = (status: string, color: string): React.CSSProperties => ({ background: color, color: "#fff", borderRadius: 12, padding: "2px 10px", fontSize: "0.7rem", fontWeight: "bold", display: "inline-block" });
 
   return (
-    <div>
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px" }}>
       <h1 style={{ marginBottom: "1.5rem", color: "#0d1b2a" }}>Release Management</h1>
 
       {error && <div style={{ background: "#ffebee", border: "1px solid #f44336", borderRadius: 4, padding: "0.75rem", marginBottom: "1rem", color: "#b71c1c", fontSize: "0.85rem" }}>{error}</div>}

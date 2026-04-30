@@ -26,6 +26,14 @@ import app.modules.esign.model          # noqa: F401
 import app.modules.training.model       # noqa: F401
 import app.modules.documents.model      # noqa: F401
 import app.modules.knowledge.model      # noqa: F401
+import app.modules.software_items.model # noqa: F401
+import app.modules.sdp.model            # noqa: F401
+import app.modules.architecture.model   # noqa: F401
+import app.modules.units.model                   # noqa: F401
+import app.modules.integration_tests.model       # noqa: F401
+import app.modules.system_testing.model          # noqa: F401
+import app.modules.config_mgmt.model            # noqa: F401
+import app.modules.capa.model                  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

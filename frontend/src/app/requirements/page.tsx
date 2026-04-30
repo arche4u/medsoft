@@ -35,6 +35,7 @@ function descendantNames(cats: RequirementCategory[], id: string): string[] {
 function RequirementsPageInner() {
   const searchParams = useSearchParams();
   const urlType      = searchParams.get("type") ?? "";
+  const highlightId  = searchParams.get("highlight") ?? "";
 
   const [projects,   setProjects]   = useState<Project[]>([]);
   const [reqs,       setReqs]       = useState<Requirement[]>([]);
@@ -84,7 +85,8 @@ function RequirementsPageInner() {
   const [aiCategories,  setAiCategories]  = useState<AICategoryMeta[]>([]);
 
   useEffect(() => {
-    if (urlType) { setFormType(urlType); }
+    if (urlType) { setFormType(urlType); setFocusType(urlType); }
+    else { setFocusType(""); }
   }, [urlType]);
 
   useEffect(() => { api.projects.list().then(setProjects).catch(console.error); }, []);
@@ -251,7 +253,7 @@ function RequirementsPageInner() {
   const catByName = Object.fromEntries(categories.map(c => [c.name, c]));
 
   return (
-    <div>
+    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem" }}>
         <h1 style={{ margin: 0, color: "#0d1b2a" }}>Requirements</h1>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -666,7 +668,7 @@ function RequirementsPageInner() {
                             {/* Focused-type children */}
                             <div style={{ background: "#fff" }}>
                               {children.map(r => (
-                                <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={true} />
+                                <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={true} highlightId={highlightId} />
                               ))}
                             </div>
                           </div>
@@ -679,7 +681,7 @@ function RequirementsPageInner() {
                           </div>
                           <div style={{ background: "#fff" }}>
                             {orphans.map(r => (
-                              <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={true} />
+                              <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={true} highlightId={highlightId} />
                             ))}
                           </div>
                         </div>
@@ -705,6 +707,7 @@ function RequirementsPageInner() {
                     tcMap={tcMap}
                     deMap={deMap}
                     showCrossTypeChildren={false}
+                    highlightId={highlightId}
                   />
                 ))
               )}
@@ -857,7 +860,7 @@ function InlineCreateReq({ catName, catColor: color, allReqs, cats, projectId, o
 /** Inline form to create a sub-category folder */
 
 /** Category folder node — collapsible, contains reqs and sub-category folders */
-function CategoryFolder({ cat, allCats, reqs, allReqs, cats, projectId, depth, onReload, tcMap, deMap, showCrossTypeChildren }: {
+function CategoryFolder({ cat, allCats, reqs, allReqs, cats, projectId, depth, onReload, tcMap, deMap, showCrossTypeChildren, highlightId }: {
   cat: RequirementCategory;
   allCats: RequirementCategory[];
   reqs: Requirement[];
@@ -869,6 +872,7 @@ function CategoryFolder({ cat, allCats, reqs, allReqs, cats, projectId, depth, o
   tcMap: Map<string, TestCase[]>;
   deMap: Map<string, { id: string; readable_id: string | null; title: string }[]>;
   showCrossTypeChildren?: boolean;
+  highlightId?: string;
 }) {
   const [open,       setOpen]       = useState(true);
   const [showNewReq, setShowNewReq] = useState(false);
@@ -953,7 +957,7 @@ function CategoryFolder({ cat, allCats, reqs, allReqs, cats, projectId, depth, o
             <p style={{ color: "#bbb", fontSize: "0.75rem", margin: "4px 0 4px 4px", fontStyle: "italic" }}>Empty folder</p>
           )}
           {catRootReqs.map(r => (
-            <ReqTree key={r.id} req={r} allReqs={allReqs} cats={cats} depth={0} onReload={onReload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={showCrossTypeChildren} />
+            <ReqTree key={r.id} req={r} allReqs={allReqs} cats={cats} depth={0} onReload={onReload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={showCrossTypeChildren} highlightId={highlightId} />
           ))}
 
           {/* Sub-category folders */}
@@ -971,6 +975,7 @@ function CategoryFolder({ cat, allCats, reqs, allReqs, cats, projectId, depth, o
               tcMap={tcMap}
               deMap={deMap}
               showCrossTypeChildren={showCrossTypeChildren}
+              highlightId={highlightId}
             />
           ))}
         </div>
@@ -1032,16 +1037,25 @@ function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
 }
 
 /** Renders a requirement and all its visible children recursively */
-function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap, showCrossTypeChildren }: {
+function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap, showCrossTypeChildren, highlightId }: {
   req: Requirement; allReqs: Requirement[]; cats: RequirementCategory[];
   depth: number; onReload: () => void;
   tcMap: Map<string, TestCase[]>;
   deMap: Map<string, { id: string; readable_id: string | null; title: string }[]>;
   showCrossTypeChildren?: boolean;
+  highlightId?: string;
 }) {
   const [editing,    setEditing]    = useState(false);
   const [assigning,  setAssigning]  = useState(false);
   const [localReq,   setLocalReq]   = useState(req);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const highlighted = req.id === highlightId;
+
+  useEffect(() => {
+    if (highlighted && rowRef.current) {
+      rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlighted]);
 
   const cat      = cats.find(c => c.name === localReq.type);
   const color    = catColor(cat);
@@ -1059,7 +1073,12 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap, showCrossT
   }
 
   return (
-    <div>
+    <div ref={rowRef} style={{
+      transition: "background 0.4s",
+      background: highlighted ? "#fefce8" : "transparent",
+      outline: highlighted ? "2px solid #fbbf24" : "none",
+      borderRadius: highlighted ? 4 : 0,
+    }}>
       {/* Row */}
       <div style={{
         display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap",

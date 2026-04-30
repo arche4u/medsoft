@@ -33,7 +33,29 @@ export type RequirementCategory = { id: string; project_id: string; name: string
 export type Requirement = { id: string; project_id: string; type: string; readable_id: string; parent_id: string | null; title: string; description: string | null; created_at: string };
 export type TestCase    = { id: string; project_id: string; category_id: string | null; readable_id: string | null; title: string; description: string | null; expected_result: string | null; created_at: string };
 export type TraceLink   = { id: string; requirement_id: string; testcase_id: string };
-export type Risk        = { id: string; requirement_id: string; category_id: string | null; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; risk_level: string; mitigation: string | null };
+export type Risk = {
+  id: string; requirement_id: string; category_id: string | null;
+  title: string | null; hazard: string; hazardous_situation: string; harm: string;
+  severity: number; probability: number; risk_level: string; mitigation: string | null;
+  status: string; evaluation_notes: string | null; re_evaluation_required: boolean;
+  controls: RiskControl[]; residual_risk: ResidualRisk | null;
+};
+export type RiskControl = {
+  id: string; risk_id: string; control_type: string; description: string;
+  requirement_id: string | null; testcase_id: string | null;
+  implementation_status: string; verification_notes: string | null;
+  created_at: string; updated_at: string;
+};
+export type ResidualRisk = {
+  id: string; risk_id: string; severity: number; probability: number; risk_level: string;
+  rationale: string | null; is_accepted: boolean; accepted_by: string | null;
+  accepted_at: string | null; created_at: string; updated_at: string;
+};
+export type RiskDashboard = {
+  total: number; by_level: Record<string, number>; by_status: Record<string, number>;
+  re_evaluation_count: number; heatmap: { severity: number; probability: number; count: number }[];
+  controls_total: number; controls_verified: number; residual_accepted: number;
+};
 export type SafetyProfile = {
   id: string; project_id: string;
   iec62304_class: string;
@@ -147,6 +169,309 @@ export type KnowledgeEntry = {
   updated_at: string;
 };
 
+// ── System Testing & Release Management (IEC 62304 §5.8) ─────────────────────
+export type STTestType = "FUNCTIONAL" | "PERFORMANCE" | "SAFETY" | "USABILITY" | "REGRESSION" | "SECURITY";
+
+export type STResult = {
+  id: string; test_case_id: string;
+  execution_date: string; result: "PASS" | "FAIL";
+  logs: string | null; actual_result: string | null;
+  defects_found: string | null; executed_by: string | null;
+  created_at: string;
+};
+
+export type SystemTestCase = {
+  id: string; project_id: string; requirement_id: string | null;
+  name: string; description: string | null;
+  test_type: STTestType;
+  preconditions: string | null; test_steps: string | null; expected_result: string | null;
+  safety_relevance: boolean;
+  results: STResult[];
+  latest_result: string | null;
+  additional_requirement_ids: string[];
+  risk_ids: string[];
+  created_at: string; updated_at: string;
+};
+
+export type RequirementCoverageItem = {
+  requirement_id: string; readable_id: string; title: string; req_type: string;
+  test_count: number; latest_result: string | null; is_covered: boolean; has_pass: boolean;
+};
+
+export type ProjectTestCoverage = {
+  project_id: string; total_requirements: number;
+  covered_requirements: number; uncovered_requirements: number;
+  coverage_pct: number; total_tests: number;
+  passed: number; failed: number; not_run: number; pass_rate: number;
+  requirements: RequirementCoverageItem[];
+  release_blocked: boolean; release_block_reasons: string[];
+};
+
+export type ReleaseArtifact = {
+  id: string; release_id: string;
+  artifact_type: string; reference_id: string;
+  version: string | null; label: string | null;
+  created_at: string;
+};
+
+export type ReleaseChecklistItem = {
+  id: string; release_id: string;
+  item_name: string; category: string; status: string;
+  evidence_link: string | null; notes: string | null;
+  is_auto: boolean; sort_order: number;
+  created_at: string; updated_at: string;
+};
+
+export type ReleaseGateResult = {
+  gate: string; label: string; passed: boolean; detail: string; blocking: boolean;
+};
+
+export type ReleaseReadiness = {
+  release_id: string; project_id: string;
+  is_ready: boolean;
+  gates: ReleaseGateResult[];
+  blocking_failures: string[];
+};
+
+export type ReleaseSnapshotRead = {
+  release_id: string; captured_at: string | null;
+  snapshot: {
+    release_version: string; captured_at: string;
+    requirements: { id: string; readable_id: string; type: string; title: string }[];
+    risks: { id: string; hazard: string; risk_level: string; status: string }[];
+    software_units: { id: string; name: string; safety_class: string; status: string }[];
+    architecture_components: { id: string; name: string; component_type: string; safety_class: string; status: string }[];
+    system_tests: { id: string; name: string; type: string; latest_result: string | null }[];
+    counts: { requirements: number; risks: number; units: number; system_tests: number };
+  };
+};
+
+// ── Integration Testing (IEC 62304 §5.7) ─────────────────────────────────────
+export type ITCTestType = "DATA_FLOW" | "CONTROL" | "ERROR_HANDLING" | "TIMING" | "SECURITY" | "REGRESSION";
+
+export type ITCResult = {
+  id: string; test_case_id: string;
+  execution_date: string; result: "PASS" | "FAIL";
+  logs: string | null; latency_ms: number | null;
+  data_integrity_check: string | null;
+  executed_by: string | null; error_details: string | null;
+  created_at: string;
+};
+
+export type IntegrationTestCase = {
+  id: string; project_id: string;
+  interface_id: string | null;
+  source_component_id: string | null;
+  target_component_id: string | null;
+  name: string; description: string | null;
+  test_type: ITCTestType; preconditions: string | null;
+  test_steps: string | null; expected_result: string | null;
+  safety_relevance: boolean;
+  latency_threshold_ms: number | null;
+  results: ITCResult[];
+  latest_result: string | null;
+  requirement_ids: string[]; risk_ids: string[];
+  created_at: string; updated_at: string;
+};
+
+export type InterfaceCoverageItem = {
+  interface_id: string; interface_name: string;
+  source_component: string; target_component: string;
+  interface_type: string; safety_relevant: boolean;
+  test_count: number; latest_result: string | null;
+  has_error_handling_test: boolean; has_pass: boolean;
+  latency_ok: boolean; is_covered: boolean;
+  coverage_gap: string | null;
+};
+
+export type ProjectCoverage = {
+  project_id: string; total_interfaces: number;
+  covered_interfaces: number; uncovered_interfaces: number;
+  coverage_pct: number; total_tests: number;
+  passed: number; failed: number; not_run: number;
+  pass_rate: number; safety_relevant_uncovered: number;
+  interfaces: InterfaceCoverageItem[];
+  release_blocked: boolean; release_block_reasons: string[];
+};
+
+export type ITCPerformanceMetrics = {
+  test_case_id: string; test_case_name: string;
+  interface_id: string | null; latency_threshold_ms: number | null;
+  executions: number;
+  avg_latency_ms: number | null; max_latency_ms: number | null; min_latency_ms: number | null;
+  threshold_breaches: number; data_integrity_pass_rate: number | null;
+};
+
+// ── Software Unit Implementation & Verification (IEC 62304 §5.5 / §5.6) ─────
+export type UnitStatus = "DRAFT" | "IMPLEMENTED" | "VERIFIED";
+export type UnitSafetyClass = "A" | "B" | "C";
+export type UnitTestType = "FUNCTIONAL" | "BOUNDARY" | "REGRESSION" | "INTEGRATION" | "STRESS" | "SECURITY";
+
+export type CodeArtifact = {
+  id: string; unit_id: string;
+  repository: string; branch: string | null;
+  commit_id: string | null; file_path: string | null;
+  version_tag: string | null;
+  created_at: string; updated_at: string;
+};
+
+export type UnitTestResult = {
+  id: string; test_case_id: string;
+  execution_date: string; result: "PASS" | "FAIL";
+  logs: string | null; coverage_percentage: number | null;
+  executed_by: string | null; created_at: string;
+};
+
+export type UnitTestCase = {
+  id: string; unit_id: string;
+  name: string; description: string | null;
+  test_type: string; expected_result: string | null;
+  results: UnitTestResult[];
+  latest_result: string | null;
+  created_at: string; updated_at: string;
+};
+
+export type SoftwareUnit = {
+  id: string; project_id: string; component_id: string | null;
+  name: string; description: string | null;
+  programming_language: string | null;
+  repository_url: string | null; file_path: string | null;
+  safety_class: UnitSafetyClass; status: UnitStatus;
+  artifacts: CodeArtifact[];
+  test_cases: UnitTestCase[];
+  requirement_ids: string[];
+  risk_ids: string[];
+  created_at: string; updated_at: string;
+};
+
+export type UnitComplianceCheck = { rule: string; label: string; required: boolean; satisfied: boolean; detail: string };
+export type UnitCompliance = { unit_id: string; safety_class: string; is_compliant: boolean; checks: UnitComplianceCheck[]; blocks: string[] };
+export type UnitCoverageMetrics = {
+  unit_id: string; total_test_cases: number;
+  executed: number; passed: number; failed: number; not_run: number;
+  avg_coverage: number | null; min_coverage: number | null; pass_rate: number;
+};
+
+// ── Software Architecture (IEC 62304 §5.3 / §5.4) ───────────────────────────
+export type ComponentType = "SYSTEM" | "SUBSYSTEM" | "ITEM" | "UNIT";
+export type ComponentStatus = "DRAFT" | "REVIEW" | "APPROVED";
+export type InterfaceType = "DATA" | "CONTROL" | "API" | "SIGNAL";
+export type DataFlowCriticality = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+export type SWDataFlow = {
+  id: string; interface_id: string;
+  data_name: string; data_type: string | null;
+  frequency: string | null; criticality: DataFlowCriticality;
+  description: string | null;
+  created_at: string; updated_at: string;
+};
+export type SWInterface = {
+  id: string; project_id: string;
+  source_component_id: string; target_component_id: string;
+  source_component_name: string; target_component_name: string;
+  interface_type: InterfaceType; name: string;
+  description: string | null; data_format: string | null;
+  communication_method: string | null; safety_relevant: boolean;
+  data_flows: SWDataFlow[];
+  created_at: string; updated_at: string;
+};
+export type SWComponent = {
+  id: string; project_id: string; parent_id: string | null;
+  name: string; description: string | null;
+  component_type: ComponentType; safety_class: string;
+  status: ComponentStatus; version: string;
+  rationale: string | null; approved_by: string | null; approved_at: string | null;
+  requirement_ids: string[]; risk_ids: string[]; testcase_ids: string[];
+  interface_count: number;
+  created_at: string; updated_at: string;
+};
+export type SWComponentTreeNode = {
+  id: string; name: string; component_type: ComponentType;
+  safety_class: string; status: ComponentStatus; version: string;
+  description: string | null;
+  requirement_ids: string[]; risk_ids: string[]; testcase_ids: string[];
+  interface_count: number; is_compliant: boolean;
+  children: SWComponentTreeNode[];
+};
+export type ArchComplianceCheck = { rule: string; label: string; required: boolean; satisfied: boolean; detail: string };
+export type ArchCompliance = { component_id: string; safety_class: string; is_compliant: boolean; checks: ArchComplianceCheck[]; blocks: string[] };
+
+// ── Software Development Plan (IEC 62304 §5.1) ───────────────────────────────
+export type SDPStatus = "DRAFT" | "IN_REVIEW" | "APPROVED" | "OBSOLETE";
+export type SDPLifecycleModel = "V_MODEL" | "AGILE" | "HYBRID";
+
+export type SDPSection = {
+  id: string; sdp_id: string;
+  section_number: string; section_name: string;
+  content: string | null; sort_order: number;
+  created_at: string; updated_at: string;
+};
+export type SDPPhase = {
+  id: string; sdp_id: string;
+  phase_name: string; phase_order: number;
+  entry_criteria: string | null; exit_criteria: string | null;
+  activities: string | null; required_for_class: string;
+  created_at: string; updated_at: string;
+};
+export type SDPRole = {
+  id: string; sdp_id: string;
+  role_name: string; responsibilities: string | null;
+  required_for_class: string; sort_order: number;
+  created_at: string; updated_at: string;
+};
+export type SDP = {
+  id: string; project_id: string;
+  version: string; status: SDPStatus;
+  lifecycle_model: SDPLifecycleModel; safety_class: string;
+  title: string; description: string | null;
+  created_by: string | null; approved_by: string | null;
+  approved_at: string | null; review_notes: string | null;
+  sections: SDPSection[]; phases: SDPPhase[]; roles: SDPRole[];
+  created_at: string; updated_at: string;
+};
+export type SDPSummary = Omit<SDP, "sections" | "phases" | "roles">;
+export type SDPComplianceCheck = { rule: string; label: string; satisfied: boolean; detail: string };
+export type SDPCompliance = { sdp_id: string; is_ready_for_approval: boolean; checks: SDPComplianceCheck[] };
+
+// ── Software Items (IEC 62304 §5 safety classification) ──────────────────────
+export type SoftwareItemType = "SYSTEM" | "SUBSYSTEM" | "UNIT";
+export type SoftwareItemStatus = "DRAFT" | "REVIEWED" | "APPROVED";
+export type SoftwareSafetyClass = "A" | "B" | "C";
+
+export type SoftwareItem = {
+  id: string;
+  project_id: string;
+  parent_id: string | null;
+  name: string;
+  description: string | null;
+  item_type: SoftwareItemType;
+  safety_class: SoftwareSafetyClass;
+  classification_justification: string | null;
+  status: SoftwareItemStatus;
+  risk_ids: string[];
+  requirement_ids: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ComplianceCheck = {
+  rule: string;
+  label: string;
+  required: boolean;
+  satisfied: boolean;
+  detail: string;
+};
+
+export type ComplianceStatus = {
+  item_id: string;
+  safety_class: string;
+  is_compliant: boolean;
+  checks: ComplianceCheck[];
+  blocks: string[];
+  suggested_class: string;
+  suggestion_reason: string;
+};
+
 export type AIGeneratedRequirement = {
   type: string;
   title: string;
@@ -164,6 +489,124 @@ export type AIGenerateResponse = {
   categories: AICategoryMeta[];
   tokens_used: number;
   model: string;
+};
+
+// ── Configuration Management & Change Control (IEC 62304 §8) ─────────────────
+export type CMItemStatus = "DRAFT" | "APPROVED" | "RELEASED" | "OBSOLETE";
+export type CMChangeType = "ENHANCEMENT" | "BUG_FIX" | "REGULATORY" | "SECURITY" | "EMERGENCY";
+export type CMPriority   = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type CMChangeStatus = "OPEN" | "IN_REVIEW" | "APPROVED" | "IMPLEMENTED" | "CLOSED" | "REJECTED";
+
+export type CMVersionHistory = {
+  id: string; config_item_id: string;
+  version: string; change_request_id: string | null;
+  change_summary: string | null; changed_by: string | null;
+  created_at: string;
+};
+
+export type CMConfigItem = {
+  id: string; project_id: string; baseline_id: string | null;
+  name: string; item_type: string; reference_id: string | null;
+  version: string; status: CMItemStatus; description: string | null;
+  version_history: CMVersionHistory[];
+  created_at: string; updated_at: string;
+};
+
+export type CMBaselineItem = {
+  id: string; baseline_id: string; config_item_id: string;
+  config_item_name: string; config_item_type: string;
+  config_item_version: string; config_item_status: string;
+};
+
+export type CMBaseline = {
+  id: string; project_id: string;
+  name: string; description: string | null;
+  is_released: boolean; created_by: string | null;
+  created_at: string; item_count: number;
+  items: CMBaselineItem[];
+};
+
+export type CMChangeImpact = {
+  id: string; change_request_id: string;
+  affected_item_type: string; affected_item_id: string;
+  affected_item_name: string | null; impact_description: string | null;
+  revalidation_required: boolean; revalidation_status: string;
+  created_at: string; updated_at: string;
+};
+
+export type CMChangeRequest = {
+  id: string; project_id: string;
+  title: string; description: string | null;
+  change_type: CMChangeType; priority: CMPriority;
+  status: CMChangeStatus; created_by: string | null;
+  resolution_notes: string | null;
+  impacts: CMChangeImpact[];
+  created_at: string; updated_at: string;
+};
+
+export type CMReleaseCheck = {
+  has_open_critical: boolean; has_incomplete_impact: boolean;
+  has_pending_revalidation: boolean; is_blocked: boolean;
+  block_reasons: string[];
+};
+
+// ── CAPA — Problem Resolution & Maintenance (Post-release) ───────────────────
+export type ProblemSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type ProblemStatus   = "OPEN" | "INVESTIGATING" | "RESOLVED" | "CLOSED";
+export type CAPAStatus      = "OPEN" | "IN_PROGRESS" | "COMPLETED" | "VERIFIED";
+export type RootCauseType   = "DESIGN" | "CODE" | "PROCESS" | "REQUIREMENTS" | "ENVIRONMENT" | "HUMAN_ERROR";
+export type UpdateType      = "MAJOR" | "MINOR" | "PATCH" | "HOTFIX" | "EMERGENCY";
+
+export type ProblemLink = {
+  id: string; problem_id: string;
+  linked_type: string; linked_id: string; linked_name: string | null;
+  created_at: string;
+};
+
+export type RootCause = {
+  id: string; problem_id: string;
+  root_cause_type: RootCauseType; description: string;
+  identified_by: string | null; identified_at: string; created_at: string;
+};
+
+export type CAPAVerification = {
+  id: string; capa_id: string;
+  verification_method: string | null; result: string;
+  evidence_link: string | null; verified_by: string | null;
+  verified_at: string; notes: string | null; created_at: string;
+};
+
+export type CAPARecord = {
+  id: string; problem_id: string;
+  action_type: "CORRECTIVE" | "PREVENTIVE";
+  description: string; assigned_to: string | null;
+  due_date: string | null; status: CAPAStatus;
+  verifications: CAPAVerification[];
+  created_at: string; updated_at: string;
+};
+
+export type ProblemReport = {
+  id: string; project_id: string;
+  title: string; description: string | null;
+  source: string | null; severity: ProblemSeverity;
+  status: ProblemStatus; related_release_id: string | null;
+  reported_by: string | null;
+  links: ProblemLink[]; root_causes: RootCause[]; capas: CAPARecord[];
+  created_at: string; updated_at: string;
+};
+
+export type MaintenanceRecord = {
+  id: string; project_id: string;
+  related_release_id: string | null; change_request_id: string | null;
+  description: string; update_type: UpdateType;
+  deployed_version: string | null; deployment_date: string | null;
+  created_at: string; updated_at: string;
+};
+
+export type CAPAReleaseCheck = {
+  has_open_capas: boolean; has_unverified_capas: boolean;
+  has_unresolved_critical: boolean; is_blocked: boolean;
+  block_reasons: string[];
 };
 
 // ── API client ────────────────────────────────────────────────────────────────
@@ -227,11 +670,27 @@ export const api = {
       else if (project_id) p.set("project_id", project_id);
       return req<Risk[]>(`/risks/?${p}`);
     },
-    create: (d: { requirement_id: string; category_id?: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; mitigation?: string }) =>
+    create: (d: { requirement_id: string; category_id?: string; title?: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; mitigation?: string; evaluation_notes?: string }) =>
       req<Risk>("/risks/", { method: "POST", body: JSON.stringify(d) }),
-    update: (id: string, d: { category_id?: string | null; hazard?: string; hazardous_situation?: string; harm?: string; severity?: number; probability?: number; mitigation?: string | null }) =>
+    update: (id: string, d: { category_id?: string | null; title?: string | null; hazard?: string; hazardous_situation?: string; harm?: string; severity?: number; probability?: number; mitigation?: string | null; evaluation_notes?: string | null }) =>
       req<Risk>(`/risks/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    updateStatus: (id: string, status: string) =>
+      req<Risk>(`/risks/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
     delete: (id: string) => req<void>(`/risks/${id}`, { method: "DELETE" }),
+    dashboard: (project_id: string) => req<RiskDashboard>(`/risks/dashboard/${project_id}`),
+    controls: {
+      list: (risk_id: string) => req<RiskControl[]>(`/risks/${risk_id}/controls`),
+      create: (risk_id: string, d: { control_type: string; description: string; requirement_id?: string | null; testcase_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
+        req<RiskControl>(`/risks/${risk_id}/controls`, { method: "POST", body: JSON.stringify(d) }),
+      update: (control_id: string, d: { control_type?: string; description?: string; requirement_id?: string | null; testcase_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
+        req<RiskControl>(`/risks/controls/${control_id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (control_id: string) => req<void>(`/risks/controls/${control_id}`, { method: "DELETE" }),
+    },
+    residual: {
+      get: (risk_id: string) => req<ResidualRisk | null>(`/risks/${risk_id}/residual`),
+      upsert: (risk_id: string, d: { severity: number; probability: number; rationale?: string | null; is_accepted: boolean; accepted_by?: string | null }) =>
+        req<ResidualRisk>(`/risks/${risk_id}/residual`, { method: "PUT", body: JSON.stringify(d) }),
+    },
     safetyProfile: {
       get: (project_id: string) => req<SafetyProfile | null>(`/risks/safety-profile/${project_id}`),
       create: (d: Omit<SafetyProfile, "id" | "created_at" | "updated_at">) =>
@@ -435,5 +894,285 @@ export const api = {
       req<KnowledgeEntry>(`/knowledge/entry/${entry_id}/copy-to-project/${project_id}`, { method: "POST", body: JSON.stringify({}) }),
     bulkCopyToProject: (entry_ids: string[], project_id: string) =>
       req<{ copied: number; skipped: number }>(`/knowledge/bulk-copy-to-project/${project_id}`, { method: "POST", body: JSON.stringify({ entry_ids }) }),
+  },
+  architecture: {
+    listComponents: (project_id: string) => req<SWComponent[]>(`/architecture/?project_id=${project_id}`),
+    getComponent: (id: string) => req<SWComponent>(`/architecture/${id}`),
+    tree: (project_id: string) => req<SWComponentTreeNode[]>(`/architecture/tree/${project_id}`),
+    createComponent: (d: { project_id: string; parent_id?: string | null; name: string; description?: string | null; component_type?: ComponentType; safety_class?: string; rationale?: string | null }) =>
+      req<SWComponent>("/architecture/", { method: "POST", body: JSON.stringify(d) }),
+    updateComponent: (id: string, d: { parent_id?: string | null; name?: string; description?: string | null; component_type?: ComponentType; safety_class?: string; rationale?: string | null }) =>
+      req<SWComponent>(`/architecture/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    deleteComponent: (id: string) => req<void>(`/architecture/${id}`, { method: "DELETE" }),
+    transitionStatus: (id: string, status: ComponentStatus, approved_by?: string) =>
+      req<SWComponent>(`/architecture/${id}/status`, { method: "PUT", body: JSON.stringify({ status, approved_by: approved_by ?? null }) }),
+    setRequirements: (id: string, ids: string[]) =>
+      req<SWComponent>(`/architecture/${id}/requirements`, { method: "PUT", body: JSON.stringify({ ids }) }),
+    setRisks: (id: string, ids: string[]) =>
+      req<SWComponent>(`/architecture/${id}/risks`, { method: "PUT", body: JSON.stringify({ ids }) }),
+    setTestcases: (id: string, ids: string[]) =>
+      req<SWComponent>(`/architecture/${id}/testcases`, { method: "PUT", body: JSON.stringify({ ids }) }),
+    compliance: (id: string) => req<ArchCompliance>(`/architecture/${id}/compliance`),
+    listInterfaces: (project_id: string) => req<SWInterface[]>(`/architecture/interfaces/${project_id}`),
+    createInterface: (d: { project_id: string; source_component_id: string; target_component_id: string; interface_type?: InterfaceType; name: string; description?: string | null; data_format?: string | null; communication_method?: string | null; safety_relevant?: boolean }) =>
+      req<SWInterface>("/architecture/interfaces", { method: "POST", body: JSON.stringify(d) }),
+    updateInterface: (id: string, d: { interface_type?: InterfaceType; name?: string; description?: string | null; data_format?: string | null; communication_method?: string | null; safety_relevant?: boolean }) =>
+      req<SWInterface>(`/architecture/interfaces/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    deleteInterface: (id: string) => req<void>(`/architecture/interfaces/${id}`, { method: "DELETE" }),
+    addDataFlow: (interface_id: string, d: { data_name: string; data_type?: string | null; frequency?: string | null; criticality?: DataFlowCriticality; description?: string | null }) =>
+      req<SWDataFlow>(`/architecture/interfaces/${interface_id}/dataflows`, { method: "POST", body: JSON.stringify(d) }),
+    updateDataFlow: (id: string, d: { data_name?: string; data_type?: string | null; frequency?: string | null; criticality?: DataFlowCriticality; description?: string | null }) =>
+      req<SWDataFlow>(`/architecture/dataflows/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    deleteDataFlow: (id: string) => req<void>(`/architecture/dataflows/${id}`, { method: "DELETE" }),
+  },
+  sdp: {
+    list: (project_id: string) => req<SDPSummary[]>(`/sdp/?project_id=${project_id}`),
+    get: (id: string) => req<SDP>(`/sdp/${id}`),
+    getActive: (project_id: string) => req<SDP | null>(`/sdp/active/${project_id}`),
+    create: (d: { project_id: string; version?: string; lifecycle_model?: SDPLifecycleModel; safety_class?: string; title?: string; description?: string | null; created_by?: string | null }) =>
+      req<SDP>("/sdp/", { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: { lifecycle_model?: SDPLifecycleModel; safety_class?: string; title?: string; description?: string | null; created_by?: string | null }) =>
+      req<SDP>(`/sdp/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    delete: (id: string) => req<void>(`/sdp/${id}`, { method: "DELETE" }),
+    fork: (id: string) => req<SDP>(`/sdp/${id}/fork`, { method: "POST", body: JSON.stringify({}) }),
+    transition: (id: string, d: { status: SDPStatus; approved_by?: string | null; review_notes?: string | null }) =>
+      req<SDP>(`/sdp/${id}/status`, { method: "PUT", body: JSON.stringify(d) }),
+    compliance: (id: string) => req<SDPCompliance>(`/sdp/${id}/compliance`),
+    sections: {
+      add: (sdp_id: string, d: { section_number: string; section_name: string; content?: string | null; sort_order?: number }) =>
+        req<SDPSection>(`/sdp/${sdp_id}/sections`, { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { section_name?: string; content?: string | null; sort_order?: number }) =>
+        req<SDPSection>(`/sdp/sections/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (id: string) => req<void>(`/sdp/sections/${id}`, { method: "DELETE" }),
+    },
+    phases: {
+      add: (sdp_id: string, d: { phase_name: string; phase_order?: number; entry_criteria?: string | null; exit_criteria?: string | null; activities?: string | null; required_for_class?: string }) =>
+        req<SDPPhase>(`/sdp/${sdp_id}/phases`, { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { phase_name?: string; phase_order?: number; entry_criteria?: string | null; exit_criteria?: string | null; activities?: string | null; required_for_class?: string }) =>
+        req<SDPPhase>(`/sdp/phases/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (id: string) => req<void>(`/sdp/phases/${id}`, { method: "DELETE" }),
+    },
+    roles: {
+      add: (sdp_id: string, d: { role_name: string; responsibilities?: string | null; required_for_class?: string; sort_order?: number }) =>
+        req<SDPRole>(`/sdp/${sdp_id}/roles`, { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { role_name?: string; responsibilities?: string | null; required_for_class?: string; sort_order?: number }) =>
+        req<SDPRole>(`/sdp/roles/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (id: string) => req<void>(`/sdp/roles/${id}`, { method: "DELETE" }),
+    },
+  },
+  systemTesting: {
+    list: (project_id: string, requirement_id?: string) => {
+      const p = new URLSearchParams({ project_id });
+      if (requirement_id) p.set("requirement_id", requirement_id);
+      return req<SystemTestCase[]>(`/system-testing/?${p}`);
+    },
+    get: (id: string) => req<SystemTestCase>(`/system-testing/${id}`),
+    create: (d: { project_id: string; requirement_id?: string | null; name: string; description?: string | null; test_type?: STTestType; preconditions?: string | null; test_steps?: string | null; expected_result?: string | null; safety_relevance?: boolean }) =>
+      req<SystemTestCase>("/system-testing/", { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: Partial<{ requirement_id: string | null; name: string; description: string | null; test_type: STTestType; preconditions: string | null; test_steps: string | null; expected_result: string | null; safety_relevance: boolean }>) =>
+      req<SystemTestCase>(`/system-testing/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    delete: (id: string) => req<void>(`/system-testing/${id}`, { method: "DELETE" }),
+    recordResult: (tc_id: string, d: { result: "PASS" | "FAIL"; logs?: string | null; actual_result?: string | null; defects_found?: string | null; executed_by?: string | null }) =>
+      req<STResult>(`/system-testing/${tc_id}/results`, { method: "POST", body: JSON.stringify(d) }),
+    setRequirements: (id: string, ids: string[]) =>
+      req<SystemTestCase>(`/system-testing/${id}/requirements`, { method: "PUT", body: JSON.stringify({ ids }) }),
+    setRisks: (id: string, ids: string[]) =>
+      req<SystemTestCase>(`/system-testing/${id}/risks`, { method: "PUT", body: JSON.stringify({ ids }) }),
+    coverage: (project_id: string) => req<ProjectTestCoverage>(`/system-testing/coverage/${project_id}`),
+    release: {
+      readiness: (release_id: string) => req<ReleaseReadiness>(`/system-testing/release/${release_id}/readiness`),
+      getChecklist: (release_id: string) => req<ReleaseChecklistItem[]>(`/system-testing/release/${release_id}/checklist`),
+      addChecklistItem: (release_id: string, d: { item_name: string; category?: string; evidence_link?: string | null; notes?: string | null; sort_order?: number }) =>
+        req<ReleaseChecklistItem>(`/system-testing/release/${release_id}/checklist`, { method: "POST", body: JSON.stringify(d) }),
+      updateChecklistItem: (item_id: string, d: { item_name?: string; status?: string; evidence_link?: string | null; notes?: string | null }) =>
+        req<ReleaseChecklistItem>(`/system-testing/checklist/${item_id}`, { method: "PUT", body: JSON.stringify(d) }),
+      listArtifacts: (release_id: string) => req<ReleaseArtifact[]>(`/system-testing/release/${release_id}/artifacts`),
+      addArtifact: (release_id: string, d: { artifact_type: string; reference_id: string; version?: string | null; label?: string | null }) =>
+        req<ReleaseArtifact>(`/system-testing/release/${release_id}/artifacts`, { method: "POST", body: JSON.stringify(d) }),
+      deleteArtifact: (id: string) => req<void>(`/system-testing/artifacts/${id}`, { method: "DELETE" }),
+      captureSnapshot: (release_id: string) =>
+        req<ReleaseSnapshotRead>(`/system-testing/release/${release_id}/snapshot`, { method: "POST", body: JSON.stringify({}) }),
+      getSnapshot: (release_id: string) => req<ReleaseSnapshotRead>(`/system-testing/release/${release_id}/snapshot`),
+    },
+  },
+  integrationTests: {
+    list: (project_id: string, interface_id?: string) => {
+      const p = new URLSearchParams({ project_id });
+      if (interface_id) p.set("interface_id", interface_id);
+      return req<IntegrationTestCase[]>(`/integration-tests/?${p}`);
+    },
+    get: (id: string) => req<IntegrationTestCase>(`/integration-tests/${id}`),
+    create: (d: {
+      project_id: string; interface_id?: string | null;
+      source_component_id?: string | null; target_component_id?: string | null;
+      name: string; description?: string | null; test_type?: ITCTestType;
+      preconditions?: string | null; test_steps?: string | null;
+      expected_result?: string | null; safety_relevance?: boolean;
+      latency_threshold_ms?: number | null;
+    }) => req<IntegrationTestCase>("/integration-tests/", { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: Partial<{
+      interface_id: string | null; source_component_id: string | null; target_component_id: string | null;
+      name: string; description: string | null; test_type: ITCTestType;
+      preconditions: string | null; test_steps: string | null; expected_result: string | null;
+      safety_relevance: boolean; latency_threshold_ms: number | null;
+    }>) => req<IntegrationTestCase>(`/integration-tests/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    delete: (id: string) => req<void>(`/integration-tests/${id}`, { method: "DELETE" }),
+    recordResult: (tc_id: string, d: {
+      result: "PASS" | "FAIL"; logs?: string | null;
+      latency_ms?: number | null; data_integrity_check?: string | null;
+      executed_by?: string | null; error_details?: string | null;
+    }) => req<ITCResult>(`/integration-tests/${tc_id}/results`, { method: "POST", body: JSON.stringify(d) }),
+    setRequirements: (id: string, ids: string[]) =>
+      req<IntegrationTestCase>(`/integration-tests/${id}/requirements`, { method: "PUT", body: JSON.stringify({ ids }) }),
+    setRisks: (id: string, ids: string[]) =>
+      req<IntegrationTestCase>(`/integration-tests/${id}/risks`, { method: "PUT", body: JSON.stringify({ ids }) }),
+    coverage: (project_id: string) => req<ProjectCoverage>(`/integration-tests/coverage/${project_id}`),
+    performance: (project_id: string) => req<ITCPerformanceMetrics[]>(`/integration-tests/performance/${project_id}`),
+  },
+  units: {
+    list: (project_id: string) => req<SoftwareUnit[]>(`/units/?project_id=${project_id}`),
+    get: (id: string) => req<SoftwareUnit>(`/units/${id}`),
+    create: (d: { project_id: string; component_id?: string | null; name: string; description?: string | null; programming_language?: string | null; repository_url?: string | null; file_path?: string | null; safety_class?: UnitSafetyClass }) =>
+      req<SoftwareUnit>("/units/", { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: { component_id?: string | null; name?: string; description?: string | null; programming_language?: string | null; repository_url?: string | null; file_path?: string | null; safety_class?: UnitSafetyClass }) =>
+      req<SoftwareUnit>(`/units/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    delete: (id: string) => req<void>(`/units/${id}`, { method: "DELETE" }),
+    transitionStatus: (id: string, status: UnitStatus) =>
+      req<SoftwareUnit>(`/units/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
+    compliance: (id: string) => req<UnitCompliance>(`/units/${id}/compliance`),
+    coverage: (id: string) => req<UnitCoverageMetrics>(`/units/${id}/coverage`),
+    setRequirements: (id: string, ids: string[]) =>
+      req<SoftwareUnit>(`/units/${id}/requirements`, { method: "PUT", body: JSON.stringify({ ids }) }),
+    setRisks: (id: string, ids: string[]) =>
+      req<SoftwareUnit>(`/units/${id}/risks`, { method: "PUT", body: JSON.stringify({ ids }) }),
+    artifacts: {
+      add: (unit_id: string, d: { repository: string; branch?: string | null; commit_id?: string | null; file_path?: string | null; version_tag?: string | null }) =>
+        req<CodeArtifact>(`/units/${unit_id}/artifacts`, { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { repository?: string; branch?: string | null; commit_id?: string | null; file_path?: string | null; version_tag?: string | null }) =>
+        req<CodeArtifact>(`/units/artifacts/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (id: string) => req<void>(`/units/artifacts/${id}`, { method: "DELETE" }),
+    },
+    testcases: {
+      add: (unit_id: string, d: { name: string; description?: string | null; test_type?: string; expected_result?: string | null }) =>
+        req<UnitTestCase>(`/units/${unit_id}/testcases`, { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { name?: string; description?: string | null; test_type?: string; expected_result?: string | null }) =>
+        req<UnitTestCase>(`/units/testcases/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (id: string) => req<void>(`/units/testcases/${id}`, { method: "DELETE" }),
+      recordResult: (tc_id: string, d: { result: "PASS" | "FAIL"; logs?: string | null; coverage_percentage?: number | null; executed_by?: string | null }) =>
+        req<UnitTestResult>(`/units/testcases/${tc_id}/results`, { method: "POST", body: JSON.stringify(d) }),
+    },
+  },
+  configMgmt: {
+    items: {
+      list: (project_id: string, item_type?: string, status?: string) => {
+        const p = new URLSearchParams({ project_id });
+        if (item_type) p.set("item_type", item_type);
+        if (status) p.set("status", status);
+        return req<CMConfigItem[]>(`/config-mgmt/items?${p}`);
+      },
+      get: (id: string) => req<CMConfigItem>(`/config-mgmt/items/${id}`),
+      create: (d: { project_id: string; name: string; item_type: string; reference_id?: string | null; version?: string; description?: string | null }) =>
+        req<CMConfigItem>("/config-mgmt/items", { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { name?: string; item_type?: string; reference_id?: string | null; description?: string | null }) =>
+        req<CMConfigItem>(`/config-mgmt/items/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (id: string) => req<void>(`/config-mgmt/items/${id}`, { method: "DELETE" }),
+      newVersion: (id: string, d: { version: string; change_summary?: string | null; changed_by?: string | null; change_request_id?: string | null }) =>
+        req<CMConfigItem>(`/config-mgmt/items/${id}/new-version`, { method: "POST", body: JSON.stringify(d) }),
+      setStatus: (id: string, status: CMItemStatus) =>
+        req<CMConfigItem>(`/config-mgmt/items/${id}/status?status=${status}`, { method: "PUT" }),
+    },
+    baselines: {
+      list: (project_id: string) => req<CMBaseline[]>(`/config-mgmt/baselines?project_id=${project_id}`),
+      get: (id: string) => req<CMBaseline>(`/config-mgmt/baselines/${id}`),
+      create: (d: { project_id: string; name: string; description?: string | null; created_by?: string | null; config_item_ids?: string[] }) =>
+        req<CMBaseline>("/config-mgmt/baselines", { method: "POST", body: JSON.stringify(d) }),
+      release: (id: string) => req<CMBaseline>(`/config-mgmt/baselines/${id}/release`, { method: "POST", body: JSON.stringify({}) }),
+      addItem: (baseline_id: string, item_id: string) =>
+        req<CMBaseline>(`/config-mgmt/baselines/${baseline_id}/items/${item_id}`, { method: "POST", body: JSON.stringify({}) }),
+      removeItem: (baseline_id: string, item_id: string) =>
+        req<CMBaseline>(`/config-mgmt/baselines/${baseline_id}/items/${item_id}`, { method: "DELETE" }),
+    },
+    changes: {
+      list: (project_id: string, status?: string, priority?: string) => {
+        const p = new URLSearchParams({ project_id });
+        if (status) p.set("status", status);
+        if (priority) p.set("priority", priority);
+        return req<CMChangeRequest[]>(`/config-mgmt/changes?${p}`);
+      },
+      get: (id: string) => req<CMChangeRequest>(`/config-mgmt/changes/${id}`),
+      create: (d: { project_id: string; title: string; description?: string | null; change_type?: CMChangeType; priority?: CMPriority; created_by?: string | null }) =>
+        req<CMChangeRequest>("/config-mgmt/changes", { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { title?: string; description?: string | null; change_type?: CMChangeType; priority?: CMPriority; resolution_notes?: string | null }) =>
+        req<CMChangeRequest>(`/config-mgmt/changes/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (id: string) => req<void>(`/config-mgmt/changes/${id}`, { method: "DELETE" }),
+      transition: (id: string, status: CMChangeStatus, resolution_notes?: string) =>
+        req<CMChangeRequest>(`/config-mgmt/changes/${id}/status`, { method: "PUT", body: JSON.stringify({ status, resolution_notes }) }),
+      addImpact: (cr_id: string, d: { affected_item_type: string; affected_item_id: string; affected_item_name?: string | null; impact_description?: string | null; revalidation_required?: boolean }) =>
+        req<CMChangeImpact>(`/config-mgmt/changes/${cr_id}/impacts`, { method: "POST", body: JSON.stringify(d) }),
+      updateImpact: (impact_id: string, d: { affected_item_name?: string | null; impact_description?: string | null; revalidation_required?: boolean; revalidation_status?: string }) =>
+        req<CMChangeImpact>(`/config-mgmt/impacts/${impact_id}`, { method: "PUT", body: JSON.stringify(d) }),
+      deleteImpact: (impact_id: string) => req<void>(`/config-mgmt/impacts/${impact_id}`, { method: "DELETE" }),
+    },
+    releaseCheck: (project_id: string) => req<CMReleaseCheck>(`/config-mgmt/release-check/${project_id}`),
+  },
+  capa: {
+    problems: {
+      list: (project_id: string, status?: string, severity?: string) => {
+        const p = new URLSearchParams({ project_id });
+        if (status) p.set("status", status);
+        if (severity) p.set("severity", severity);
+        return req<ProblemReport[]>(`/capa/problems?${p}`);
+      },
+      get: (id: string) => req<ProblemReport>(`/capa/problems/${id}`),
+      create: (d: { project_id: string; title: string; description?: string | null; source?: string | null; severity?: ProblemSeverity; related_release_id?: string | null; reported_by?: string | null }) =>
+        req<ProblemReport>("/capa/problems", { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { title?: string; description?: string | null; source?: string | null; severity?: ProblemSeverity; reported_by?: string | null }) =>
+        req<ProblemReport>(`/capa/problems/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      transition: (id: string, status: ProblemStatus) =>
+        req<ProblemReport>(`/capa/problems/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
+      delete: (id: string) => req<void>(`/capa/problems/${id}`, { method: "DELETE" }),
+      addLink: (id: string, d: { linked_type: string; linked_id: string; linked_name?: string | null }) =>
+        req<ProblemLink>(`/capa/problems/${id}/links`, { method: "POST", body: JSON.stringify(d) }),
+      deleteLink: (link_id: string) => req<void>(`/capa/links/${link_id}`, { method: "DELETE" }),
+      addRootCause: (id: string, d: { root_cause_type: RootCauseType; description: string; identified_by?: string | null }) =>
+        req<RootCause>(`/capa/problems/${id}/root-causes`, { method: "POST", body: JSON.stringify(d) }),
+      deleteRootCause: (rc_id: string) => req<void>(`/capa/root-causes/${rc_id}`, { method: "DELETE" }),
+      addCapa: (id: string, d: { action_type?: "CORRECTIVE" | "PREVENTIVE"; description: string; assigned_to?: string | null; due_date?: string | null }) =>
+        req<CAPARecord>(`/capa/problems/${id}/capas`, { method: "POST", body: JSON.stringify(d) }),
+    },
+    capas: {
+      update: (id: string, d: { action_type?: string; description?: string; assigned_to?: string | null; due_date?: string | null; status?: CAPAStatus }) =>
+        req<CAPARecord>(`/capa/capas/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (id: string) => req<void>(`/capa/capas/${id}`, { method: "DELETE" }),
+      addVerification: (id: string, d: { verification_method?: string | null; result?: string; evidence_link?: string | null; verified_by?: string | null; notes?: string | null }) =>
+        req<CAPAVerification>(`/capa/capas/${id}/verifications`, { method: "POST", body: JSON.stringify(d) }),
+      deleteVerification: (v_id: string) => req<void>(`/capa/verifications/${v_id}`, { method: "DELETE" }),
+    },
+    maintenance: {
+      list: (project_id: string) => req<MaintenanceRecord[]>(`/capa/maintenance?project_id=${project_id}`),
+      create: (d: { project_id: string; description: string; update_type?: UpdateType; related_release_id?: string | null; change_request_id?: string | null; deployed_version?: string | null; deployment_date?: string | null }) =>
+        req<MaintenanceRecord>("/capa/maintenance", { method: "POST", body: JSON.stringify(d) }),
+      update: (id: string, d: { description?: string; update_type?: UpdateType; deployed_version?: string | null; deployment_date?: string | null }) =>
+        req<MaintenanceRecord>(`/capa/maintenance/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (id: string) => req<void>(`/capa/maintenance/${id}`, { method: "DELETE" }),
+    },
+    releaseCheck: (project_id: string) => req<CAPAReleaseCheck>(`/capa/release-check/${project_id}`),
+  },
+  softwareItems: {
+    list: (project_id: string) =>
+      req<SoftwareItem[]>(`/software-items/?project_id=${project_id}`),
+    get: (id: string) => req<SoftwareItem>(`/software-items/${id}`),
+    create: (d: { project_id: string; parent_id?: string | null; name: string; description?: string | null; item_type?: SoftwareItemType; safety_class?: SoftwareSafetyClass; classification_justification?: string | null }) =>
+      req<SoftwareItem>("/software-items/", { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: { parent_id?: string | null; name?: string; description?: string | null; item_type?: SoftwareItemType; safety_class?: SoftwareSafetyClass; classification_justification?: string | null; status?: SoftwareItemStatus }) =>
+      req<SoftwareItem>(`/software-items/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    delete: (id: string) => req<void>(`/software-items/${id}`, { method: "DELETE" }),
+    transitionStatus: (id: string, status: SoftwareItemStatus) =>
+      req<SoftwareItem>(`/software-items/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
+    setRisks: (id: string, risk_ids: string[]) =>
+      req<SoftwareItem>(`/software-items/${id}/risks`, { method: "PUT", body: JSON.stringify({ risk_ids }) }),
+    setRequirements: (id: string, requirement_ids: string[]) =>
+      req<SoftwareItem>(`/software-items/${id}/requirements`, { method: "PUT", body: JSON.stringify({ requirement_ids }) }),
+    compliance: (id: string) => req<ComplianceStatus>(`/software-items/${id}/compliance`),
   },
 };

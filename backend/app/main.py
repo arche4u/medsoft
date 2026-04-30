@@ -34,6 +34,14 @@ from app.modules.training.router import router as training_router
 from app.modules.documents.router import router as documents_router
 from app.modules.ai.router import router as ai_router
 from app.modules.knowledge.router import router as knowledge_router
+from app.modules.software_items.router import router as software_items_router
+from app.modules.sdp.router import router as sdp_router
+from app.modules.architecture.router import router as architecture_router
+from app.modules.units.router import router as units_router
+from app.modules.integration_tests.router import router as integration_tests_router
+from app.modules.system_testing.router import router as system_testing_router
+from app.modules.config_mgmt.router import router as config_mgmt_router
+from app.modules.capa.router import router as capa_router
 
 app = FastAPI(title="MedSoft Compliance Platform", version="0.5.0")
 
@@ -58,6 +66,14 @@ for router in [
     change_control_router, approval_router, release_router, dhf_router,
     roles_router, users_router, esign_router, training_router,
     documents_router, ai_router, knowledge_router,
+    software_items_router,
+    sdp_router,
+    architecture_router,
+    units_router,
+    integration_tests_router,
+    system_testing_router,
+    config_mgmt_router,
+    capa_router,
 ]:
     app.include_router(router, prefix=settings.API_PREFIX, dependencies=_auth)
 

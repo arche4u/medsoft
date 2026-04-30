@@ -248,10 +248,40 @@ async def update_requirement(req_id: uuid.UUID, payload: RequirementUpdate, db: 
     req = await db.get(Requirement, req_id)
     if not req:
         raise HTTPException(404, detail="Requirement not found")
+
+    changed_fields = set(payload.model_dump(exclude_unset=True).keys())
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(req, k, v)
     await db.commit()
     await db.refresh(req)
+
+    # Flag linked risks for re-evaluation when title/description change (ISO 14971 §10)
+    if changed_fields & {"title", "description"}:
+        from app.modules.risks.model import Risk, RiskControl
+        from sqlalchemy import update as sql_update, or_
+
+        # Risks directly linked to this requirement
+        direct_ids = (await db.execute(
+            select(Risk.id).where(
+                Risk.requirement_id == req_id,
+                Risk.status != "CLOSED",
+            )
+        )).scalars().all()
+
+        # Risks linked via risk controls
+        via_control_ids = (await db.execute(
+            select(RiskControl.risk_id).where(RiskControl.requirement_id == req_id)
+        )).scalars().all()
+
+        all_risk_ids = list(set(list(direct_ids) + list(via_control_ids)))
+        if all_risk_ids:
+            await db.execute(
+                sql_update(Risk)
+                .where(Risk.id.in_(all_risk_ids), Risk.status != "CLOSED")
+                .values(re_evaluation_required=True, status="RE_EVALUATION_REQUIRED")
+            )
+            await db.commit()
+
     return req
 
 

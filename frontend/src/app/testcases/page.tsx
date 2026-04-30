@@ -195,7 +195,7 @@ function TestCasesPageInner() {
   const linked   = testcases.filter(tc =>  traceLinks.some(l => l.testcase_id === tc.id));
 
   return (
-    <div style={{ maxWidth: 1000, margin: "0 auto", padding: "20px" }}>
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px" }}>
       <h1 style={{ marginTop: 0, marginBottom: 20 }}>Test Cases</h1>
 
       <select value={projectId} onChange={e => setProjectId(e.target.value)} style={{ ...inputStyle, marginBottom: 20 }}>

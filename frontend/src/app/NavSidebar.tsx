@@ -74,6 +74,8 @@ const SECTIONS: Section[] = [
       {
         group: "Design",
         items: [
+          { href: "/sdp", label: "Dev Plan (SDP)" },
+          { href: "/architecture", label: "SW Architecture" },
           {
             href: "/requirements",
             label: "Requirements",
@@ -95,19 +97,31 @@ const SECTIONS: Section[] = [
       },
       {
         group: "Risk",
-        items: [{
-          href: "/risks",
-          label: "Risk Register",
-          subItems: [
-            { href: "/risks?level=HIGH",   label: "High Risk" },
-            { href: "/risks?level=MEDIUM", label: "Medium Risk" },
-            { href: "/risks?level=LOW",    label: "Low Risk" },
-          ],
-        }],
+        items: [
+          {
+            href: "/risks",
+            label: "Risk Register",
+            subItems: [
+              { href: "/risks?level=HIGH",   label: "High Risk" },
+              { href: "/risks?level=MEDIUM", label: "Medium Risk" },
+              { href: "/risks?level=LOW",    label: "Low Risk" },
+            ],
+          },
+          {
+            href: "/software-items",
+            label: "Software Items",
+            subItems: [
+              { href: "/software-items", label: "All Items" },
+            ],
+          },
+        ],
       },
       {
         group: "Testing",
         items: [
+          { href: "/units", label: "Unit Verification" },
+          { href: "/integration-tests", label: "Integration Tests" },
+          { href: "/system-testing", label: "System Testing" },
           {
             href: "/testcases",
             label: "Testing",
@@ -135,6 +149,8 @@ const SECTIONS: Section[] = [
           { href: "/change-control", label: "Change Requests" },
           { href: "/release",        label: "Releases" },
           { href: "/dhf",            label: "Design History File" },
+          { href: "/config-mgmt",    label: "Config Management" },
+          { href: "/capa",           label: "Problem Resolution" },
         ],
       },
       {

@@ -116,10 +116,25 @@ async def transition_release(
                 "Use POST /esign/sign to sign first.",
             )
 
-    # RELEASED → enforce permission + training + readiness
+    # RELEASED → enforce permission + approved SDP + training + readiness
     if body.new_status == ReleaseStatus.RELEASED:
         if "PUBLISH_RELEASE" not in current_user.permissions:
             raise HTTPException(403, "Permission 'PUBLISH_RELEASE' is required")
+
+        # SDP check — project must have an approved SDP (IEC 62304 §5.1)
+        from app.modules.sdp.model import SoftwareDevelopmentPlan
+        approved_sdp = (await db.execute(
+            select(SoftwareDevelopmentPlan).where(
+                SoftwareDevelopmentPlan.project_id == rel.project_id,
+                SoftwareDevelopmentPlan.status == "APPROVED",
+            ).limit(1)
+        )).scalar_one_or_none()
+        if not approved_sdp:
+            raise HTTPException(
+                400,
+                "Cannot release: no approved Software Development Plan (SDP) found for this project. "
+                "Create and approve an SDP under Design → Software Development Plan.",
+            )
 
         # Training check — user must have at least one valid training record
         valid_training = (
@@ -135,6 +150,50 @@ async def transition_release(
                 400,
                 "A valid training record is required to publish a release. "
                 "Contact your administrator to add training records.",
+            )
+
+        # System test readiness gate (IEC 62304 §5.8)
+        from app.modules.system_testing.router import _compute_readiness
+        sys_readiness = await _compute_readiness(str(release_id), str(rel.project_id), db)
+        if not sys_readiness.is_ready:
+            reasons = "; ".join(sys_readiness.blocking_failures[:3])
+            raise HTTPException(
+                400,
+                f"Release blocked by system testing/compliance gates: {reasons}. "
+                "Check Testing → System Testing for details.",
+            )
+
+        # CAPA release gate — no unverified or open CAPAs
+        from app.modules.capa.router import capa_release_check as _capa_check
+        capa_chk = await _capa_check(str(rel.project_id), db)
+        if capa_chk.is_blocked:
+            reasons = "; ".join(capa_chk.block_reasons[:3])
+            raise HTTPException(
+                400,
+                f"Release blocked by CAPA issues: {reasons}. "
+                "Resolve all CAPAs under CAPA → Problem Resolution.",
+            )
+
+        # Configuration management gate (IEC 62304 §8)
+        from app.modules.config_mgmt.router import release_check as _cm_check
+        cm_check = await _cm_check(str(rel.project_id), db)
+        if cm_check.is_blocked:
+            reasons = "; ".join(cm_check.block_reasons[:3])
+            raise HTTPException(
+                400,
+                f"Release blocked by configuration management issues: {reasons}. "
+                "Check Configuration Management for details.",
+            )
+
+        # Integration test coverage gate (IEC 62304 §5.7)
+        from app.modules.integration_tests.router import get_coverage as _itc_coverage
+        itc_cov = await _itc_coverage(str(rel.project_id), db)
+        if itc_cov.release_blocked and itc_cov.total_interfaces > 0:
+            reasons = "; ".join(itc_cov.release_block_reasons[:3])
+            raise HTTPException(
+                400,
+                f"Release blocked by integration testing gaps: {reasons}. "
+                "Resolve all issues under Testing → Integration Tests.",
             )
 
         readiness = await _check_readiness(rel.id, db)

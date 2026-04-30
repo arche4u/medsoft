@@ -3,7 +3,7 @@
 import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { api, Project, DesignElement, DesignElementType, Requirement } from "@/lib/api";
+import { api, Project, DesignElement, DesignElementType, Requirement, DesignLink } from "@/lib/api";
 import { InlineEditPanel, type FieldDef } from "@/components/InlineEditPanel";
 
 const TYPE_META: Record<DesignElementType, { label: string; color: string }> = {
@@ -215,11 +215,12 @@ function DiagramPanel({ element, onSaved }: {
 }
 
 // ── Single element row used in filtered (non-ALL) view ───────────────────────
-function ElementRow({ el, onDelete, onUpdate, highlighted }: {
+function ElementRow({ el, onDelete, onUpdate, highlighted, linkedReqs }: {
   el: DesignElement;
   onDelete: (id: string) => void;
   onUpdate: (el: DesignElement) => void;
   highlighted?: boolean;
+  linkedReqs?: Requirement[];
 }) {
   const [diagramOpen, setDiagramOpen] = useState(!!highlighted);
   const [editing,     setEditing]     = useState(false);
@@ -278,6 +279,16 @@ function ElementRow({ el, onDelete, onUpdate, highlighted }: {
             </span>
           )}
           <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{el.title}</span>
+          {linkedReqs?.map(r => (
+            <a key={r.id} href={`/requirements?type=${r.type}&highlight=${r.id}`}
+              title={r.title}
+              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center",
+                background: "#ede7f6", border: "1px solid #ce93d8", borderRadius: 4,
+                padding: "1px 7px", fontSize: 11, fontWeight: 700, color: "#6a1b9a",
+                flexShrink: 0, fontFamily: "monospace" }}>
+              {r.readable_id ?? "REQ"}
+            </a>
+          ))}
           {el.description && <span style={{ color: "#888", fontSize: 12 }}>{el.description}</span>}
           {el.diagram_source && (
             <span style={{ fontSize: 11, color, background: "#f5f5f5", border: "1px solid #ddd", borderRadius: 10, padding: "1px 7px" }}>
@@ -307,12 +318,13 @@ function ElementRow({ el, onDelete, onUpdate, highlighted }: {
 }
 
 // ── Collapsible ARCHITECTURE node ─────────────────────────────────────────────
-function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
+function ArchNode({ arch, children, onDelete, onUpdate, highlightId, linkedReqsForEl }: {
   arch: DesignElement;
   children: DesignElement[];
   onDelete: (id: string) => void;
   onUpdate: (el: DesignElement) => void;
   highlightId?: string;
+  linkedReqsForEl?: (id: string) => Requirement[];
 }) {
   const archHighlighted = arch.id === highlightId;
   const [open,         setOpen]         = useState(true);
@@ -375,6 +387,16 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
           </span>
         )}
         <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{arch.title}</span>
+        {linkedReqsForEl?.(arch.id).map(r => (
+          <a key={r.id} href={`/requirements?type=${r.type}&highlight=${r.id}`}
+            title={r.title}
+            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center",
+              background: "#ede7f6", border: "1px solid #ce93d8", borderRadius: 4,
+              padding: "1px 7px", fontSize: 11, fontWeight: 700, color: "#6a1b9a",
+              flexShrink: 0, fontFamily: "monospace" }}>
+            {r.readable_id ?? "REQ"}
+          </a>
+        ))}
         {arch.description && <span style={{ color: "#666", fontSize: 12 }}>{arch.description}</span>}
         {arch.diagram_source && (
           <span style={{ fontSize: 11, color: "#3949ab", background: "#e8eaf6", border: "1px solid #c5cae9", borderRadius: 10, padding: "1px 7px" }}>
@@ -451,6 +473,16 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId }: {
                   </span>
                 )}
                 <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{det.title}</span>
+                {linkedReqsForEl?.(det.id).map(r => (
+                  <a key={r.id} href={`/requirements?type=${r.type}&highlight=${r.id}`}
+                    title={r.title}
+                    style={{ textDecoration: "none", display: "inline-flex", alignItems: "center",
+                      background: "#ede7f6", border: "1px solid #ce93d8", borderRadius: 4,
+                      padding: "1px 7px", fontSize: 11, fontWeight: 700, color: "#6a1b9a",
+                      flexShrink: 0, fontFamily: "monospace" }}>
+                    {r.readable_id ?? "REQ"}
+                  </a>
+                ))}
                 {det.description && <span style={{ color: "#888", fontSize: 12 }}>{det.description}</span>}
                 {det.diagram_source && (
                   <span style={{ fontSize: 11, color: "#6d28d9", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "1px 7px" }}>
@@ -499,6 +531,8 @@ function DesignPageInner() {
   const [projects, setProjects]   = useState<Project[]>([]);
   const [elements, setElements]   = useState<DesignElement[]>([]);
   const [swReqs, setSwReqs]       = useState<Requirement[]>([]);
+  const [allReqs, setAllReqs]     = useState<Requirement[]>([]);
+  const [desLinks, setDesLinks]   = useState<DesignLink[]>([]);
   const [projectId, setProjectId] = useActiveProject();
   const [filter, setFilter]       = useState<string>(highlightId ? "ALL" : typeParam);
 
@@ -517,19 +551,24 @@ function DesignPageInner() {
   const [linkMsg, setLinkMsg]     = useState("");
 
   useEffect(() => { api.projects.list().then(setProjects); }, []);
+  useEffect(() => { if (!highlightId) setFilter(typeParam); }, [typeParam]);
 
   const reload = async () => {
     if (!projectId) return;
-    const [els, reqs] = await Promise.all([
+    const [els, reqs, allR, links] = await Promise.all([
       api.design.listElements(projectId),
       api.requirements.list(projectId, "SOFTWARE"),
+      api.requirements.list(projectId),
+      api.design.listLinks(),
     ]);
     setElements(els);
     setSwReqs(reqs);
+    setAllReqs(allR);
+    setDesLinks(links);
   };
 
   useEffect(() => {
-    if (!projectId) { setElements([]); setSwReqs([]); return; }
+    if (!projectId) { setElements([]); setSwReqs([]); setAllReqs([]); setDesLinks([]); return; }
     reload();
   }, [projectId]);
 
@@ -572,6 +611,10 @@ function DesignPageInner() {
 
   const archElements  = elements.filter(e => e.type === "ARCHITECTURE");
   const detailedOf    = (archId: string) => elements.filter(e => e.parent_id === archId);
+  const reqById       = Object.fromEntries(allReqs.map(r => [r.id, r]));
+  // map elementId → linked requirements
+  const linkedReqsForEl = (elId: string) =>
+    desLinks.filter(l => l.design_element_id === elId).map(l => reqById[l.requirement_id]).filter(Boolean) as Requirement[];
   const filteredElements = filter === "ALL" ? elements : elements.filter(e => e.type === filter);
   const counts = {
     ALL:          elements.length,
@@ -581,7 +624,7 @@ function DesignPageInner() {
   const diagramCount = elements.filter(e => e.diagram_source).length;
 
   return (
-    <div style={{ maxWidth: 1000, margin: "0 auto", padding: "20px" }}>
+    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
         <h1 style={{ margin: 0 }}>Design Elements</h1>
         {diagramCount > 0 && (
@@ -674,6 +717,7 @@ function DesignPageInner() {
                     onDelete={handleDelete}
                     onUpdate={handleElementUpdate}
                     highlightId={highlightId}
+                    linkedReqsForEl={linkedReqsForEl}
                   />
                 ))
             }
@@ -681,7 +725,7 @@ function DesignPageInner() {
         ) : (
           <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, overflow: "hidden" }}>
             {filteredElements.map(el => (
-              <ElementRow key={el.id} el={el} onDelete={handleDelete} onUpdate={handleElementUpdate} highlighted={el.id === highlightId} />
+              <ElementRow key={el.id} el={el} onDelete={handleDelete} onUpdate={handleElementUpdate} highlighted={el.id === highlightId} linkedReqs={linkedReqsForEl(el.id)} />
             ))}
           </div>
         )}
