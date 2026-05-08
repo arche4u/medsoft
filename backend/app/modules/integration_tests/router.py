@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_db
+from app.core.database import get_db
 from .model import IntegrationTestCase, IntegrationTestResult, ITCRequirementLink, ITCRiskLink
 from .schema import (
     IntegrationTestCaseCreate, IntegrationTestCaseUpdate, IntegrationTestCaseRead,

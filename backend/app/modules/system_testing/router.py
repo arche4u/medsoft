@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_db
+from app.core.database import get_db
 from .model import (
     SystemTestCase, SystemTestResult,
     STAdditionalReqLink, STRiskLink,
