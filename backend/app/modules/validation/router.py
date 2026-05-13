@@ -22,11 +22,26 @@ async def list_records(project_id: uuid.UUID | None = None, db: AsyncSession = D
 
 @router.post("/records", response_model=ValidationRecordRead, status_code=201)
 async def create_record(payload: ValidationRecordCreate, db: AsyncSession = Depends(get_db)):
+    from app.modules.requirements.model import RequirementCategory
+
     req = await db.get(Requirement, payload.related_requirement_id)
     if not req:
         raise HTTPException(404, detail="Requirement not found")
-    if req.type != "USER":
-        raise HTTPException(400, detail="Validation records must link to USER requirements")
+    # IEC 62304 §5.2 ties validation to top-level (user-need) requirements.
+    # "Top-level" is derived from the project's category tree (the category
+    # has no parent_id) — works for any custom taxonomy, not just "USER".
+    cat = (await db.execute(
+        select(RequirementCategory).where(
+            RequirementCategory.project_id == req.project_id,
+            RequirementCategory.name == req.type,
+        )
+    )).scalar_one_or_none()
+    if cat is None or cat.parent_id is not None:
+        raise HTTPException(
+            400,
+            "Validation records must link to top-level requirements "
+            "(a category with no parent in the project's category tree).",
+        )
     record = ValidationRecord(**payload.model_dump())
     db.add(record)
     await db.flush()

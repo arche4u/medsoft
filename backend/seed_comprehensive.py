@@ -20,7 +20,12 @@ from app.modules.verification.model import TestExecution, ExecutionStatus
 from app.modules.validation.model import ValidationRecord, ValidationStatus
 from app.modules.change_control.model import ChangeRequest, ChangeRequestState, ChangeImpact
 from app.modules.release.model import Release, ReleaseStatus, ReleaseItem
+from app.modules.sdp.seed import seed_approved_sdp
+from app.modules.requirements.seed import seed_approved_srs
+from app.modules.requirements.router import _ensure_builtins
 import app.modules.audit.model  # noqa: F401
+import app.modules.sdp.model  # noqa: F401  (ensure mapper registered before TRUNCATE)
+import app.modules.config_mgmt.model  # noqa: F401  (CM mirror tables)
 
 engine = create_async_engine(settings.DATABASE_URL, echo=False)
 Session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -66,6 +71,9 @@ async def wipe(db: AsyncSession):
         "tracelinks", "risks", "testcases",
         "requirements", "requirement_categories",
         "software_safety_profiles",
+        "requirements_baseline_items", "requirements_baselines",
+        "cm_baseline_items", "cm_baselines", "cm_config_items",
+        "sdp_sections", "sdp_lifecycle_phases", "sdp_project_roles", "sdp",
         "audit_logs", "documents", "projects",
     ])
     await db.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
@@ -1506,6 +1514,43 @@ async def seed():
             db.add(ReleaseItem(release_id=ar2.id, requirement_id=asw[swk].id))
         await db.flush()
 
+        # ══════════════════════════════════════════════════════════════════════
+        # Requirement categories — ensure every project has its initial tree
+        # (USER → SYSTEM → SOFTWARE with readable_id_prefix and parent_id chain)
+        # so traceability and category-baseline UIs work after a fresh seed.
+        # The dynamic API auto-seeds these on first GET, but tests/CLI users
+        # may inspect the DB before opening the UI, so do it up front.
+        # ══════════════════════════════════════════════════════════════════════
+        for proj in (p1, p2, p3, p4, p5):
+            await _ensure_builtins(db, proj.id)
+        await db.flush()
+
+        # ══════════════════════════════════════════════════════════════════════
+        # SDPs (IEC 62304 §5.1) — one APPROVED SDP per project, gates release.
+        # Project names are pulled from the inserted Project rows (not
+        # hardcoded). Safety class is metadata not stored on Project, so we
+        # provide it per-project here.
+        # ══════════════════════════════════════════════════════════════════════
+        sdp_classes = [(p1, "B"), (p2, "C"), (p3, "C"), (p4, "C"), (p5, "C")]
+        for proj, sclass in sdp_classes:
+            await seed_approved_sdp(
+                db,
+                project_id=proj.id,
+                safety_class=sclass,
+                title=f"SDP — {proj.name}",
+            )
+        await db.flush()
+        print(f"✓ Seeded {len(sdp_classes)} APPROVED SDPs from DB project names")
+
+        # ══════════════════════════════════════════════════════════════════════
+        # SRS baselines (IEC 62304 §5.2) — one APPROVED SRS v1.0 per project,
+        # auto-mirrored as a CMBaseline. Locks live requirements until forked.
+        # ══════════════════════════════════════════════════════════════════════
+        for proj in (p1, p2, p3, p4, p5):
+            await seed_approved_srs(db, project_id=proj.id)
+        await db.flush()
+        print(f"✓ Seeded 5 APPROVED SRS v1.0 baselines (CM-mirrored, requirements now locked)")
+
         await db.commit()
 
     print(f"✓ P5 AED — 10 USER | 10 SYS | 15 SW | 15 TC | 8 risks")
@@ -1521,6 +1566,7 @@ async def seed():
     print("Each project: 10 USER | 10 SYS | 15 SW | 15 TC | 8+ risks")
     print("              4 ARCH + 8 DETAILED design | 15 test executions")
     print("              5 validation records | 3 change requests | 2 releases")
+    print("              + 1 APPROVED SDP per project (release gate ready)")
     print(f"{'='*65}\n")
 
 

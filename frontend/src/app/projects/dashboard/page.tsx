@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, Project, Requirement, TestCase, Risk, RequirementCategory, DesignCategory, TestCategory, RiskCategory } from "@/lib/api";
 import { useActiveProject } from "@/lib/useActiveProject";
+import DashboardSrsPanel from "./DashboardSrsPanel";
 
 // ── Reusable folder/category manager panel (with level editor) ───────────────
 type FolderCat = { id: string; name: string; label: string; color: string; sort_order: number; is_builtin: boolean };
 
 function FolderPanel<T extends FolderCat>({
   title, description, icon, categories, projectId,
+  showPrefix = false,
   onAdd, onDelete, onUpdate,
 }: {
   title: string;
@@ -17,14 +19,18 @@ function FolderPanel<T extends FolderCat>({
   icon: string;
   categories: T[];
   projectId: string;
-  onAdd: (d: { project_id: string; name: string; label: string; color: string }) => Promise<T>;
+  /** When true, an extra "Prefix" input appears (used for requirement
+   *  categories so each one declares its readable-ID prefix, e.g. URQ/REG). */
+  showPrefix?: boolean;
+  onAdd: (d: { project_id: string; name: string; label: string; color: string; readable_id_prefix?: string }) => Promise<T>;
   onDelete: (id: string) => Promise<void>;
-  onUpdate: (id: string, d: { label?: string; color?: string; sort_order?: number }) => Promise<T>;
+  onUpdate: (id: string, d: { label?: string; color?: string; sort_order?: number; readable_id_prefix?: string }) => Promise<T>;
 }) {
   const [cats,        setCats]        = useState<T[]>(categories);
   const [draftName,   setDraftName]   = useState("");
   const [draftLabel,  setDraftLabel]  = useState("");
   const [draftColor,  setDraftColor]  = useState("#546e7a");
+  const [draftPrefix, setDraftPrefix] = useState("");
   const [draftLevel,  setDraftLevel]  = useState(0);
   const [saving,      setSaving]      = useState(false);
   const [msg,         setMsg]         = useState("");
@@ -40,13 +46,17 @@ function FolderPanel<T extends FolderCat>({
     if (!draftName || !draftLabel) return;
     setSaving(true); setMsg("");
     try {
-      const created = await onAdd({ project_id: projectId, name: draftName, label: draftLabel, color: draftColor });
+      const payload: { project_id: string; name: string; label: string; color: string; readable_id_prefix?: string } = {
+        project_id: projectId, name: draftName, label: draftLabel, color: draftColor,
+      };
+      if (showPrefix && draftPrefix) payload.readable_id_prefix = draftPrefix.trim().toUpperCase();
+      const created = await onAdd(payload);
       // Set level immediately after creation if non-zero
       const withLevel = draftLevel !== created.sort_order
         ? await onUpdate(created.id, { sort_order: draftLevel })
         : created;
       setCats(cs => [...cs, withLevel as T].sort((a, b) => a.sort_order - b.sort_order));
-      setDraftName(""); setDraftLabel(""); setDraftColor("#546e7a"); setDraftLevel(0);
+      setDraftName(""); setDraftLabel(""); setDraftColor("#546e7a"); setDraftPrefix(""); setDraftLevel(0);
       setMsg("✓ Added");
       setTimeout(() => setMsg(""), 2000);
     } catch (err: any) { setMsg("✗ " + err.message); }
@@ -131,6 +141,12 @@ function FolderPanel<T extends FolderCat>({
                     {c.label}
                   </span>
                   <span style={{ fontSize: 10, fontFamily: "monospace", color: "#9ca3af" }}>{c.name}
+                    {showPrefix && "readable_id_prefix" in c && (c as FolderCat & { readable_id_prefix?: string | null }).readable_id_prefix && (
+                      <span title="Readable-ID prefix used for new requirements of this type"
+                            style={{ marginLeft: 5, background: "#eef2ff", color: "#4338ca", borderRadius: 8, padding: "1px 6px", fontWeight: 600 }}>
+                        {(c as FolderCat & { readable_id_prefix?: string | null }).readable_id_prefix}-NNN
+                      </span>
+                    )}
                     {c.is_builtin && <span style={{ marginLeft: 5, background: "#f5f5f5", color: "#bbb", borderRadius: 8, padding: "1px 5px" }}>built-in</span>}
                   </span>
                 </div>
@@ -219,6 +235,17 @@ function FolderPanel<T extends FolderCat>({
                 onChange={e => setDraftLevel(Math.max(0, Math.min(9, parseInt(e.target.value) || 0)))}
                 style={{ ...miniInput, width: "100%", textAlign: "center" }} />
             </div>
+            {showPrefix && (
+              <div style={{ width: 70 }}>
+                <label style={microLabel} title="Readable ID prefix (e.g. URQ → URQ-001). Defaults to first 3 letters of Key.">Prefix</label>
+                <input
+                  value={draftPrefix}
+                  onChange={e => setDraftPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))}
+                  placeholder={draftName.slice(0, 3) || "URQ"}
+                  style={{ ...miniInput, width: "100%", textAlign: "center" as const, fontFamily: "monospace" }}
+                />
+              </div>
+            )}
             <div>
               <label style={microLabel}>Color</label>
               <input type="color" value={draftColor} onChange={e => setDraftColor(e.target.value)}
@@ -373,7 +400,7 @@ export default function ProjectDashboardPage() {
 
       {/* Requirements breakdown — wraps gracefully with any number of types */}
       {cats.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 20, padding: "10px 14px", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12, padding: "10px 14px", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 8 }}>
           {[...cats].sort((a, b) => a.sort_order - b.sort_order).map(c => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${c.color}50`, borderRadius: 20, padding: "4px 12px 4px 8px", whiteSpace: "nowrap" }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
@@ -383,6 +410,11 @@ export default function ProjectDashboardPage() {
           ))}
         </div>
       )}
+
+      {/* SRS composite release strip — surfaces the project's current release
+          manifest at the dashboard level so users see version + status + pins
+          without navigating into /requirements. */}
+      {activeId && <DashboardSrsPanel projectId={activeId} />}
 
       {/* Project settings — full width */}
       <div style={cardStyle}>
@@ -435,6 +467,7 @@ export default function ProjectDashboardPage() {
             icon="📋"
             categories={cats}
             projectId={activeId}
+            showPrefix
             onAdd={d => api.requirements.categories.create(d)}
             onDelete={api.requirements.categories.delete}
             onUpdate={api.requirements.categories.update}

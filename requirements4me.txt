@@ -1,0 +1,70 @@
+You are a senior full-stack architect.
+
+Goal:
+Set up Phase 0 foundation for a scalable medical software compliance platform (future IEC 62304 + ERP system).
+
+Tech Stack:
+- Backend: FastAPI (Python)
+- Frontend: React (Next.js)
+- Database: PostgreSQL
+- Use UUIDs for all primary keys
+
+Requirements:
+
+1. Create a clean, modular backend structure:
+   /app
+     /core (config, db, base models)
+     /modules
+       /projects
+       /requirements
+       /testcases
+       /tracelinks
+
+2. Define PostgreSQL models (SQLAlchemy):
+   - Project (id, name, description, created_at)
+   - Requirement (id, project_id, title, description, created_at)
+   - TestCase (id, project_id, title, description, created_at)
+   - TraceLink (id, requirement_id, testcase_id)
+
+3. Create basic CRUD APIs:
+   - /projects
+   - /requirements
+   - /testcases
+   - /tracelinks
+
+4. Setup database connection and migrations (Alembic)
+
+5. Ensure:
+   - Proper foreign key relationships
+   - Clean separation of modules
+   - Scalable structure for future ERP modules
+
+6. Frontend (Next.js):
+   - Basic structure with pages:
+     - Projects list
+     - Requirements list
+     - TestCases list
+   - Simple API integration (fetch + display)
+
+7. Keep it minimal:
+   - No authentication
+   - No advanced business logic
+   - No styling focus
+
+Output:
+- Folder structure
+- Key code files (models, APIs, DB config)
+- Steps to run locally
+
+
+Phase:0 
+
+    Create project
+    Add requirements
+    Link tests
+    Generate traceabilitymatrix
+
+    Project
+ ├── Requirements
+ ├── TestCases
+ └── TraceLinks (Requirement ↔ TestCase)

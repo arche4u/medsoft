@@ -6,6 +6,8 @@ import {
   SDP, SDPSummary, SDPSection, SDPPhase, SDPRole,
   SDPStatus, SDPLifecycleModel, SDPCompliance,
 } from "@/lib/api";
+import { useActiveProject } from "@/lib/useActiveProject";
+import { downloadSdpPdf } from "./pdf";
 
 // ── Status metadata ────────────────────────────────────────────────────────────
 
@@ -23,6 +25,19 @@ const LC_LABELS: Record<SDPLifecycleModel, string> = {
 };
 
 const CLASS_COLOR: Record<string, string> = { A: "#1b5e20", B: "#e65100", C: "#b71c1c" };
+
+// ── Signoff row ──────────────────────────────────────────────────────────────
+function SignoffRow({ label, name, at }: { label: string; name: string | null; at: string | null }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0", fontSize: 12 }}>
+      <span style={{ width: 100, color: "#78909c" }}>{label}:</span>
+      <span style={{ fontWeight: name ? 600 : 400, color: name ? "#1a237e" : "#bdbdbd", flex: 1 }}>
+        {name ?? "— not signed —"}
+      </span>
+      {at && <span style={{ color: "#78909c", fontSize: 11 }}>{new Date(at).toLocaleDateString()}</span>}
+    </div>
+  );
+}
 
 // ── Version history sidebar ───────────────────────────────────────────────────
 
@@ -597,15 +612,30 @@ function RolesTab({ sdp, onRefresh, readonly }: { sdp: SDP; onRefresh: () => voi
 function ApprovalTab({ sdp, compliance, onTransition, onRefreshCompliance }: {
   sdp: SDP;
   compliance: SDPCompliance | null;
-  onTransition: (status: SDPStatus, approvedBy?: string, notes?: string) => void;
+  onTransition: (payload: {
+    status: SDPStatus;
+    prepared_by?: string;
+    reviewed_by?: string;
+    approved_by?: string;
+    review_notes?: string;
+  }) => Promise<string[]>;
   onRefreshCompliance: () => void;
 }) {
+  const [preparedBy, setPreparedBy] = useState(sdp.prepared_by ?? "");
+  const [reviewer, setReviewer] = useState(sdp.reviewed_by ?? "");
   const [approver, setApprover] = useState(sdp.approved_by ?? "");
   const [notes, setNotes] = useState(sdp.review_notes ?? "");
+  const [warnings, setWarnings] = useState<string[]>([]);
   const m = STATUS_META[sdp.status];
 
   const FLOW: SDPStatus[] = ["DRAFT", "IN_REVIEW", "APPROVED", "OBSOLETE"];
   const currentIdx = FLOW.indexOf(sdp.status);
+
+  async function go(payload: Parameters<typeof onTransition>[0]) {
+    setWarnings([]);
+    const w = await onTransition(payload);
+    setWarnings(w);
+  }
 
   return (
     <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
@@ -643,15 +673,31 @@ function ApprovalTab({ sdp, compliance, onTransition, onRefreshCompliance }: {
           {/* Current status badge */}
           <div style={{ padding: "10px 14px", borderRadius: 6, background: m.bg, border: `1px solid ${m.border}`, marginBottom: 16 }}>
             <span style={{ fontWeight: 600, color: m.color }}>Current: {sdp.status}</span>
-            {sdp.approved_at && <span style={{ color: m.color, fontSize: 12, marginLeft: 10 }}>Approved {new Date(sdp.approved_at).toLocaleDateString()} by {sdp.approved_by}</span>}
           </div>
+
+          {/* Three-stage signoff trail */}
+          <div style={{ ...sty.panel, padding: 12, marginBottom: 16, background: "#fafafa" }}>
+            <div style={{ ...sty.panelTitle, marginBottom: 8 }}>Document Signoff</div>
+            <SignoffRow label="Prepared by" name={sdp.prepared_by} at={sdp.prepared_at} />
+            <SignoffRow label="Reviewed by" name={sdp.reviewed_by} at={sdp.reviewed_at} />
+            <SignoffRow label="Approved by" name={sdp.approved_by} at={sdp.approved_at} />
+          </div>
+
+          {/* Warnings (e.g. reviewer == approver) */}
+          {warnings.length > 0 && (
+            <div style={{ background: "#fff3e0", border: "1px solid #ffcc80", borderRadius: 6, padding: "8px 12px", marginBottom: 12, color: "#e65100", fontSize: 13 }}>
+              ⚠ {warnings.join(" · ")}
+            </div>
+          )}
 
           {/* Action buttons */}
           {sdp.status === "DRAFT" && (
             <div>
+              <label style={sty.label}>Prepared by</label>
+              <input value={preparedBy} onChange={e => setPreparedBy(e.target.value)} placeholder="Author full name" style={{ ...sty.input, width: "100%", marginBottom: 10, boxSizing: "border-box" as const }} />
               <label style={sty.label}>Review Notes</label>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Optional review notes…" style={{ ...sty.textarea, marginBottom: 10 }} />
-              <button onClick={() => onTransition("IN_REVIEW", undefined, notes || undefined)} style={sty.btn}>
+              <button onClick={() => go({ status: "IN_REVIEW", prepared_by: preparedBy || undefined, review_notes: notes || undefined })} style={sty.btn}>
                 Submit for Review →
               </button>
             </div>
@@ -659,15 +705,21 @@ function ApprovalTab({ sdp, compliance, onTransition, onRefreshCompliance }: {
 
           {sdp.status === "IN_REVIEW" && (
             <div>
-              <label style={sty.label}>Approver Name *</label>
-              <input value={approver} onChange={e => setApprover(e.target.value)} placeholder="Full name" style={{ ...sty.input, width: "100%", marginBottom: 10, boxSizing: "border-box" as const }} />
+              <label style={sty.label}>Reviewed by *</label>
+              <input value={reviewer} onChange={e => setReviewer(e.target.value)} placeholder="Reviewer full name" style={{ ...sty.input, width: "100%", marginBottom: 10, boxSizing: "border-box" as const }} />
+              <label style={sty.label}>Approved by *</label>
+              <input value={approver} onChange={e => setApprover(e.target.value)} placeholder="Approver full name" style={{ ...sty.input, width: "100%", marginBottom: 10, boxSizing: "border-box" as const }} />
               <label style={sty.label}>Review Notes</label>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Approval notes…" style={{ ...sty.textarea, marginBottom: 10 }} />
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => onTransition("APPROVED", approver, notes || undefined)} style={{ ...sty.btn, background: "#1b5e20" }}>
+                <button
+                  onClick={() => go({ status: "APPROVED", reviewed_by: reviewer, approved_by: approver, review_notes: notes || undefined })}
+                  disabled={!reviewer || !approver}
+                  style={{ ...sty.btn, background: !reviewer || !approver ? "#9e9e9e" : "#1b5e20", cursor: !reviewer || !approver ? "not-allowed" : "pointer" }}
+                >
                   ✓ Approve SDP
                 </button>
-                <button onClick={() => onTransition("DRAFT", undefined, notes || undefined)} style={{ ...sty.btnSmall, background: "#ffebee", color: "#b71c1c", border: "1px solid #ef9a9a" }}>
+                <button onClick={() => go({ status: "DRAFT", review_notes: notes || undefined })} style={{ ...sty.btnSmall, background: "#ffebee", color: "#b71c1c", border: "1px solid #ef9a9a" }}>
                   ✗ Return to Draft
                 </button>
               </div>
@@ -676,7 +728,7 @@ function ApprovalTab({ sdp, compliance, onTransition, onRefreshCompliance }: {
 
           {sdp.status === "APPROVED" && (
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => { if (confirm("Mark this SDP as obsolete?")) onTransition("OBSOLETE"); }}
+              <button onClick={() => { if (confirm("Mark this SDP as obsolete?")) go({ status: "OBSOLETE" }); }}
                 style={{ ...sty.btnSmall, background: "#eceff1", color: "#546e7a" }}>
                 → Mark Obsolete
               </button>
@@ -782,9 +834,8 @@ type TabId = "overview" | "sections" | "lifecycle" | "roles" | "approval";
 
 function SDPPageInner() {
   const searchParams = useSearchParams();
-  const projectId = searchParams.get("project") ?? (
-    typeof window !== "undefined" ? localStorage.getItem("medsoft_active_project") ?? "" : ""
-  );
+  const [activeProjectId] = useActiveProject();
+  const projectId = searchParams.get("project") ?? activeProjectId;
 
   const [versions, setVersions] = useState<SDPSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -795,6 +846,15 @@ function SDPPageInner() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState<string>("");
+
+  // Fetch project name for the PDF subtitle (avoids hardcoding).
+  useEffect(() => {
+    if (!projectId) { setProjectName(""); return; }
+    api.projects.list()
+      .then(ps => setProjectName(ps.find(p => p.id === projectId)?.name ?? ""))
+      .catch(() => setProjectName(""));
+  }, [projectId]);
 
   const loadVersions = useCallback(async () => {
     if (!projectId) { setLoading(false); return; }
@@ -845,17 +905,31 @@ function SDPPageInner() {
     }
   }
 
-  async function handleTransition(status: SDPStatus, approvedBy?: string, notes?: string) {
-    if (!selectedId) return;
+  async function handleTransition(payload: {
+    status: SDPStatus;
+    prepared_by?: string;
+    reviewed_by?: string;
+    approved_by?: string;
+    review_notes?: string;
+  }): Promise<string[]> {
+    if (!selectedId) return [];
     try {
-      await api.sdp.transition(selectedId, { status, approved_by: approvedBy ?? null, review_notes: notes ?? null });
+      const result = await api.sdp.transition(selectedId, {
+        status: payload.status,
+        prepared_by: payload.prepared_by ?? null,
+        reviewed_by: payload.reviewed_by ?? null,
+        approved_by: payload.approved_by ?? null,
+        review_notes: payload.review_notes ?? null,
+      });
       await loadVersions();
       loadDetail();
+      return result.warnings ?? [];
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       const match = msg.match(/\d+: ([\s\S]*)/);
       try { alert(JSON.parse(match?.[1] ?? "{}").detail ?? msg); }
       catch { alert(msg); }
+      return [];
     }
   }
 
@@ -941,6 +1015,17 @@ function SDPPageInner() {
                       Read-only
                     </span>
                   )}
+                  <button
+                    onClick={() => downloadSdpPdf(sdp, projectName, versions)}
+                    title="Open print dialog to save the current SDP as PDF"
+                    style={{
+                      padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                      background: "#fff", color: "#4a148c",
+                      border: "1px solid #ce93d8", borderRadius: 6,
+                    }}
+                  >
+                    ⬇ PDF
+                  </button>
                 </div>
 
                 {/* Tabs */}

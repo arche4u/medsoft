@@ -3,7 +3,9 @@
 import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { api, Project, Requirement, RequirementCategory, UploadSummary, DesignElement, DesignLink, TestCase, TraceLink, AIGeneratedRequirement, AICategoryMeta } from "@/lib/api";
+import { api, Project, Requirement, RequirementCategory, UploadSummary, DesignElement, DesignLink, TestCase, TraceLink, AIGeneratedRequirement, AICategoryMeta, CompositeBaselineSummary } from "@/lib/api";
+import { downloadSrsPdf } from "./pdf";
+import SrsBaselineBar from "./SrsBaselineBar";
 import { InlineEditPanel, type FieldDef } from "@/components/InlineEditPanel";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -41,6 +43,7 @@ function RequirementsPageInner() {
   const [reqs,       setReqs]       = useState<Requirement[]>([]);
   const [categories, setCategories] = useState<RequirementCategory[]>([]);
   const [projectId,  setProjectId]  = useActiveProject();
+  const [composites, setComposites] = useState<CompositeBaselineSummary[]>([]);
 
   // Linked-item maps for inline chips on each row
   const [tcMap,  setTcMap]  = useState<Map<string, TestCase[]>>(new Map());
@@ -254,9 +257,34 @@ function RequirementsPageInner() {
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+      {projectId && (
+        <SrsBaselineBar
+          projectId={projectId}
+          projectName={projects.find(p => p.id === projectId)?.name ?? ""}
+          categories={categories}
+          focusCategory={urlType || undefined}
+          onMutated={reload}
+          onState={s => setComposites(s.composite_summaries)}
+        />
+      )}
+      {projectId && <ChangeImpactPanel reqs={reqs} onReload={reload} />}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem" }}>
         <h1 style={{ margin: 0, color: "#0d1b2a" }}>Requirements</h1>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {projectId && reqs.length > 0 && (
+            <button
+              onClick={() => downloadSrsPdf(
+                reqs, categories,
+                projects.find(p => p.id === projectId)?.name ?? "",
+                composites.find(b => b.status === "APPROVED") ?? composites[0] ?? null,
+                composites,
+              )}
+              title="Open print dialog to save the Software Requirements Specification as PDF"
+              style={{ background: "#fff", color: "#4a148c", border: "1px solid #ce93d8", borderRadius: 6, padding: "0.45rem 0.9rem", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600 }}
+            >
+              ⬇ SRS PDF
+            </button>
+          )}
           {projectId && (
             <button
               onClick={() => setShowAI(true)}
@@ -1024,6 +1052,27 @@ function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
       accentColor="#ffd54f"
       accentBg="#fffde7"
       onSave={async (vals) => {
+        // Cross-category change-impact: if title/description changed and this
+        // requirement has descendants, preview the impact and ask for explicit
+        // confirmation before saving (so the user can't accidentally cascade
+        // re-review work across teams).
+        const titleChanged = vals.title.trim() !== req.title;
+        const descChanged = (vals.description.trim() || null) !== (req.description ?? null);
+        if (titleChanged || descChanged) {
+          try {
+            const preview = await api.requirements.impactPreview(req.id);
+            if (preview.total > 0) {
+              const byType = Object.entries(preview.by_type)
+                .map(([t, n]) => `${t}: ${n}`).join(" · ");
+              const ok = window.confirm(
+                `Saving this change will flag ${preview.total} downstream requirement(s) for review.\n\n` +
+                `Impacted: ${byType}\n\n` +
+                `Each team will need to confirm whether their requirements still hold or need updating. Proceed?`
+              );
+              if (!ok) return;
+            }
+          } catch { /* preview is best-effort; don't block on failure */ }
+        }
         const updated = await api.requirements.update(req.id, {
           title:       vals.title.trim(),
           description: vals.description.trim() || null,
@@ -1072,6 +1121,13 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap, showCrossT
     } catch (e: any) { alert("Delete failed: " + e.message); }
   }
 
+  async function handleAcknowledge() {
+    try {
+      const updated = await api.requirements.acknowledgeReview(req.id);
+      setLocalReq(updated);
+    } catch (e: any) { alert("Acknowledge failed: " + e.message); }
+  }
+
   return (
     <div ref={rowRef} style={{
       transition: "background 0.4s",
@@ -1100,6 +1156,32 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap, showCrossT
           {cat?.label ?? localReq.type}
         </span>
         <span style={{ fontWeight: 500, fontSize: "0.84rem", flex: 1 }}>{localReq.title}</span>
+
+        {/* Needs-review chip (cross-category change-impact) */}
+        {localReq.needs_review && (
+          <span
+            title={localReq.needs_review_reason ?? "Flagged for review"}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              background: "#fff3e0", border: "1px solid #ffcc80", color: "#e65100",
+              borderRadius: 10, padding: "1px 8px", fontSize: "0.66rem",
+              fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap",
+            }}
+          >
+            ⚠ Needs review
+            <button
+              onClick={(e) => { e.stopPropagation(); handleAcknowledge(); }}
+              title="Mark this requirement as reviewed — clears the flag"
+              style={{
+                marginLeft: 4, background: "#e65100", color: "#fff",
+                border: "none", borderRadius: 3, padding: "0 6px",
+                fontSize: "0.62rem", fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              ack
+            </button>
+          </span>
+        )}
 
         {/* Linked TC chips */}
         {linkedTCs.map(tc => (
@@ -1617,6 +1699,66 @@ function CategoryOptGroup({ root, all }: { root: RequirementCategory; all: Requi
         <option key={ch.id} value={ch.name}>  └ {ch.label}</option>
       ))}
     </optgroup>
+  );
+}
+
+
+// ── Change-impact summary panel (cross-category SDLC monitor) ───────────────
+//
+// Shows the count of requirements currently flagged needs_review per category
+// so the team can monitor SDLC state at a glance (IEC 62304 §6.2/§9). Only
+// renders when there's at least one flagged requirement.
+
+function ChangeImpactPanel({ reqs, onReload }: { reqs: Requirement[]; onReload: () => void }) {
+  const flagged = reqs.filter(r => r.needs_review);
+  if (flagged.length === 0) return null;
+
+  const byType = new Map<string, number>();
+  flagged.forEach(r => byType.set(r.type, (byType.get(r.type) ?? 0) + 1));
+
+  async function acknowledgeAll() {
+    if (!confirm(`Acknowledge all ${flagged.length} flagged requirement(s)? Each will be marked as reviewed.`)) return;
+    try {
+      await Promise.all(flagged.map(r => api.requirements.acknowledgeReview(r.id)));
+      onReload();
+    } catch (e: any) {
+      alert("Acknowledge failed: " + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  return (
+    <div style={{
+      background: "#fff8e1", border: "1px solid #ffcc80", borderRadius: 8,
+      padding: "10px 14px", marginBottom: 14,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontWeight: 700, color: "#e65100", fontSize: 13 }}>
+            ⚠ {flagged.length} requirement(s) need review
+          </span>
+          {Array.from(byType.entries()).sort().map(([t, n]) => (
+            <span key={t} style={{
+              background: "#fff", border: "1px solid #ffcc80", borderRadius: 12,
+              padding: "2px 10px", fontSize: 11, fontWeight: 600, color: "#e65100",
+            }}>
+              {t}: {n}
+            </span>
+          ))}
+          <span style={{ fontSize: 11, color: "#8d6e63" }}>
+            (changed ancestors propagated — confirm each is still valid or edit to clear)
+          </span>
+        </div>
+        <button
+          onClick={acknowledgeAll}
+          style={{
+            background: "#e65100", color: "#fff", border: "none", borderRadius: 6,
+            padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600,
+          }}
+        >
+          Acknowledge all
+        </button>
+      </div>
+    </div>
   );
 }
 

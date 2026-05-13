@@ -94,11 +94,44 @@ export default function DHFPage() {
           ["Risks", summary.total_risks, "#b71c1c"],
           ["Validations", summary.total_validations, "#6a1b9a"],
           ["Test Executions", summary.total_executions, "#00695c"],
+          ["SDP", summary.sdp_present ? "✓" : "—", summary.sdp_present ? "#15803d" : "#9ca3af"],
         ].map(([label, value, color]) => `
           <div class="stat-card" style="border-top: 3px solid ${color}">
             <div class="stat-value" style="color:${color}">${value ?? 0}</div>
             <div class="stat-label">${label}</div>
           </div>`).join("")}
+      </div>` : "";
+
+    const sdpBlob = parsedContent.sdp as SDPSDPBlob | null | undefined;
+    const sdpHtml = sdpBlob ? `
+      <div class="section">
+        <h2>Software Development Plan
+          <span class="count">v${sdpBlob.version} · ${sdpBlob.status} · Class ${sdpBlob.safety_class}</span>
+        </h2>
+        <p style="font-size:9pt;color:#374151"><strong>${sdpBlob.title}</strong>
+          ${sdpBlob.approved_by ? `· approved by ${sdpBlob.approved_by}` : ""}
+          ${sdpBlob.approved_at ? `on ${new Date(sdpBlob.approved_at).toLocaleDateString()}` : ""}
+          · lifecycle: ${sdpBlob.lifecycle_model}</p>
+        <h3 style="font-size:10pt;margin-top:10pt">Sections (${sdpBlob.sections.length})</h3>
+        ${sdpBlob.sections.map(s => `
+          <div style="margin-bottom:6pt"><strong>${s.section_number}. ${s.section_name}</strong>
+            ${s.content ? `<div style="font-size:8.5pt;color:#444;white-space:pre-wrap">${s.content}</div>` : ""}
+          </div>`).join("")}
+        <h3 style="font-size:10pt;margin-top:10pt">Lifecycle Phases (${sdpBlob.phases.length})</h3>
+        <table><thead><tr><th>#</th><th>Phase</th><th>Entry</th><th>Exit</th><th>Activities</th><th>Class</th></tr></thead>
+          <tbody>${sdpBlob.phases.map(p => `<tr>
+            <td>${p.phase_order}</td><td><strong>${p.phase_name}</strong></td>
+            <td>${p.entry_criteria ?? "—"}</td><td>${p.exit_criteria ?? "—"}</td>
+            <td>${p.activities ?? "—"}</td><td style="text-align:center">${p.required_for_class}</td>
+          </tr>`).join("")}</tbody>
+        </table>
+        <h3 style="font-size:10pt;margin-top:10pt">Roles & Responsibilities (${sdpBlob.roles.length})</h3>
+        <table><thead><tr><th>Role</th><th>Responsibilities</th><th>Class</th></tr></thead>
+          <tbody>${sdpBlob.roles.map(r => `<tr>
+            <td><strong>${r.role_name}</strong></td><td>${r.responsibilities ?? "—"}</td>
+            <td style="text-align:center">${r.required_for_class}</td>
+          </tr>`).join("")}</tbody>
+        </table>
       </div>` : "";
 
     const sectionsHtml = SECTIONS.map(s => {
@@ -186,6 +219,7 @@ export default function DHFPage() {
     </div>
   </div>
   ${summaryHtml}
+  ${sdpHtml}
   ${sectionsHtml}
   ${diagramsHtml}
   ${hasDiagrams ? `<script>
@@ -206,7 +240,7 @@ export default function DHFPage() {
   const inputStyle: React.CSSProperties = { border: "1px solid #ccc", borderRadius: 4, padding: "0.4rem 0.6rem", fontSize: "0.85rem", width: "100%" };
   const btnStyle = (color = "#1565c0"): React.CSSProperties => ({ background: color, color: "#fff", border: "none", borderRadius: 4, padding: "0.4rem 0.8rem", cursor: "pointer", fontSize: "0.8rem" });
 
-  const summary = parsedContent?.summary as Record<string, number> | undefined;
+  const summary = parsedContent?.summary as Record<string, number | boolean> | undefined;
 
   return (
     <div>
@@ -290,6 +324,7 @@ export default function DHFPage() {
                       { label: "Risks", value: summary.total_risks, color: "#b71c1c" },
                       { label: "Validations", value: summary.total_validations, color: "#6a1b9a" },
                       { label: "Test Executions", value: summary.total_executions, color: "#00695c" },
+                      { label: "SDP", value: summary.sdp_present ? "✓" : "—", color: summary.sdp_present ? "#15803d" : "#9ca3af" },
                     ].map(s => (
                       <div key={s.label} style={{ background: "#f8f8f8", borderRadius: 6, padding: "0.75rem", textAlign: "center", border: `2px solid ${s.color}20` }}>
                         <div style={{ fontSize: "1.8rem", fontWeight: "bold", color: s.color }}>{s.value}</div>
@@ -300,6 +335,7 @@ export default function DHFPage() {
                 </div>
               )}
 
+              <SDPDHFSection sdp={parsedContent.sdp as SDPSDPBlob | null | undefined} />
               <DHFSection title="Requirements" items={parsedContent.requirements as unknown[]} columns={["readable_id", "type", "title", "description"]} />
               <DesignElementsDHFSection items={parsedContent.design_elements as unknown[]} />
               <DHFSection title="Requirement → Design Links" items={parsedContent.requirement_design_links as unknown[]} columns={["requirement_id", "design_element_id"]} />
@@ -429,6 +465,105 @@ function DesignElementsDHFSection({ items }: { items: unknown[] }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── SDP block (IEC 62304 §5.1) ────────────────────────────────────────────────
+type SDPSDPBlob = {
+  id: string; version: string; status: string; lifecycle_model: string;
+  safety_class: string; title: string; description: string | null;
+  approved_by: string | null; approved_at: string | null;
+  sections: { section_number: string; section_name: string; content: string | null; sort_order: number }[];
+  phases:   { phase_name: string; phase_order: number; entry_criteria: string | null; exit_criteria: string | null; activities: string | null; required_for_class: string }[];
+  roles:    { role_name: string; responsibilities: string | null; required_for_class: string; sort_order: number }[];
+};
+
+function SDPDHFSection({ sdp }: { sdp: SDPSDPBlob | null | undefined }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!sdp) return null;
+  const cardStyle: React.CSSProperties = { background: "#fff", border: "1px solid #ddd", borderRadius: 8, marginBottom: "1rem" };
+
+  return (
+    <div style={cardStyle}>
+      <div
+        onClick={() => setExpanded(v => !v)}
+        style={{ padding: "1rem 1.5rem", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: expanded ? "1px solid #eee" : "none" }}
+      >
+        <h4 style={{ margin: 0 }}>
+          Software Development Plan
+          <span style={{ marginLeft: 8, fontSize: "0.72rem", background: "#e8f5e9", color: "#1b5e20", borderRadius: 10, padding: "1px 8px", fontWeight: 600 }}>v{sdp.version} · {sdp.status}</span>
+          <span style={{ marginLeft: 6, fontSize: "0.72rem", background: "#e3f2fd", color: "#0d47a1", borderRadius: 10, padding: "1px 8px", fontWeight: 600 }}>Class {sdp.safety_class}</span>
+        </h4>
+        <span style={{ color: "#888" }}>{expanded ? "▲" : "▼"}</span>
+      </div>
+      {expanded && (
+        <div style={{ padding: "0 1.5rem 1.25rem" }}>
+          <div style={{ fontSize: "0.8rem", color: "#374151", marginBottom: 12 }}>
+            <strong>{sdp.title}</strong>
+            {sdp.approved_by && <> · approved by {sdp.approved_by}</>}
+            {sdp.approved_at && <> on {new Date(sdp.approved_at).toLocaleDateString()}</>}
+            {" · "}lifecycle: {sdp.lifecycle_model}
+          </div>
+
+          <SDPSubBlock title="Sections" count={sdp.sections.length}>
+            {sdp.sections.map(s => (
+              <div key={s.section_number} style={{ borderTop: "1px solid #eee", padding: "8px 0" }}>
+                <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{s.section_number}. {s.section_name}</div>
+                {s.content && <div style={{ fontSize: "0.78rem", color: "#555", whiteSpace: "pre-wrap", marginTop: 4 }}>{s.content}</div>}
+              </div>
+            ))}
+          </SDPSubBlock>
+
+          <SDPSubBlock title="Lifecycle Phases" count={sdp.phases.length}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+              <thead><tr style={{ background: "#f5f5f5" }}>
+                {["#", "Phase", "Entry", "Exit", "Activities", "Class"].map(h => (
+                  <th key={h} style={{ padding: "6px 8px", textAlign: "left", border: "1px solid #eee" }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{sdp.phases.map(p => (
+                <tr key={p.phase_order}>
+                  <td style={{ padding: "6px 8px", border: "1px solid #eee" }}>{p.phase_order}</td>
+                  <td style={{ padding: "6px 8px", border: "1px solid #eee", fontWeight: 600 }}>{p.phase_name}</td>
+                  <td style={{ padding: "6px 8px", border: "1px solid #eee" }}>{p.entry_criteria ?? "—"}</td>
+                  <td style={{ padding: "6px 8px", border: "1px solid #eee" }}>{p.exit_criteria ?? "—"}</td>
+                  <td style={{ padding: "6px 8px", border: "1px solid #eee" }}>{p.activities ?? "—"}</td>
+                  <td style={{ padding: "6px 8px", border: "1px solid #eee", textAlign: "center" }}>{p.required_for_class}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </SDPSubBlock>
+
+          <SDPSubBlock title="Roles & Responsibilities" count={sdp.roles.length}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+              <thead><tr style={{ background: "#f5f5f5" }}>
+                {["Role", "Responsibilities", "Class"].map(h => (
+                  <th key={h} style={{ padding: "6px 8px", textAlign: "left", border: "1px solid #eee" }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{sdp.roles.map(r => (
+                <tr key={r.sort_order}>
+                  <td style={{ padding: "6px 8px", border: "1px solid #eee", fontWeight: 600 }}>{r.role_name}</td>
+                  <td style={{ padding: "6px 8px", border: "1px solid #eee" }}>{r.responsibilities ?? "—"}</td>
+                  <td style={{ padding: "6px 8px", border: "1px solid #eee", textAlign: "center" }}>{r.required_for_class}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </SDPSubBlock>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SDPSubBlock({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "#374151", marginBottom: 6, paddingBottom: 4, borderBottom: "1px solid #e5e7eb" }}>
+        {title} <span style={{ fontWeight: "normal", color: "#888" }}>({count})</span>
+      </div>
+      {children}
     </div>
   );
 }

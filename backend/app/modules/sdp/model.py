@@ -1,9 +1,9 @@
 import uuid
-from datetime import datetime
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.base import Base, TimestampMixin
+from app.core.approval_signoff import ApprovalSignoffMixin
 
 
 # ── Status workflow ───────────────────────────────────────────────────────────
@@ -19,7 +19,13 @@ from app.core.base import Base, TimestampMixin
 # require this phase / role. Checked by compliance queries.
 
 
-class SoftwareDevelopmentPlan(Base, TimestampMixin):
+class SoftwareDevelopmentPlan(Base, TimestampMixin, ApprovalSignoffMixin):
+    """IEC 62304 §5.1 Software Development Plan.
+
+    Status workflow: DRAFT → IN_REVIEW → APPROVED → OBSOLETE.
+    Carries the standard prepared/reviewed/approved signoff via mixin.
+    Editing an APPROVED SDP is forbidden — fork creates a new version.
+    """
     __tablename__ = "sdp"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -33,9 +39,8 @@ class SoftwareDevelopmentPlan(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(500), nullable=False, default="Software Development Plan")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    approved_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # prepared_by/at, reviewed_by/at, approved_by/at come from ApprovalSignoffMixin
 
     sections: Mapped[list["SDPSection"]] = relationship(
         "SDPSection", back_populates="sdp", cascade="all, delete-orphan",

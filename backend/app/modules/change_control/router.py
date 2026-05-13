@@ -148,14 +148,27 @@ async def transition_change_request(
 
 
 async def _auto_populate_impacts(db: AsyncSession, cr: ChangeRequest) -> None:
-    reqs = (
-        await db.execute(
+    """Pre-fill impacts with the project's leaf-level requirements (the
+    ones that get implemented in code) — for the IEC 62304 default V-model
+    that's "SOFTWARE", but any project's bottom-of-the-tree category(ies)
+    qualify. Leaf = a category that no other category references as parent."""
+    from app.modules.requirements.model import RequirementCategory
+
+    cats = (await db.execute(
+        select(RequirementCategory).where(RequirementCategory.project_id == cr.project_id)
+    )).scalars().all()
+    parent_ids = {c.parent_id for c in cats if c.parent_id is not None}
+    leaf_names = [c.name for c in cats if c.id not in parent_ids]
+
+    if leaf_names:
+        reqs = (await db.execute(
             select(Requirement).where(
                 Requirement.project_id == cr.project_id,
-                Requirement.type == "SOFTWARE",
+                Requirement.type.in_(leaf_names),
             )
-        )
-    ).scalars().all()
+        )).scalars().all()
+    else:
+        reqs = []
     des = (
         await db.execute(
             select(DesignElement).where(
@@ -174,7 +187,7 @@ async def _auto_populate_impacts(db: AsyncSession, cr: ChangeRequest) -> None:
         db.add(ChangeImpact(
             change_request_id=cr.id,
             impacted_requirement_id=req.id,
-            impact_description=f"SOFTWARE requirement may be affected: {req.title}",
+            impact_description=f"{req.type} requirement may be affected: {req.title}",
         ))
     for de in des:
         db.add(ChangeImpact(

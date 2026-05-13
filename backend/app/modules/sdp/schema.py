@@ -105,7 +105,13 @@ class SDPUpdate(BaseModel):
     created_by: str | None = None
 
 class SDPStatusTransition(BaseModel):
+    """Body for /sdp/{id}/status. Different role names live on different
+    transitions: prepared_by on DRAFT→IN_REVIEW, reviewed_by + approved_by on
+    IN_REVIEW→APPROVED. All optional from the schema's POV — the router
+    decides which are required for the given transition."""
     status: str = Field(pattern="^(DRAFT|IN_REVIEW|APPROVED|OBSOLETE)$")
+    prepared_by: str | None = None
+    reviewed_by: str | None = None
     approved_by: str | None = None
     review_notes: str | None = None
 
@@ -119,6 +125,10 @@ class SDPRead(BaseModel):
     title: str
     description: str | None
     created_by: str | None
+    prepared_by: str | None
+    prepared_at: datetime | None
+    reviewed_by: str | None
+    reviewed_at: datetime | None
     approved_by: str | None
     approved_at: datetime | None
     review_notes: str | None
@@ -138,11 +148,22 @@ class SDPSummary(BaseModel):
     safety_class: str
     title: str
     created_by: str | None
+    prepared_by: str | None
+    prepared_at: datetime | None
+    reviewed_by: str | None
+    reviewed_at: datetime | None
     approved_by: str | None
     approved_at: datetime | None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class SDPTransitionResult(BaseModel):
+    """Envelope around a transitioned SDP that can also surface non-blocking
+    warnings (e.g. reviewer == approver) to the UI."""
+    sdp: SDPRead
+    warnings: list[str] = []
 
 
 # ── Compliance check ──────────────────────────────────────────────────────────

@@ -72,12 +72,12 @@ const SECTIONS: Section[] = [
     icon: <IconDesign />,
     groups: [
       {
+        // Order follows IEC 62304 §5 sequence: plan → analyze → design → build.
         group: "Design",
         items: [
-          { href: "/sdp", label: "Dev Plan (SDP)" },
-          { href: "/architecture", label: "SW Architecture" },
+          { href: "/sdp", label: "Dev Plan (SDP)" },                          // §5.1
           {
-            href: "/requirements",
+            href: "/requirements",                                            // §5.2
             label: "Requirements",
             subItems: [
               { href: "/requirements?type=USER",     label: "User" },
@@ -85,8 +85,16 @@ const SECTIONS: Section[] = [
               { href: "/requirements?type=SOFTWARE", label: "Software" },
             ],
           },
+          { href: "/architecture", label: "SW Architecture" },                // §5.3
           {
-            href: "/design",
+            href: "/software-items",                                          // §4.3 / §5 classification
+            label: "Software Items",
+            subItems: [
+              { href: "/software-items", label: "All Items" },
+            ],
+          },
+          {
+            href: "/design",                                                  // §5.4
             label: "Design Elements",
             subItems: [
               { href: "/design?type=ARCHITECTURE", label: "Architecture" },
@@ -96,6 +104,7 @@ const SECTIONS: Section[] = [
         ],
       },
       {
+        // §7 Risk Management — cross-cutting, separate group.
         group: "Risk",
         items: [
           {
@@ -105,13 +114,6 @@ const SECTIONS: Section[] = [
               { href: "/risks?level=HIGH",   label: "High Risk" },
               { href: "/risks?level=MEDIUM", label: "Medium Risk" },
               { href: "/risks?level=LOW",    label: "Low Risk" },
-            ],
-          },
-          {
-            href: "/software-items",
-            label: "Software Items",
-            subItems: [
-              { href: "/software-items", label: "All Items" },
             ],
           },
         ],

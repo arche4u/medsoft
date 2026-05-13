@@ -29,8 +29,40 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 // ── Core types ────────────────────────────────────────────────────────────────
 export type Project     = { id: string; name: string; description: string | null; created_at: string };
 export type ReqType     = string;  // open: USER | SYSTEM | SOFTWARE | custom
-export type RequirementCategory = { id: string; project_id: string; name: string; label: string; color: string; is_builtin: boolean; sort_order: number; parent_id: string | null };
-export type Requirement = { id: string; project_id: string; type: string; readable_id: string; parent_id: string | null; title: string; description: string | null; created_at: string };
+export type RequirementCategory = {
+  id: string; project_id: string;
+  name: string; label: string; color: string;
+  is_builtin: boolean; sort_order: number;
+  /** Used to generate readable_ids (URQ-001, REG-001…). Optional on read
+   *  for legacy rows; new categories should set it explicitly. */
+  readable_id_prefix: string | null;
+  parent_id: string | null;
+};
+export type Requirement = {
+  id: string; project_id: string; type: string; readable_id: string;
+  parent_id: string | null; title: string; description: string | null;
+  /** Cross-category change-impact: set when an ancestor was edited. */
+  needs_review?: boolean;
+  needs_review_reason?: string | null;
+  created_at: string;
+};
+
+/** Returned by GET /requirements/{id}/impact-preview — descendants that would
+ *  be flagged needs_review if this requirement is edited. */
+export type ChangeImpactPreview = {
+  requirement_id: string;
+  readable_id: string;
+  type: string;
+  descendants: {
+    id: string;
+    readable_id: string;
+    type: string;
+    title: string;
+    needs_review: boolean;
+  }[];
+  total: number;
+  by_type: Record<string, number>;
+};
 export type TestCase    = { id: string; project_id: string; category_id: string | null; readable_id: string | null; title: string; description: string | null; expected_result: string | null; created_at: string };
 export type TraceLink   = { id: string; requirement_id: string; testcase_id: string };
 export type Risk = {
@@ -101,6 +133,90 @@ export type TreeNode = {
 };
 
 export type UploadSummary = { total_added: number; total_skipped: number; added: { title: string; type: string }[]; skipped: { title: string; reason: string }[] };
+
+// ── SRS baseline (IEC 62304 §5.2 — two-tier versioned approval) ──────────────
+//
+// Per-category baselines (USER/SYSTEM/SOFTWARE/custom) move through their own
+// DRAFT → IN_REVIEW → APPROVED → OBSOLETE lifecycle. The composite SRS is a
+// release manifest that pins specific category-baseline versions and goes
+// through the same lifecycle at the project level.
+
+export type ReqBaselineStatus = "DRAFT" | "IN_REVIEW" | "APPROVED" | "OBSOLETE";
+
+/** Three-stage signoff trail (prepared / reviewed / approved). */
+export type ApprovalSignoff = {
+  prepared_by: string | null; prepared_at: string | null;
+  reviewed_by: string | null; reviewed_at: string | null;
+  approved_by: string | null; approved_at: string | null;
+};
+
+/** Frozen requirement snapshot inside a category baseline. */
+export type RequirementCategoryBaselineItem = {
+  id: string; baseline_id: string; requirement_id: string | null;
+  readable_id: string; type: string; title: string;
+  description: string | null; parent_readable_id: string | null;
+};
+
+export type RequirementCategoryBaselineSummary = ApprovalSignoff & {
+  id: string; project_id: string;
+  category_name: string; version: string; status: ReqBaselineStatus;
+  item_count: number; created_at: string;
+};
+
+export type RequirementCategoryBaseline = ApprovalSignoff & {
+  id: string; project_id: string;
+  category_name: string; version: string; status: ReqBaselineStatus;
+  review_notes: string | null;
+  items: RequirementCategoryBaselineItem[];
+  created_at: string; updated_at: string;
+};
+
+export type RequirementCategoryBaselineTransitionResult = {
+  baseline: RequirementCategoryBaseline;
+  warnings: string[];
+};
+
+/** One pinning in a composite SRS manifest. */
+export type RequirementsBaselineComponent = {
+  id: string;
+  composite_baseline_id: string;
+  category_baseline_id: string;
+  category_baseline: RequirementCategoryBaselineSummary;
+};
+
+export type CompositeBaselineSummary = ApprovalSignoff & {
+  id: string; project_id: string; version: string; status: ReqBaselineStatus;
+  cm_baseline_id: string | null;
+  component_count: number;
+  created_at: string;
+};
+
+export type CompositeBaseline = ApprovalSignoff & {
+  id: string; project_id: string; version: string; status: ReqBaselineStatus;
+  review_notes: string | null;
+  cm_baseline_id: string | null;
+  components: RequirementsBaselineComponent[];
+  created_at: string; updated_at: string;
+};
+
+export type CompositeBaselineTransitionResult = {
+  composite: CompositeBaseline;
+  warnings: string[];
+};
+
+/** Per-category lock state — UI walks this to render lock banners. */
+export type CategoryLockEntry = {
+  category_name: string;
+  is_locked: boolean;
+  locked_by_baseline_id: string | null;
+  locked_by_version: string | null;
+  has_open_draft: boolean;
+  open_draft_id: string | null;
+  open_draft_version: string | null;
+  open_draft_status: string | null;
+};
+
+export type RequirementsLockState = { categories: CategoryLockEntry[] };
 
 // ── Phase 4 types ─────────────────────────────────────────────────────────────
 export type AuthTokenResponse = { access_token: string; token_type: string; user_id: string; name: string; email: string; role: string; permissions: string[] };
@@ -424,14 +540,18 @@ export type SDP = {
   version: string; status: SDPStatus;
   lifecycle_model: SDPLifecycleModel; safety_class: string;
   title: string; description: string | null;
-  created_by: string | null; approved_by: string | null;
-  approved_at: string | null; review_notes: string | null;
+  created_by: string | null;
+  prepared_by: string | null; prepared_at: string | null;
+  reviewed_by: string | null; reviewed_at: string | null;
+  approved_by: string | null; approved_at: string | null;
+  review_notes: string | null;
   sections: SDPSection[]; phases: SDPPhase[]; roles: SDPRole[];
   created_at: string; updated_at: string;
 };
 export type SDPSummary = Omit<SDP, "sections" | "phases" | "roles">;
 export type SDPComplianceCheck = { rule: string; label: string; satisfied: boolean; detail: string };
 export type SDPCompliance = { sdp_id: string; is_ready_for_approval: boolean; checks: SDPComplianceCheck[] };
+export type SDPTransitionResult = { sdp: SDP; warnings: string[] };
 
 // ── Software Items (IEC 62304 §5 safety classification) ──────────────────────
 export type SoftwareItemType = "SYSTEM" | "SUBSYSTEM" | "UNIT";
@@ -618,10 +738,11 @@ export const api = {
     delete: (id: string) => req<void>(`/projects/${id}`, { method: "DELETE" }),
   },
   requirements: {
-    list: (project_id?: string, type?: string) => {
+    list: (project_id?: string, type?: string, needs_review?: boolean) => {
       const p = new URLSearchParams();
       if (project_id) p.set("project_id", project_id);
       if (type) p.set("type", type);
+      if (needs_review !== undefined) p.set("needs_review", String(needs_review));
       return req<Requirement[]>(`/requirements/?${p}`);
     },
     create: (d: { project_id: string; type: string; parent_id?: string; title: string; description?: string }) =>
@@ -634,15 +755,60 @@ export const api = {
     update: (id: string, d: { title?: string; description?: string | null; parent_id?: string | null }) =>
       req<Requirement>(`/requirements/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     delete: (id: string) => req<void>(`/requirements/${id}`, { method: "DELETE" }),
+    /** Preview which descendants would be flagged needs_review on an edit. */
+    impactPreview: (id: string) =>
+      req<ChangeImpactPreview>(`/requirements/${id}/impact-preview`),
+    /** Clear the needs_review flag on a requirement. */
+    acknowledgeReview: (id: string) =>
+      req<Requirement>(`/requirements/${id}/acknowledge-review`, { method: "POST" }),
     categories: {
       list: (project_id: string) =>
         req<RequirementCategory[]>(`/requirements/categories?project_id=${project_id}`),
-      create: (d: { project_id: string; name: string; label: string; color: string; parent_id?: string }) =>
+      create: (d: { project_id: string; name: string; label: string; color: string; parent_id?: string; readable_id_prefix?: string }) =>
         req<RequirementCategory>("/requirements/categories", { method: "POST", body: JSON.stringify(d) }),
-      update: (id: string, d: { label?: string; color?: string; sort_order?: number }) =>
+      update: (id: string, d: { label?: string; color?: string; sort_order?: number; readable_id_prefix?: string; parent_id?: string | null }) =>
         req<RequirementCategory>(`/requirements/categories/${id}`, { method: "PUT", body: JSON.stringify(d) }),
       delete: (id: string) =>
         req<void>(`/requirements/categories/${id}`, { method: "DELETE" }),
+    },
+    /**
+     * Composite SRS baselines (the release manifests). A composite pins a
+     * specific combination of approved per-category baselines.
+     */
+    baselines: {
+      list: (project_id: string) =>
+        req<CompositeBaselineSummary[]>(`/requirements/baselines/?project_id=${project_id}`),
+      get: (id: string) => req<CompositeBaseline>(`/requirements/baselines/${id}`),
+      create: (d: { project_id: string; version: string; category_baseline_ids?: string[] }) =>
+        req<CompositeBaseline>(`/requirements/baselines/`, { method: "POST", body: JSON.stringify(d) }),
+      delete: (id: string) =>
+        req<void>(`/requirements/baselines/${id}`, { method: "DELETE" }),
+      transition: (id: string, d: { status: ReqBaselineStatus; prepared_by?: string; reviewed_by?: string; approved_by?: string; review_notes?: string }) =>
+        req<CompositeBaselineTransitionResult>(`/requirements/baselines/${id}/status`, { method: "PUT", body: JSON.stringify(d) }),
+      updateComponents: (id: string, category_baseline_ids: string[]) =>
+        req<CompositeBaseline>(`/requirements/baselines/${id}/components`, { method: "PUT", body: JSON.stringify({ category_baseline_ids }) }),
+      fork: (id: string) =>
+        req<CompositeBaseline>(`/requirements/baselines/${id}/fork`, { method: "POST" }),
+      lockState: (project_id: string) =>
+        req<RequirementsLockState>(`/requirements/baselines/lock-state?project_id=${project_id}`),
+    },
+    /** Per-category SRS baselines (USER / SYSTEM / SOFTWARE / custom). */
+    categoryBaselines: {
+      list: (project_id: string, category?: string) => {
+        const q = new URLSearchParams({ project_id });
+        if (category) q.set("category", category);
+        return req<RequirementCategoryBaselineSummary[]>(`/requirements/category-baselines/?${q}`);
+      },
+      get: (id: string) =>
+        req<RequirementCategoryBaseline>(`/requirements/category-baselines/${id}`),
+      create: (d: { project_id: string; category_name: string; version: string }) =>
+        req<RequirementCategoryBaseline>(`/requirements/category-baselines/`, { method: "POST", body: JSON.stringify(d) }),
+      delete: (id: string) =>
+        req<void>(`/requirements/category-baselines/${id}`, { method: "DELETE" }),
+      transition: (id: string, d: { status: ReqBaselineStatus; prepared_by?: string; reviewed_by?: string; approved_by?: string; review_notes?: string }) =>
+        req<RequirementCategoryBaselineTransitionResult>(`/requirements/category-baselines/${id}/status`, { method: "PUT", body: JSON.stringify(d) }),
+      fork: (id: string) =>
+        req<RequirementCategoryBaseline>(`/requirements/category-baselines/${id}/fork`, { method: "POST" }),
     },
   },
   testcases: {
@@ -935,8 +1101,8 @@ export const api = {
       req<SDP>(`/sdp/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     delete: (id: string) => req<void>(`/sdp/${id}`, { method: "DELETE" }),
     fork: (id: string) => req<SDP>(`/sdp/${id}/fork`, { method: "POST", body: JSON.stringify({}) }),
-    transition: (id: string, d: { status: SDPStatus; approved_by?: string | null; review_notes?: string | null }) =>
-      req<SDP>(`/sdp/${id}/status`, { method: "PUT", body: JSON.stringify(d) }),
+    transition: (id: string, d: { status: SDPStatus; prepared_by?: string | null; reviewed_by?: string | null; approved_by?: string | null; review_notes?: string | null }) =>
+      req<SDPTransitionResult>(`/sdp/${id}/status`, { method: "PUT", body: JSON.stringify(d) }),
     compliance: (id: string) => req<SDPCompliance>(`/sdp/${id}/compliance`),
     sections: {
       add: (sdp_id: string, d: { section_number: string; section_name: string; content?: string | null; sort_order?: number }) =>

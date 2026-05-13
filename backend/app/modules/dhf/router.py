@@ -15,11 +15,50 @@ from app.modules.tracelinks.model import TraceLink
 from app.modules.risks.model import Risk
 from app.modules.validation.model import ValidationRecord
 from app.modules.verification.model import TestExecution
+from app.modules.sdp.model import SoftwareDevelopmentPlan
 
 from .model import DHFDocument
 from .schema import DHFDocumentRead
 
 router = APIRouter(prefix="/dhf", tags=["dhf"])
+
+
+# ── Per-module serializers ────────────────────────────────────────────────────
+# Each helper turns a single module's data into the JSON shape embedded in DHF.
+# Keep them small and module-scoped so adding new modules (units, architecture,
+# system_testing, capa, config_mgmt) is a copy-paste of this pattern.
+
+def _serialize_sdp(sdp: SoftwareDevelopmentPlan | None) -> dict | None:
+    """IEC 62304 §5.1 — embed the project's APPROVED SDP into the DHF."""
+    if sdp is None:
+        return None
+    return {
+        "id": str(sdp.id),
+        "version": sdp.version,
+        "status": sdp.status,
+        "lifecycle_model": sdp.lifecycle_model,
+        "safety_class": sdp.safety_class,
+        "title": sdp.title,
+        "description": sdp.description,
+        "approved_by": sdp.approved_by,
+        "approved_at": sdp.approved_at.isoformat() if sdp.approved_at else None,
+        "sections": [
+            {"section_number": s.section_number, "section_name": s.section_name,
+             "content": s.content, "sort_order": s.sort_order}
+            for s in sorted(sdp.sections, key=lambda x: x.sort_order)
+        ],
+        "phases": [
+            {"phase_name": p.phase_name, "phase_order": p.phase_order,
+             "entry_criteria": p.entry_criteria, "exit_criteria": p.exit_criteria,
+             "activities": p.activities, "required_for_class": p.required_for_class}
+            for p in sorted(sdp.phases, key=lambda x: x.phase_order)
+        ],
+        "roles": [
+            {"role_name": r.role_name, "responsibilities": r.responsibilities,
+             "required_for_class": r.required_for_class, "sort_order": r.sort_order}
+            for r in sorted(sdp.roles, key=lambda x: x.sort_order)
+        ],
+    }
 
 
 @router.post("/generate/{project_id}", response_model=DHFDocumentRead, status_code=201)
@@ -98,9 +137,22 @@ async def generate_dhf(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
             )
         ).scalars().all()
 
+    # Collect active SDP (IEC 62304 §5.1) — most recent APPROVED plan for project
+    sdp = (
+        await db.execute(
+            select(SoftwareDevelopmentPlan)
+            .where(
+                SoftwareDevelopmentPlan.project_id == project_id,
+                SoftwareDevelopmentPlan.status == "APPROVED",
+            )
+            .order_by(SoftwareDevelopmentPlan.approved_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
     # Build structured DHF content
     content = {
-        "dhf_version": "1.0",
+        "dhf_version": "1.1",
         "project_id": str(project_id),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -110,7 +162,9 @@ async def generate_dhf(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
             "total_risks": len(risks),
             "total_validations": len(validations),
             "total_executions": len(executions),
+            "sdp_present": sdp is not None,
         },
+        "sdp": _serialize_sdp(sdp),
         "requirements": [
             {
                 "id": str(r.id),

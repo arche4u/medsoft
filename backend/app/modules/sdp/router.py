@@ -1,18 +1,25 @@
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
+from app.modules.audit.service import audit
+from app.modules.audit.model import AuditAction
+from app.modules.auth.deps import get_current_user
+from app.modules.auth.schema import TokenData
+
 from .model import SoftwareDevelopmentPlan, SDPSection, SDPLifecyclePhase, SDPProjectRole
 from .schema import (
-    SDPCreate, SDPRead, SDPSummary, SDPUpdate, SDPStatusTransition,
+    SDPCreate, SDPRead, SDPSummary, SDPUpdate, SDPStatusTransition, SDPTransitionResult,
     SDPSectionCreate, SDPSectionRead, SDPSectionUpdate,
     SDPPhaseCreate, SDPPhaseRead, SDPPhaseUpdate,
     SDPRoleCreate, SDPRoleRead, SDPRoleUpdate,
     SDPComplianceCheck, SDPComplianceStatus,
 )
 from .defaults import SECTIONS, PHASES, ROLES
+from app.core.approval_signoff import check_independence
 
 router = APIRouter(prefix="/sdp", tags=["sdp"])
 
@@ -73,12 +80,17 @@ async def list_sdps(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/", response_model=SDPRead, status_code=201)
-async def create_sdp(payload: SDPCreate, db: AsyncSession = Depends(get_db)):
+async def create_sdp(
+    payload: SDPCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
     """Create a new SDP version and seed default content."""
     sdp = SoftwareDevelopmentPlan(**payload.model_dump())
     db.add(sdp)
     await db.flush()
     await _seed_defaults(db, sdp)
+    await audit(db, "sdp", sdp.id, AuditAction.CREATE, current_user.user_id)
     await db.commit()
     await db.refresh(sdp)
     return sdp
@@ -106,7 +118,10 @@ async def get_sdp(sdp_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 @router.put("/{sdp_id}", response_model=SDPRead)
 async def update_sdp(
-    sdp_id: uuid.UUID, payload: SDPUpdate, db: AsyncSession = Depends(get_db)
+    sdp_id: uuid.UUID,
+    payload: SDPUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
 ):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
@@ -114,18 +129,24 @@ async def update_sdp(
     _assert_editable(sdp)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(sdp, k, v)
+    await audit(db, "sdp", sdp.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
     await db.refresh(sdp)
     return sdp
 
 
 @router.delete("/{sdp_id}", status_code=204)
-async def delete_sdp(sdp_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_sdp(
+    sdp_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
         raise HTTPException(404, "SDP not found")
     if sdp.status == "APPROVED":
         raise HTTPException(400, "Approved SDPs cannot be deleted — set to OBSOLETE instead")
+    await audit(db, "sdp", sdp.id, AuditAction.DELETE, current_user.user_id)
     await db.delete(sdp)
     await db.commit()
 
@@ -133,7 +154,11 @@ async def delete_sdp(sdp_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 # ── Fork (create new version) ─────────────────────────────────────────────────
 
 @router.post("/{sdp_id}/fork", response_model=SDPRead, status_code=201)
-async def fork_sdp(sdp_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def fork_sdp(
+    sdp_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
     """
     Create a new DRAFT version based on an existing SDP.
     Copies all sections, phases, and roles.
@@ -200,6 +225,7 @@ async def fork_sdp(sdp_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
             sort_order=r.sort_order,
         ))
 
+    await audit(db, "sdp", fork.id, AuditAction.CREATE, current_user.user_id, f"Forked from v{source.version}")
     await db.commit()
     await db.refresh(fork)
     return fork
@@ -207,9 +233,12 @@ async def fork_sdp(sdp_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 # ── Status transition ─────────────────────────────────────────────────────────
 
-@router.put("/{sdp_id}/status", response_model=SDPRead)
+@router.put("/{sdp_id}/status", response_model=SDPTransitionResult)
 async def transition_status(
-    sdp_id: uuid.UUID, payload: SDPStatusTransition, db: AsyncSession = Depends(get_db)
+    sdp_id: uuid.UUID,
+    payload: SDPStatusTransition,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
 ):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
@@ -223,18 +252,33 @@ async def transition_status(
             f"Allowed: {list(allowed)}",
         )
 
-    # Pre-approval compliance check
+    warnings: list[str] = []
+    now = datetime.now(timezone.utc)
+
+    # DRAFT → IN_REVIEW: capture "Prepared by"
+    if payload.status == "IN_REVIEW":
+        sdp.prepared_by = payload.prepared_by or sdp.prepared_by or (current_user.user_id and str(current_user.user_id))
+        sdp.prepared_at = sdp.prepared_at or now
+
+    # IN_REVIEW → APPROVED: capture "Reviewed by" + "Approved by"
     if payload.status == "APPROVED":
         compliance = await _check_approval_readiness(sdp)
         if not compliance.is_ready_for_approval:
             failed = [c.label for c in compliance.checks if not c.satisfied]
             raise HTTPException(400, f"Cannot approve: {'; '.join(failed)}")
-        sdp.approved_by = payload.approved_by
-        sdp.approved_at = datetime.now(timezone.utc)
+        if not payload.reviewed_by:
+            raise HTTPException(400, "reviewed_by is required to approve an SDP")
+        sdp.reviewed_by = payload.reviewed_by
+        sdp.reviewed_at = now
+        sdp.approved_by = payload.approved_by or (current_user.user_id and str(current_user.user_id))
+        sdp.approved_at = now
+        warning = check_independence(sdp.reviewed_by, sdp.approved_by)
+        if warning:
+            warnings.append(warning)
 
         # Obsolete all other approved SDPs for this project
         await db.execute(
-            __import__("sqlalchemy").update(SoftwareDevelopmentPlan)
+            update(SoftwareDevelopmentPlan)
             .where(
                 SoftwareDevelopmentPlan.project_id == sdp.project_id,
                 SoftwareDevelopmentPlan.id != sdp_id,
@@ -246,10 +290,12 @@ async def transition_status(
     if payload.review_notes is not None:
         sdp.review_notes = payload.review_notes
 
+    prev_status = sdp.status
     sdp.status = payload.status
+    await audit(db, "sdp", sdp.id, AuditAction.UPDATE, current_user.user_id, f"Status: {prev_status} → {payload.status}")
     await db.commit()
     await db.refresh(sdp)
-    return sdp
+    return SDPTransitionResult(sdp=SDPRead.model_validate(sdp), warnings=warnings)
 
 
 # ── Compliance / approval readiness ──────────────────────────────────────────
@@ -326,7 +372,10 @@ async def get_compliance(sdp_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{sdp_id}/sections", response_model=SDPSectionRead, status_code=201)
 async def add_section(
-    sdp_id: uuid.UUID, payload: SDPSectionCreate, db: AsyncSession = Depends(get_db)
+    sdp_id: uuid.UUID,
+    payload: SDPSectionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
 ):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
@@ -334,6 +383,8 @@ async def add_section(
     _assert_editable(sdp)
     section = SDPSection(sdp_id=sdp_id, **payload.model_dump())
     db.add(section)
+    await db.flush()
+    await audit(db, "sdp_section", section.id, AuditAction.CREATE, current_user.user_id)
     await db.commit()
     await db.refresh(section)
     return section
@@ -341,7 +392,10 @@ async def add_section(
 
 @router.put("/sections/{section_id}", response_model=SDPSectionRead)
 async def update_section(
-    section_id: uuid.UUID, payload: SDPSectionUpdate, db: AsyncSession = Depends(get_db)
+    section_id: uuid.UUID,
+    payload: SDPSectionUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
 ):
     section = await db.get(SDPSection, section_id)
     if not section:
@@ -351,19 +405,25 @@ async def update_section(
         _assert_editable(sdp)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(section, k, v)
+    await audit(db, "sdp_section", section.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
     await db.refresh(section)
     return section
 
 
 @router.delete("/sections/{section_id}", status_code=204)
-async def delete_section(section_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_section(
+    section_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
     section = await db.get(SDPSection, section_id)
     if not section:
         raise HTTPException(404, "Section not found")
     sdp = await db.get(SoftwareDevelopmentPlan, section.sdp_id)
     if sdp:
         _assert_editable(sdp)
+    await audit(db, "sdp_section", section.id, AuditAction.DELETE, current_user.user_id)
     await db.delete(section)
     await db.commit()
 
@@ -372,7 +432,10 @@ async def delete_section(section_id: uuid.UUID, db: AsyncSession = Depends(get_d
 
 @router.post("/{sdp_id}/phases", response_model=SDPPhaseRead, status_code=201)
 async def add_phase(
-    sdp_id: uuid.UUID, payload: SDPPhaseCreate, db: AsyncSession = Depends(get_db)
+    sdp_id: uuid.UUID,
+    payload: SDPPhaseCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
 ):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
@@ -380,6 +443,8 @@ async def add_phase(
     _assert_editable(sdp)
     phase = SDPLifecyclePhase(sdp_id=sdp_id, **payload.model_dump())
     db.add(phase)
+    await db.flush()
+    await audit(db, "sdp_phase", phase.id, AuditAction.CREATE, current_user.user_id)
     await db.commit()
     await db.refresh(phase)
     return phase
@@ -387,7 +452,10 @@ async def add_phase(
 
 @router.put("/phases/{phase_id}", response_model=SDPPhaseRead)
 async def update_phase(
-    phase_id: uuid.UUID, payload: SDPPhaseUpdate, db: AsyncSession = Depends(get_db)
+    phase_id: uuid.UUID,
+    payload: SDPPhaseUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
 ):
     phase = await db.get(SDPLifecyclePhase, phase_id)
     if not phase:
@@ -397,19 +465,25 @@ async def update_phase(
         _assert_editable(sdp)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(phase, k, v)
+    await audit(db, "sdp_phase", phase.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
     await db.refresh(phase)
     return phase
 
 
 @router.delete("/phases/{phase_id}", status_code=204)
-async def delete_phase(phase_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_phase(
+    phase_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
     phase = await db.get(SDPLifecyclePhase, phase_id)
     if not phase:
         raise HTTPException(404, "Phase not found")
     sdp = await db.get(SoftwareDevelopmentPlan, phase.sdp_id)
     if sdp:
         _assert_editable(sdp)
+    await audit(db, "sdp_phase", phase.id, AuditAction.DELETE, current_user.user_id)
     await db.delete(phase)
     await db.commit()
 
@@ -418,7 +492,10 @@ async def delete_phase(phase_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{sdp_id}/roles", response_model=SDPRoleRead, status_code=201)
 async def add_role(
-    sdp_id: uuid.UUID, payload: SDPRoleCreate, db: AsyncSession = Depends(get_db)
+    sdp_id: uuid.UUID,
+    payload: SDPRoleCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
 ):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
@@ -426,6 +503,8 @@ async def add_role(
     _assert_editable(sdp)
     role = SDPProjectRole(sdp_id=sdp_id, **payload.model_dump())
     db.add(role)
+    await db.flush()
+    await audit(db, "sdp_role", role.id, AuditAction.CREATE, current_user.user_id)
     await db.commit()
     await db.refresh(role)
     return role
@@ -433,7 +512,10 @@ async def add_role(
 
 @router.put("/roles/{role_id}", response_model=SDPRoleRead)
 async def update_role(
-    role_id: uuid.UUID, payload: SDPRoleUpdate, db: AsyncSession = Depends(get_db)
+    role_id: uuid.UUID,
+    payload: SDPRoleUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
 ):
     role = await db.get(SDPProjectRole, role_id)
     if not role:
@@ -443,18 +525,24 @@ async def update_role(
         _assert_editable(sdp)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(role, k, v)
+    await audit(db, "sdp_role", role.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
     await db.refresh(role)
     return role
 
 
 @router.delete("/roles/{role_id}", status_code=204)
-async def delete_role(role_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_role(
+    role_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(get_current_user),
+):
     role = await db.get(SDPProjectRole, role_id)
     if not role:
         raise HTTPException(404, "Role not found")
     sdp = await db.get(SoftwareDevelopmentPlan, role.sdp_id)
     if sdp:
         _assert_editable(sdp)
+    await audit(db, "sdp_role", role.id, AuditAction.DELETE, current_user.user_id)
     await db.delete(role)
     await db.commit()
