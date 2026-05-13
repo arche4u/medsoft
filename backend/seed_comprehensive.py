@@ -23,6 +23,8 @@ from app.modules.release.model import Release, ReleaseStatus, ReleaseItem
 from app.modules.sdp.seed import seed_approved_sdp
 from app.modules.requirements.seed import seed_approved_srs
 from app.modules.requirements.router import _ensure_builtins
+from app.modules.architecture.seed import seed_approved_architecture
+import app.modules.architecture.model  # noqa: F401  ensure mapper registered
 import app.modules.audit.model  # noqa: F401
 import app.modules.sdp.model  # noqa: F401  (ensure mapper registered before TRUNCATE)
 import app.modules.config_mgmt.model  # noqa: F401  (CM mirror tables)
@@ -71,6 +73,7 @@ async def wipe(db: AsyncSession):
         "tracelinks", "risks", "testcases",
         "requirements", "requirement_categories",
         "software_safety_profiles",
+        "architecture_baseline_interfaces", "architecture_baseline_components", "architecture_baselines",
         "requirements_baseline_items", "requirements_baselines",
         "cm_baseline_items", "cm_baselines", "cm_config_items",
         "sdp_sections", "sdp_lifecycle_phases", "sdp_project_roles", "sdp",
@@ -1550,6 +1553,20 @@ async def seed():
             await seed_approved_srs(db, project_id=proj.id)
         await db.flush()
         print(f"✓ Seeded 5 APPROVED SRS v1.0 baselines (CM-mirrored, requirements now locked)")
+
+        # ══════════════════════════════════════════════════════════════════════
+        # Architecture baselines (IEC 62304 §5.3) — APPROVED v1.0 per project
+        # *if components exist*. Currently seeded projects use DesignElement
+        # (legacy), not SWComponent, so most calls no-op cleanly; the helper
+        # is wired up ready for when component seeding is added.
+        # ══════════════════════════════════════════════════════════════════════
+        archs_made = 0
+        for proj in (p1, p2, p3, p4, p5):
+            res = await seed_approved_architecture(db, project_id=proj.id)
+            if res is not None:
+                archs_made += 1
+        await db.flush()
+        print(f"✓ Seeded {archs_made} APPROVED Architecture baselines (no-op when project has no SWComponents)")
 
         await db.commit()
 

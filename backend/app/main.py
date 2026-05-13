@@ -39,6 +39,7 @@ from app.modules.knowledge.router import router as knowledge_router
 from app.modules.software_items.router import router as software_items_router
 from app.modules.sdp.router import router as sdp_router
 from app.modules.architecture.router import router as architecture_router
+from app.modules.architecture.baseline_router import router as architecture_baseline_router
 from app.modules.units.router import router as units_router
 from app.modules.integration_tests.router import router as integration_tests_router
 from app.modules.system_testing.router import router as system_testing_router
@@ -73,6 +74,7 @@ for router in [
     software_items_router,
     sdp_router,
     architecture_router,
+    architecture_baseline_router,
     units_router,
     integration_tests_router,
     system_testing_router,

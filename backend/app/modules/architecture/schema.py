@@ -159,3 +159,106 @@ class ArchComplianceStatus(BaseModel):
     is_compliant: bool
     checks: list[ArchComplianceCheck]
     blocks: list[str]
+
+
+# ── Architecture baseline schemas (IEC 62304 §5.3) ────────────────────────────
+
+class ArchitectureBaselineComponentRead(BaseModel):
+    id: uuid.UUID
+    baseline_id: uuid.UUID
+    component_id: uuid.UUID | None
+    name: str
+    description: str | None
+    component_type: str
+    safety_class: str
+    version: str
+    rationale: str | None
+    parent_name: str | None
+    sort_order: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ArchitectureBaselineInterfaceRead(BaseModel):
+    id: uuid.UUID
+    baseline_id: uuid.UUID
+    interface_id: uuid.UUID | None
+    name: str
+    description: str | None
+    interface_type: str
+    source_component_name: str
+    target_component_name: str
+    data_format: str | None
+    communication_method: str | None
+    safety_relevant: bool
+    data_flows_summary: str | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ArchitectureBaselineCreate(BaseModel):
+    project_id: uuid.UUID
+    version: str
+
+
+class ArchitectureBaselineSummary(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    version: str
+    status: str
+    prepared_by: str | None
+    prepared_at: datetime | None
+    reviewed_by: str | None
+    reviewed_at: datetime | None
+    approved_by: str | None
+    approved_at: datetime | None
+    cm_baseline_id: uuid.UUID | None
+    component_count: int
+    interface_count: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ArchitectureBaselineRead(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    version: str
+    status: str
+    prepared_by: str | None
+    prepared_at: datetime | None
+    reviewed_by: str | None
+    reviewed_at: datetime | None
+    approved_by: str | None
+    approved_at: datetime | None
+    review_notes: str | None
+    cm_baseline_id: uuid.UUID | None
+    components: list[ArchitectureBaselineComponentRead]
+    interfaces: list[ArchitectureBaselineInterfaceRead]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ArchitectureBaselineStatusTransition(BaseModel):
+    status: str
+    prepared_by: str | None = None
+    reviewed_by: str | None = None
+    approved_by: str | None = None
+    review_notes: str | None = None
+
+
+class ArchitectureBaselineTransitionResult(BaseModel):
+    baseline: ArchitectureBaselineRead
+    warnings: list[str] = []
+
+
+class ArchitectureLockState(BaseModel):
+    is_locked: bool
+    locked_by_baseline_id: uuid.UUID | None = None
+    locked_by_version: str | None = None
+    has_open_draft: bool
+    open_draft_id: uuid.UUID | None = None
+    open_draft_version: str | None = None
+    open_draft_status: str | None = None

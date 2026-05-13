@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
+from .lock import assert_architecture_unlocked
 from .model import (
     SWComponent, SWInterface, SWDataFlow,
     SWComponentReqLink, SWComponentRiskLink, SWComponentTCLink,
@@ -218,6 +219,7 @@ async def list_components(project_id: uuid.UUID, db: AsyncSession = Depends(get_
 
 @router.post("/", response_model=ComponentRead, status_code=201)
 async def create_component(payload: ComponentCreate, db: AsyncSession = Depends(get_db)):
+    await assert_architecture_unlocked(db, payload.project_id)
     # Hierarchy enforcement
     if payload.component_type == "SYSTEM" and payload.parent_id:
         raise HTTPException(400, "SYSTEM components cannot have a parent")
@@ -306,6 +308,7 @@ async def update_component(
     c = await db.get(SWComponent, component_id)
     if not c:
         raise HTTPException(404, "Component not found")
+    await assert_architecture_unlocked(db, c.project_id)
     _assert_editable(c)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(c, k, v)
@@ -319,6 +322,7 @@ async def delete_component(component_id: uuid.UUID, db: AsyncSession = Depends(g
     c = await db.get(SWComponent, component_id)
     if not c:
         raise HTTPException(404, "Component not found")
+    await assert_architecture_unlocked(db, c.project_id)
     if c.status == "APPROVED":
         raise HTTPException(400, "Approved components cannot be deleted")
     await db.delete(c)
@@ -431,6 +435,7 @@ async def list_interfaces(project_id: uuid.UUID, db: AsyncSession = Depends(get_
 
 @router.post("/interfaces", response_model=InterfaceRead, status_code=201)
 async def create_interface(payload: InterfaceCreate, db: AsyncSession = Depends(get_db)):
+    await assert_architecture_unlocked(db, payload.project_id)
     if payload.source_component_id == payload.target_component_id:
         raise HTTPException(400, "Source and target components must be different")
     src = await db.get(SWComponent, payload.source_component_id)
@@ -454,6 +459,7 @@ async def update_interface(
     iface = await db.get(SWInterface, interface_id)
     if not iface:
         raise HTTPException(404, "Interface not found")
+    await assert_architecture_unlocked(db, iface.project_id)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(iface, k, v)
     await db.commit()
@@ -466,6 +472,7 @@ async def delete_interface(interface_id: uuid.UUID, db: AsyncSession = Depends(g
     iface = await db.get(SWInterface, interface_id)
     if not iface:
         raise HTTPException(404, "Interface not found")
+    await assert_architecture_unlocked(db, iface.project_id)
     await db.delete(iface)
     await db.commit()
 
@@ -479,6 +486,7 @@ async def add_dataflow(
     iface = await db.get(SWInterface, interface_id)
     if not iface:
         raise HTTPException(404, "Interface not found")
+    await assert_architecture_unlocked(db, iface.project_id)
     df = SWDataFlow(interface_id=interface_id, **payload.model_dump())
     db.add(df)
     await db.commit()
@@ -493,6 +501,9 @@ async def update_dataflow(
     df = await db.get(SWDataFlow, dataflow_id)
     if not df:
         raise HTTPException(404, "Data flow not found")
+    iface = await db.get(SWInterface, df.interface_id)
+    if iface:
+        await assert_architecture_unlocked(db, iface.project_id)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(df, k, v)
     await db.commit()
@@ -505,5 +516,8 @@ async def delete_dataflow(dataflow_id: uuid.UUID, db: AsyncSession = Depends(get
     df = await db.get(SWDataFlow, dataflow_id)
     if not df:
         raise HTTPException(404, "Data flow not found")
+    iface = await db.get(SWInterface, df.interface_id)
+    if iface:
+        await assert_architecture_unlocked(db, iface.project_id)
     await db.delete(df)
     await db.commit()

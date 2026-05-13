@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.base import Base, TimestampMixin
+from app.core.approval_signoff import ApprovalSignoffMixin
 
 
 # ── Component types (IEC 62304 §5.3 hierarchy) ────────────────────────────────
@@ -161,3 +162,99 @@ class SWComponentTCLink(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     component: Mapped["SWComponent"] = relationship("SWComponent", back_populates="tc_links")
+
+
+# ── Architecture Document baseline (IEC 62304 §5.3) ──────────────────────────
+#
+# A versioned, approvable snapshot of the project's software architecture
+# (all components, interfaces, and data flows at the moment of approval).
+# Mirrors the SDP/SRS pattern: prepared/reviewed/approved signoff trail,
+# DRAFT → IN_REVIEW → APPROVED → OBSOLETE lifecycle, auto-mirrored to a
+# CMBaseline at approval time so it shows up as a release artifact under
+# Configuration Management.
+
+class ArchitectureBaseline(Base, TimestampMixin, ApprovalSignoffMixin):
+    """A versioned snapshot of the project's Software Architecture Document."""
+    __tablename__ = "architecture_baselines"
+    __table_args__ = (
+        UniqueConstraint("project_id", "version", name="uq_archbaseline_proj_version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    version: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")
+    review_notes: Mapped[str | None] = mapped_column(Text)
+    cm_baseline_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cm_baselines.id", ondelete="SET NULL"), nullable=True
+    )
+    # prepared_by/at, reviewed_by/at, approved_by/at come from ApprovalSignoffMixin
+
+    components: Mapped[list["ArchitectureBaselineComponent"]] = relationship(
+        back_populates="baseline",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ArchitectureBaselineComponent.sort_order",
+        lazy="selectin",
+    )
+    interfaces: Mapped[list["ArchitectureBaselineInterface"]] = relationship(
+        back_populates="baseline",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+    )
+
+
+class ArchitectureBaselineComponent(Base):
+    """Frozen SWComponent snapshot at the moment the baseline was approved."""
+    __tablename__ = "architecture_baseline_components"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    baseline_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("architecture_baselines.id", ondelete="CASCADE"), nullable=False
+    )
+    component_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sw_components.id", ondelete="SET NULL"), nullable=True
+    )
+    # Frozen fields — survive if the live component is later deleted/renamed.
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    component_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    safety_class: Mapped[str] = mapped_column(String(1), nullable=False)
+    version: Mapped[str] = mapped_column(String(20), nullable=False)
+    rationale: Mapped[str | None] = mapped_column(Text)
+    parent_name: Mapped[str | None] = mapped_column(String(500))
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    baseline: Mapped["ArchitectureBaseline"] = relationship(back_populates="components")
+
+
+class ArchitectureBaselineInterface(Base):
+    """Frozen SWInterface snapshot (with data flows flattened into JSON-ish
+    fields kept inline so the snapshot survives interface deletion)."""
+    __tablename__ = "architecture_baseline_interfaces"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    baseline_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("architecture_baselines.id", ondelete="CASCADE"), nullable=False
+    )
+    interface_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sw_interfaces.id", ondelete="SET NULL"), nullable=True
+    )
+    # Frozen field values
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    interface_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_component_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    target_component_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    data_format: Mapped[str | None] = mapped_column(String(200))
+    communication_method: Mapped[str | None] = mapped_column(String(200))
+    safety_relevant: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # `data_flows_summary` is a free-form text dump (rows of "name | type |
+    # freq | criticality | description") so the audit trail preserves them
+    # without a third snapshot table. PDFs render it verbatim.
+    data_flows_summary: Mapped[str | None] = mapped_column(Text)
+
+    baseline: Mapped["ArchitectureBaseline"] = relationship(back_populates="interfaces")

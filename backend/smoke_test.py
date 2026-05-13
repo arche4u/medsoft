@@ -56,6 +56,12 @@ from app.modules.requirements.category_baseline_router import (
     _snapshot_category_requirements,
 )
 from app.modules.traceability.router import get_traceability_tree
+import app.modules.architecture.model  # noqa: F401
+from app.modules.architecture.model import SWComponent, ArchitectureBaseline
+from app.modules.architecture.lock import (
+    assert_architecture_unlocked, is_architecture_locked,
+)
+from app.modules.architecture.seed import seed_approved_architecture
 
 
 PASSED: list[str] = []
@@ -337,6 +343,78 @@ async def scenario_traceability(db: AsyncSession, project_id) -> None:
         ok("(no L2 leaves to verify attachments — test project)")
 
 
+async def scenario_architecture_baseline(db: AsyncSession, project_id) -> None:
+    print("\n[7] Architecture baseline (IEC 62304 §5.3) + lock")
+    # No components yet → seed should no-op cleanly.
+    res0 = await seed_approved_architecture(db, project_id=project_id, version="0.1")
+    if res0 is None:
+        ok("seed_approved_architecture no-ops when no components")
+    else:
+        fail("empty seed", f"got a baseline {res0.id}")
+
+    # Add a couple of components, then seed and assert.
+    c1 = SWComponent(
+        project_id=project_id, name="Smoke System", description="root",
+        component_type="SYSTEM", safety_class="C", status="DRAFT", version="1.0",
+    )
+    db.add(c1); await db.flush()
+    c2 = SWComponent(
+        project_id=project_id, name="Smoke Subsystem", description="child",
+        component_type="SUBSYSTEM", safety_class="C", status="DRAFT", version="1.0",
+        parent_id=c1.id,
+    )
+    db.add(c2); await db.flush()
+
+    # While unlocked, write should be allowed
+    try:
+        await assert_architecture_unlocked(db, project_id)
+        ok("architecture writes allowed when no baseline")
+    except Exception as e:
+        fail("unlocked check", str(e))
+
+    baseline = await seed_approved_architecture(db, project_id=project_id, version="1.0")
+    await db.flush()
+    if baseline and baseline.status == "APPROVED":
+        ok(f"architecture baseline v{baseline.version} APPROVED + CM={baseline.cm_baseline_id is not None}")
+    else:
+        fail("baseline seeded", f"got {baseline}")
+        return
+
+    snap = (await db.execute(
+        select(ArchitectureBaseline)
+        .where(ArchitectureBaseline.id == baseline.id)
+    )).scalar_one()
+    if len(snap.components) >= 2:
+        ok(f"baseline contains {len(snap.components)} frozen component snapshots")
+    else:
+        fail("snapshot count", f"got {len(snap.components)}")
+
+    # After approval, architecture should be locked
+    if await is_architecture_locked(db, project_id):
+        ok("architecture locked after approval")
+    else:
+        fail("post-approval lock", "still unlocked")
+
+    try:
+        await assert_architecture_unlocked(db, project_id)
+        fail("assert_architecture_unlocked", "no exception raised")
+    except Exception as e:
+        if "locked" in str(e).lower():
+            ok("assert_architecture_unlocked raises HTTPException with fork guidance")
+        else:
+            fail("lock exception", str(e))
+
+    # Fork → new DRAFT → architecture unlocked again
+    fork = ArchitectureBaseline(
+        project_id=project_id, version="1.1", status="DRAFT",
+    )
+    db.add(fork); await db.flush()
+    if not await is_architecture_locked(db, project_id):
+        ok("forked DRAFT unlocks architecture")
+    else:
+        fail("post-fork unlock", "still locked")
+
+
 async def scenario_validation_root_category(db: AsyncSession, project_id) -> None:
     print("\n[6] Validation accepts any root-category requirement (not just literal USER)")
     from app.modules.requirements.model import RequirementCategory as RC
@@ -391,6 +469,7 @@ async def main() -> int:
             await scenario_change_impact(db, proj.id)
             await scenario_two_tier_baseline(db, proj.id)
             await scenario_traceability(db, proj.id)
+            await scenario_architecture_baseline(db, proj.id)
             await scenario_validation_root_category(db, proj.id)
             await db.commit()
         finally:
