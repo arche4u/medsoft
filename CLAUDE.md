@@ -56,11 +56,12 @@ medsoft/
 │   │   └── versions/           ← migration chain, apply with `alembic upgrade head`
 │   ├── fixtures/
 │   │   └── knowledge_base.sql  ← committed knowledge base snapshot (auto-imported by setup.sh)
-│   ├── seed.py                 ← Phase 1 demo data (single project)
-│   ├── seed_phase2.py          ← Phase 2 demo data (design/verification/validation)
-│   ├── seed_phase4.py          ← Phase 4 demo data (roles/users/training)
-│   ├── seed_all.py             ← Full seed: 5 projects + users (recommended)
-│   ├── seed_test.py            ← 3-project test data (wipes DB first)
+│   ├── seed_all.py             ← Full seed entrypoint (recommended): chains the 3 below
+│   ├── seed_comprehensive.py   ← 5 IEC 62304 projects, all base modules (wipes DB)
+│   ├── seed_phase4.py          ← users / roles / RBAC permissions / training
+│   ├── seed_architecture.py    ← §4.3–§5.8 modules, CAPA, release e-signatures
+│   ├── seed.py                 ← minimal Phase 1 demo (single project) — setup.sh option [2]
+│   ├── seed_phase2.py          ← minimal Phase 2 demo (design/verification/validation)
 │   └── requirements.txt
 └── frontend/
     └── src/

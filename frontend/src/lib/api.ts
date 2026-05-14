@@ -104,10 +104,10 @@ export type SafetyProfile = {
 };
 
 // ── Phase 2 types ─────────────────────────────────────────────────────────────
-export type DesignElementType = "ARCHITECTURE" | "DETAILED";
-export type DesignElement     = { id: string; project_id: string; readable_id: string | null; type: DesignElementType; parent_id: string | null; category_id: string | null; title: string; description: string | null; diagram_source: string | null; created_at: string };
+// IEC 62304 §5.4 detailed design — each element details a §5.3 SWComponent
+// (component_id) and may sub-nest under another element of the same component.
+export type DesignElement     = { id: string; project_id: string; component_id: string; parent_id: string | null; readable_id: string | null; title: string; description: string | null; diagram_source: string | null; created_at: string };
 export type DesignLink        = { id: string; requirement_id: string; design_element_id: string };
-export type DesignCategory    = { id: string; project_id: string; name: string; label: string; color: string; sort_order: number; is_builtin: boolean };
 export type TestCategory      = { id: string; project_id: string; name: string; label: string; color: string; sort_order: number; is_builtin: boolean };
 export type RiskCategory      = { id: string; project_id: string; name: string; label: string; color: string; sort_order: number; is_builtin: boolean; created_at: string; updated_at: string };
 export type ExecStatus        = "PASS" | "FAIL" | "BLOCKED";
@@ -496,10 +496,22 @@ export type SWComponent = {
   name: string; description: string | null;
   component_type: ComponentType; safety_class: string;
   status: ComponentStatus; version: string;
-  rationale: string | null; approved_by: string | null; approved_at: string | null;
+  rationale: string | null;
+  diagram_source: string | null;
+  approved_by: string | null; approved_at: string | null;
   requirement_ids: string[]; risk_ids: string[]; testcase_ids: string[];
   interface_count: number;
   created_at: string; updated_at: string;
+};
+// IEC 62304 §5.3 component-type taxonomy — served by GET /architecture/component-types.
+// Single backend source (architecture/constants.py); the frontend never hardcodes
+// the SYSTEM→SUBSYSTEM→ITEM→UNIT chain, parent rules, ordering, or chip colours.
+export type ComponentTypeInfo = {
+  name: string;
+  order: number;
+  parents: string[];
+  color: string;
+  bg: string;
 };
 export type SWComponentTreeNode = {
   id: string; name: string; component_type: ComponentType;
@@ -511,6 +523,84 @@ export type SWComponentTreeNode = {
 };
 export type ArchComplianceCheck = { rule: string; label: string; required: boolean; satisfied: boolean; detail: string };
 export type ArchCompliance = { component_id: string; safety_class: string; is_compliant: boolean; checks: ArchComplianceCheck[]; blocks: string[] };
+
+// ── Architecture Baseline (IEC 62304 §5.3 versioned approval) ────────────────
+export type ArchBaselineStatus = "DRAFT" | "IN_REVIEW" | "APPROVED" | "OBSOLETE";
+
+export type ArchitectureBaselineComponentSnap = {
+  id: string; baseline_id: string; component_id: string | null;
+  name: string; description: string | null;
+  component_type: string; safety_class: string; version: string;
+  rationale: string | null; parent_name: string | null; sort_order: number;
+};
+
+export type ArchitectureBaselineInterfaceSnap = {
+  id: string; baseline_id: string; interface_id: string | null;
+  name: string; description: string | null;
+  interface_type: string;
+  source_component_name: string; target_component_name: string;
+  data_format: string | null; communication_method: string | null;
+  safety_relevant: boolean;
+  data_flows_summary: string | null;
+};
+
+export type ArchitectureBaselineSummary = ApprovalSignoff & {
+  id: string; project_id: string; version: string; status: ArchBaselineStatus;
+  cm_baseline_id: string | null;
+  component_count: number; interface_count: number;
+  created_at: string;
+};
+
+export type ArchitectureBaseline = ApprovalSignoff & {
+  id: string; project_id: string; version: string; status: ArchBaselineStatus;
+  review_notes: string | null;
+  cm_baseline_id: string | null;
+  components: ArchitectureBaselineComponentSnap[];
+  interfaces: ArchitectureBaselineInterfaceSnap[];
+  created_at: string; updated_at: string;
+};
+
+export type ArchitectureBaselineTransitionResult = {
+  baseline: ArchitectureBaseline;
+  warnings: string[];
+};
+
+export type ArchitectureLockState = {
+  is_locked: boolean;
+  locked_by_baseline_id: string | null;
+  locked_by_version: string | null;
+  has_open_draft: boolean;
+  open_draft_id: string | null;
+  open_draft_version: string | null;
+  open_draft_status: string | null;
+};
+
+// ── IEC 62304 Plans (§6 Maintenance, §7 Risk Mgmt, §8.1 Config Mgmt, §9 Problem Resolution) ──
+export type PlanStatus = "DRAFT" | "IN_REVIEW" | "APPROVED" | "OBSOLETE";
+
+export type PlanSection = {
+  id: string; plan_id: string;
+  section_number: string; section_name: string;
+  content: string | null; sort_order: number;
+  created_at: string; updated_at: string;
+};
+export type Plan = {
+  id: string; project_id: string;
+  plan_type: string; iec_clause: string | null;
+  version: string; status: PlanStatus; safety_class: string;
+  title: string; description: string | null; created_by: string | null;
+  prepared_by: string | null; prepared_at: string | null;
+  reviewed_by: string | null; reviewed_at: string | null;
+  approved_by: string | null; approved_at: string | null;
+  review_notes: string | null;
+  sections: PlanSection[];
+  created_at: string; updated_at: string;
+};
+export type PlanSummary = Omit<Plan, "sections">;
+export type PlanTypeInfo = { key: string; label: string; iec_clause: string; description: string };
+export type PlanComplianceCheck = { rule: string; label: string; satisfied: boolean; detail: string };
+export type PlanCompliance = { plan_id: string; is_ready_for_approval: boolean; checks: PlanComplianceCheck[] };
+export type PlanTransitionResult = { plan: Plan; warnings: string[] };
 
 // ── Software Development Plan (IEC 62304 §5.1) ───────────────────────────────
 export type SDPStatus = "DRAFT" | "IN_REVIEW" | "APPROVED" | "OBSOLETE";
@@ -729,6 +819,19 @@ export type CAPAReleaseCheck = {
   block_reasons: string[];
 };
 
+// ── Attachments (polymorphic: any entity can carry images / PDF docs) ────────
+export type Attachment = {
+  id: string; project_id: string;
+  entity_type: string; entity_id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  description: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 // ── API client ────────────────────────────────────────────────────────────────
 export const api = {
   projects: {
@@ -877,24 +980,22 @@ export const api = {
     tree: (project_id: string) => req<TreeNode[]>(`/traceability/${project_id}`),
   },
   design: {
-    listElements: (project_id?: string) => req<DesignElement[]>(`/design/elements${project_id ? `?project_id=${project_id}` : ""}`),
-    createElement: (d: { project_id: string; type: DesignElementType; parent_id?: string; category_id?: string; title: string; description?: string }) =>
+    listElements: (project_id?: string, component_id?: string) => {
+      const qs = new URLSearchParams();
+      if (project_id) qs.set("project_id", project_id);
+      if (component_id) qs.set("component_id", component_id);
+      const s = qs.toString();
+      return req<DesignElement[]>(`/design/elements${s ? `?${s}` : ""}`);
+    },
+    createElement: (d: { project_id: string; component_id: string; parent_id?: string | null; title: string; description?: string | null }) =>
       req<DesignElement>("/design/elements", { method: "POST", body: JSON.stringify(d) }),
-    updateElement: (id: string, d: { title?: string; description?: string; diagram_source?: string | null; category_id?: string | null }) =>
+    updateElement: (id: string, d: { title?: string; description?: string; diagram_source?: string | null; parent_id?: string | null }) =>
       req<DesignElement>(`/design/elements/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     deleteElement: (id: string) => req<void>(`/design/elements/${id}`, { method: "DELETE" }),
     listLinks: (requirement_id?: string) => req<DesignLink[]>(`/design/links${requirement_id ? `?requirement_id=${requirement_id}` : ""}`),
     createLink: (d: { requirement_id: string; design_element_id: string }) =>
       req<DesignLink>("/design/links", { method: "POST", body: JSON.stringify(d) }),
     deleteLink: (id: string) => req<void>(`/design/links/${id}`, { method: "DELETE" }),
-    categories: {
-      list:   (project_id: string) => req<DesignCategory[]>(`/design/categories?project_id=${project_id}`),
-      create: (d: { project_id: string; name: string; label: string; color: string }) =>
-        req<DesignCategory>("/design/categories", { method: "POST", body: JSON.stringify(d) }),
-      update: (id: string, d: { label?: string; color?: string; sort_order?: number }) =>
-        req<DesignCategory>(`/design/categories/${id}`, { method: "PUT", body: JSON.stringify(d) }),
-      delete: (id: string) => req<void>(`/design/categories/${id}`, { method: "DELETE" }),
-    },
   },
   verification: {
     listExecutions: (testcase_id?: string) => req<TestExecution[]>(`/verification/executions${testcase_id ? `?testcase_id=${testcase_id}` : ""}`),
@@ -909,6 +1010,44 @@ export const api = {
     updateRecord: (id: string, d: { description?: string; status?: ValidationStatus }) =>
       req<ValidationRecord>(`/validation/records/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     deleteRecord: (id: string) => req<void>(`/validation/records/${id}`, { method: "DELETE" }),
+  },
+  attachments: {
+    /**
+     * List every attachment for the given entity. `entity_type` is the
+     * convention string used by the owning module (e.g. "design_element",
+     * "software_unit"); `entity_id` is the row UUID.
+     */
+    list: (entity_type: string, entity_id: string) => {
+      const q = new URLSearchParams({ entity_type, entity_id });
+      return req<Attachment[]>(`/attachments/?${q}`);
+    },
+    /** Upload via multipart form. Returns the freshly-created row. */
+    upload: (d: { project_id: string; entity_type: string; entity_id: string; description?: string; file: File }) => {
+      const form = new FormData();
+      form.append("project_id", d.project_id);
+      form.append("entity_type", d.entity_type);
+      form.append("entity_id", d.entity_id);
+      if (d.description) form.append("description", d.description);
+      form.append("file", d.file);
+      return req<Attachment>("/attachments/", { method: "POST", body: form });
+    },
+    /**
+     * Fetch the file bytes as a Blob (the download endpoint is auth-gated, so
+     * we can't just hand a `<img src>` URL to the browser). The caller decides
+     * what to do with the Blob — render in an `<img>` via Object URL,
+     * trigger a download via a hidden anchor, or open in a new tab.
+     */
+    downloadBlob: async (id: string): Promise<Blob> => {
+      const token = getToken();
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`${BASE}/attachments/${id}/download`, { headers });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.blob();
+    },
+    update: (id: string, d: { description?: string | null }) =>
+      req<Attachment>(`/attachments/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    delete: (id: string) => req<void>(`/attachments/${id}`, { method: "DELETE" }),
   },
   audit: {
     logs: (params?: { entity_type?: string; entity_id?: string; limit?: number }) => {
@@ -1062,12 +1201,13 @@ export const api = {
       req<{ copied: number; skipped: number }>(`/knowledge/bulk-copy-to-project/${project_id}`, { method: "POST", body: JSON.stringify({ entry_ids }) }),
   },
   architecture: {
+    componentTypes: () => req<ComponentTypeInfo[]>(`/architecture/component-types`),
     listComponents: (project_id: string) => req<SWComponent[]>(`/architecture/?project_id=${project_id}`),
     getComponent: (id: string) => req<SWComponent>(`/architecture/${id}`),
     tree: (project_id: string) => req<SWComponentTreeNode[]>(`/architecture/tree/${project_id}`),
-    createComponent: (d: { project_id: string; parent_id?: string | null; name: string; description?: string | null; component_type?: ComponentType; safety_class?: string; rationale?: string | null }) =>
+    createComponent: (d: { project_id: string; parent_id?: string | null; name: string; description?: string | null; component_type?: ComponentType; safety_class?: string; rationale?: string | null; diagram_source?: string | null }) =>
       req<SWComponent>("/architecture/", { method: "POST", body: JSON.stringify(d) }),
-    updateComponent: (id: string, d: { parent_id?: string | null; name?: string; description?: string | null; component_type?: ComponentType; safety_class?: string; rationale?: string | null }) =>
+    updateComponent: (id: string, d: { parent_id?: string | null; name?: string; description?: string | null; component_type?: ComponentType; safety_class?: string; rationale?: string | null; diagram_source?: string | null }) =>
       req<SWComponent>(`/architecture/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     deleteComponent: (id: string) => req<void>(`/architecture/${id}`, { method: "DELETE" }),
     transitionStatus: (id: string, status: ComponentStatus, approved_by?: string) =>
@@ -1090,6 +1230,26 @@ export const api = {
     updateDataFlow: (id: string, d: { data_name?: string; data_type?: string | null; frequency?: string | null; criticality?: DataFlowCriticality; description?: string | null }) =>
       req<SWDataFlow>(`/architecture/dataflows/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     deleteDataFlow: (id: string) => req<void>(`/architecture/dataflows/${id}`, { method: "DELETE" }),
+    /**
+     * Versioned approval of the Software Architecture Document (IEC 62304
+     * §5.3). Same shape as `requirements.baselines` — DRAFT/IN_REVIEW/
+     * APPROVED/OBSOLETE with prepared/reviewed/approved signoff.
+     */
+    baselines: {
+      list: (project_id: string) =>
+        req<ArchitectureBaselineSummary[]>(`/architecture/baselines/?project_id=${project_id}`),
+      get: (id: string) => req<ArchitectureBaseline>(`/architecture/baselines/${id}`),
+      create: (d: { project_id: string; version: string }) =>
+        req<ArchitectureBaseline>(`/architecture/baselines/`, { method: "POST", body: JSON.stringify(d) }),
+      delete: (id: string) =>
+        req<void>(`/architecture/baselines/${id}`, { method: "DELETE" }),
+      transition: (id: string, d: { status: ArchBaselineStatus; prepared_by?: string; reviewed_by?: string; approved_by?: string; review_notes?: string }) =>
+        req<ArchitectureBaselineTransitionResult>(`/architecture/baselines/${id}/status`, { method: "PUT", body: JSON.stringify(d) }),
+      fork: (id: string) =>
+        req<ArchitectureBaseline>(`/architecture/baselines/${id}/fork`, { method: "POST" }),
+      lockState: (project_id: string) =>
+        req<ArchitectureLockState>(`/architecture/baselines/lock-state?project_id=${project_id}`),
+    },
   },
   sdp: {
     list: (project_id: string) => req<SDPSummary[]>(`/sdp/?project_id=${project_id}`),
@@ -1340,5 +1500,31 @@ export const api = {
     setRequirements: (id: string, requirement_ids: string[]) =>
       req<SoftwareItem>(`/software-items/${id}/requirements`, { method: "PUT", body: JSON.stringify({ requirement_ids }) }),
     compliance: (id: string) => req<ComplianceStatus>(`/software-items/${id}/compliance`),
+  },
+
+  plans: {
+    types: () => req<PlanTypeInfo[]>("/plans/types"),
+    list: (project_id: string, plan_type?: string) => {
+      const p = new URLSearchParams({ project_id: project_id.toString() });
+      if (plan_type) p.set("plan_type", plan_type);
+      return req<PlanSummary[]>(`/plans/?${p}`);
+    },
+    get: (id: string) => req<Plan>(`/plans/${id}`),
+    create: (d: { project_id: string; plan_type: string; version?: string; safety_class?: string; title?: string | null; iec_clause?: string | null; description?: string | null; created_by?: string | null }) =>
+      req<Plan>("/plans/", { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: { safety_class?: string; title?: string; iec_clause?: string | null; description?: string | null; created_by?: string | null }) =>
+      req<Plan>(`/plans/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    delete: (id: string) => req<void>(`/plans/${id}`, { method: "DELETE" }),
+    fork: (id: string) => req<Plan>(`/plans/${id}/fork`, { method: "POST", body: JSON.stringify({}) }),
+    transition: (id: string, d: { status: PlanStatus; prepared_by?: string | null; reviewed_by?: string | null; approved_by?: string | null; review_notes?: string | null }) =>
+      req<PlanTransitionResult>(`/plans/${id}/status`, { method: "PUT", body: JSON.stringify(d) }),
+    compliance: (id: string) => req<PlanCompliance>(`/plans/${id}/compliance`),
+    sections: {
+      add: (plan_id: string, d: { section_number: string; section_name: string; content?: string | null; sort_order?: number }) =>
+        req<PlanSection>(`/plans/${plan_id}/sections`, { method: "POST", body: JSON.stringify(d) }),
+      update: (section_id: string, d: { section_number?: string; section_name?: string; content?: string | null; sort_order?: number }) =>
+        req<PlanSection>(`/plans/sections/${section_id}`, { method: "PUT", body: JSON.stringify(d) }),
+      delete: (section_id: string) => req<void>(`/plans/sections/${section_id}`, { method: "DELETE" }),
+    },
   },
 };

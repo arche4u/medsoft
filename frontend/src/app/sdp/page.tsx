@@ -8,15 +8,9 @@ import {
 } from "@/lib/api";
 import { useActiveProject } from "@/lib/useActiveProject";
 import { downloadSdpPdf } from "./pdf";
+import { sty, STATUS_META, CLASS_COLOR, SignoffRow, VersionSidebar, ComplianceResult } from "@/components/plan/shared";
 
-// ── Status metadata ────────────────────────────────────────────────────────────
-
-const STATUS_META: Record<SDPStatus, { color: string; bg: string; border: string }> = {
-  DRAFT:    { color: "#546e7a", bg: "#eceff1", border: "#cfd8dc" },
-  IN_REVIEW:{ color: "#e65100", bg: "#fff3e0", border: "#ffcc80" },
-  APPROVED: { color: "#1b5e20", bg: "#e8f5e9", border: "#a5d6a7" },
-  OBSOLETE: { color: "#9e9e9e", bg: "#f5f5f5", border: "#e0e0e0" },
-};
+// ── SDP-specific constants ─────────────────────────────────────────────────────
 
 const LC_LABELS: Record<SDPLifecycleModel, string> = {
   V_MODEL: "V-Model",
@@ -24,67 +18,6 @@ const LC_LABELS: Record<SDPLifecycleModel, string> = {
   HYBRID: "Hybrid",
 };
 
-const CLASS_COLOR: Record<string, string> = { A: "#1b5e20", B: "#e65100", C: "#b71c1c" };
-
-// ── Signoff row ──────────────────────────────────────────────────────────────
-function SignoffRow({ label, name, at }: { label: string; name: string | null; at: string | null }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0", fontSize: 12 }}>
-      <span style={{ width: 100, color: "#78909c" }}>{label}:</span>
-      <span style={{ fontWeight: name ? 600 : 400, color: name ? "#1a237e" : "#bdbdbd", flex: 1 }}>
-        {name ?? "— not signed —"}
-      </span>
-      {at && <span style={{ color: "#78909c", fontSize: 11 }}>{new Date(at).toLocaleDateString()}</span>}
-    </div>
-  );
-}
-
-// ── Version history sidebar ───────────────────────────────────────────────────
-
-function VersionList({
-  versions, selectedId, onSelect,
-}: {
-  versions: SDPSummary[];
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <div style={sty.versionList}>
-      <div style={{ padding: "12px 14px", fontWeight: 700, fontSize: 13, color: "#546e7a", borderBottom: "1px solid #e0e0e0", letterSpacing: 1, textTransform: "uppercase" as const }}>
-        Version History
-      </div>
-      {versions.length === 0 && (
-        <div style={{ padding: "20px 14px", color: "#90a4ae", fontSize: 13 }}>No SDP versions yet</div>
-      )}
-      {versions.map(v => {
-        const m = STATUS_META[v.status];
-        const isSelected = v.id === selectedId;
-        return (
-          <button key={v.id} onClick={() => onSelect(v.id)} style={{
-            display: "block", width: "100%", textAlign: "left" as const,
-            padding: "12px 14px", border: "none", cursor: "pointer",
-            borderLeft: isSelected ? "3px solid #1a237e" : "3px solid transparent",
-            background: isSelected ? "#e8eaf6" : "transparent",
-            borderBottom: "1px solid #f5f5f5",
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontWeight: 600, fontSize: 14, color: isSelected ? "#1a237e" : "#37474f" }}>
-                v{v.version}
-              </span>
-              <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 10, background: m.bg, color: m.color }}>
-                {v.status}
-              </span>
-            </div>
-            <div style={{ fontSize: 12, color: "#78909c", marginTop: 3 }}>
-              {new Date(v.created_at).toLocaleDateString()}
-              {v.approved_by && ` · ${v.approved_by}`}
-            </div>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 // ── Overview tab ──────────────────────────────────────────────────────────────
 
@@ -992,7 +925,7 @@ function SDPPageInner() {
       ) : (
         <div style={{ display: "flex", gap: 0, alignItems: "flex-start" }}>
           {/* Version list */}
-          <VersionList versions={versions} selectedId={selectedId} onSelect={id => { setSelectedId(id); setTab("overview"); }} />
+          <VersionSidebar versions={versions} selectedId={selectedId} onSelect={id => { setSelectedId(id); setTab("overview"); }} />
 
           {/* Detail pane */}
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -1069,111 +1002,4 @@ export default function SDPPage() {
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const sty = {
-  versionList: {
-    width: 200,
-    flexShrink: 0,
-    background: "#fff",
-    border: "1px solid #e0e0e0",
-    borderRadius: "8px 0 0 8px",
-    minHeight: 400,
-  },
-  panel: {
-    background: "#fff",
-    border: "1px solid #e0e0e0",
-    borderRadius: 8,
-    padding: "14px 16px",
-  },
-  panelTitle: {
-    fontWeight: 600,
-    fontSize: 14,
-    color: "#1a237e",
-    marginBottom: 12,
-    display: "flex" as const,
-    alignItems: "center" as const,
-  },
-  btn: {
-    background: "#1a237e",
-    color: "#fff",
-    border: "none",
-    borderRadius: 6,
-    padding: "8px 14px",
-    cursor: "pointer" as const,
-    fontSize: 13,
-    fontWeight: 500,
-  },
-  btnSmall: {
-    border: "1px solid #cfd8dc",
-    borderRadius: 5,
-    padding: "5px 10px",
-    cursor: "pointer" as const,
-    fontSize: 12,
-    background: "#eceff1",
-    color: "#546e7a",
-  },
-  btnSecondary: {
-    background: "#e8f5e9",
-    color: "#1b5e20",
-    border: "1px solid #c8e6c9",
-    borderRadius: 5,
-    padding: "6px 12px",
-    cursor: "pointer" as const,
-    fontSize: 12,
-    fontWeight: 500,
-  },
-  btnGhost: {
-    background: "transparent",
-    color: "#546e7a",
-    border: "1px solid #cfd8dc",
-    borderRadius: 6,
-    padding: "8px 12px",
-    cursor: "pointer" as const,
-    fontSize: 13,
-  },
-  iconBtn: {
-    background: "transparent",
-    border: "none",
-    cursor: "pointer" as const,
-    color: "#78909c",
-    fontSize: 16,
-    padding: "0 4px",
-  },
-  tabBtn: {
-    background: "transparent",
-    border: "none",
-    padding: "10px 16px",
-    cursor: "pointer" as const,
-    fontSize: 13,
-  },
-  label: {
-    display: "block" as const,
-    fontSize: 12,
-    fontWeight: 500,
-    color: "#546e7a",
-    marginBottom: 4,
-  },
-  input: {
-    border: "1px solid #cfd8dc",
-    borderRadius: 5,
-    padding: "7px 10px",
-    fontSize: 13,
-    outline: "none" as const,
-  },
-  textarea: {
-    width: "100%" as const,
-    border: "1px solid #cfd8dc",
-    borderRadius: 5,
-    padding: "7px 10px",
-    fontSize: 13,
-    outline: "none" as const,
-    resize: "vertical" as const,
-    boxSizing: "border-box" as const,
-  },
-  emptyState: {
-    textAlign: "center" as const,
-    padding: "60px 24px",
-    color: "#546e7a",
-  },
-};
+// sty, STATUS_META, CLASS_COLOR, SignoffRow, VersionSidebar — imported from @/components/plan/shared

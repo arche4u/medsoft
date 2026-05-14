@@ -383,13 +383,20 @@ function RequirementsPageInner() {
                     </div>
                   </div>
 
-                  {/* Group by project category (dynamic) */}
-                  {(aiCategories.length > 0 ? aiCategories : [{ name: "OTHER", label: "Other", sort_order: 0, parent_name: null }])
+                  {/* Group by project category (dynamic). If the AI response
+                      carried no category metadata, derive groups from the
+                      distinct `type` values actually present in the results —
+                      never a hardcoded placeholder category. */}
+                  {(aiCategories.length > 0
+                    ? aiCategories
+                    : Array.from(new Set(aiEdited.map(r => r.type))).map((t, i) => ({
+                        name: t, label: t, sort_order: i, parent_name: null,
+                      })))
                     .sort((a, b) => a.sort_order - b.sort_order)
-                    .map(cat => {
+                    .map((cat, catIdx) => {
                       const group = aiEdited.map((r, i) => ({ r, i })).filter(({ r }) => r.type === cat.name);
                       if (!group.length) return null;
-                      // Pick a colour from a palette based on sort_order index
+                      // Pick a colour from a palette based on the group's index.
                       const PALETTES = [
                         { bg: "#eff6ff", border: "#bfdbfe", text: "#1d4ed8" },
                         { bg: "#f0fdf4", border: "#bbf7d0", text: "#15803d" },
@@ -400,7 +407,7 @@ function RequirementsPageInner() {
                         { bg: "#fefce8", border: "#fde68a", text: "#b45309" },
                         { bg: "#fff1f2", border: "#fecdd3", text: "#be123c" },
                       ];
-                      const tc = PALETTES[aiCategories.indexOf(cat) % PALETTES.length];
+                      const tc = PALETTES[catIdx % PALETTES.length];
                       return (
                         <div key={cat.name} style={{ marginBottom: "1.25rem" }}>
                           <div style={{ fontSize: "0.75rem", fontWeight: 700, color: tc.text, background: tc.bg, border: `1px solid ${tc.border}`, borderRadius: 6, padding: "0.3rem 0.75rem", display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
@@ -1509,15 +1516,14 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
             {designLinks.map(link => {
               const el = elById[link.design_element_id];
               if (!el) return null;
-              const elColor = el.type === "ARCHITECTURE" ? "#4e342e" : "#6d4c41";
+              const elColor = "#6d4c41";
               return (
                 <span key={link.id} style={{ ...assignChipStyle, border: `1px solid ${elColor}`, padding: 0, overflow: "hidden" }}>
                   <a href={`/design?highlight=${el.id}`} title={el.title}
                     style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 6px" }}>
                     <span style={{ fontFamily: "monospace", fontWeight: 700, color: elColor, fontSize: "0.68rem" }}>
-                      {el.readable_id ?? el.type.slice(0, 4)}
+                      {el.readable_id ?? "DESIGN"}
                     </span>
-                    <span style={{ fontSize: "0.6rem", color: "#888" }}>[{el.type}]</span>
                     <span style={{ color: "#444", fontSize: "0.72rem" }}>{el.title}</span>
                   </a>
                   <button onClick={() => unassignDesignEl(link.id)} disabled={saving}
@@ -1533,7 +1539,7 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
               <option value="">+ Link design element…</option>
               {assignableDesigns.map(el => (
                 <option key={el.id} value={el.id}>
-                  {el.readable_id ?? el.type.slice(0, 4)} [{el.type}] {el.title}
+                  {el.readable_id ?? "DESIGN"} {el.title}
                 </option>
               ))}
             </select>

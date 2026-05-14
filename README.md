@@ -173,11 +173,11 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 
 | File | Description |
 |---|---|
-| `seed_all.py` | **Recommended** — 5 IEC 62304 projects + users/roles (wipes DB first) |
-| `seed.py` | Phase 1 — single project, basic data |
-| `seed_phase2.py` | Phase 2 add-on — design/verification/validation |
-| `seed_phase4.py` | Phase 4 add-on — users, roles, RBAC, training |
-| `seed_test.py` | 3-project test dataset |
+| `seed_all.py` | **Recommended** — chains the three below; 5 IEC 62304 projects, all modules (wipes DB first) |
+| `seed_comprehensive.py` | 5 projects + all base modules (called by `seed_all.py`) |
+| `seed_phase4.py` | Users, roles, RBAC permissions, training (called by `seed_all.py`) |
+| `seed_architecture.py` | §4.3–§5.8 modules, CAPA, release e-signatures (called by `seed_all.py`) |
+| `seed.py` + `seed_phase2.py` | Minimal single-project demo — `setup.sh` option [2] |
 
 ```bash
 cd backend && source .venv/bin/activate

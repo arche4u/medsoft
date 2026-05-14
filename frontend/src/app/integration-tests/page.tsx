@@ -711,7 +711,7 @@ export default function IntegrationTestsPage() {
           Integration Testing
         </h1>
         <p style={{ fontSize: "0.82rem", color: "#64748b" }}>
-          IEC 62304 §5.7 — Interface-driven integration test cases, execution evidence, and coverage
+          IEC 62304 §5.6 — Interface-driven integration test cases, execution evidence, and coverage
         </p>
       </div>
 

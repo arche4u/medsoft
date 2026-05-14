@@ -11,7 +11,7 @@ from app.modules.auth.deps import get_current_user, require_permission
 from app.modules.auth.schema import TokenData
 from app.modules.esign.model import ElectronicSignature, ESignEntityType, ESignMeaning
 from app.modules.requirements.model import Requirement
-from app.modules.design.model import DesignElement, DesignElementType
+from app.modules.design.model import DesignElement
 from app.modules.testcases.model import TestCase
 
 from .model import ChangeRequest, ChangeImpact, ChangeRequestState, VALID_TRANSITIONS
@@ -171,10 +171,7 @@ async def _auto_populate_impacts(db: AsyncSession, cr: ChangeRequest) -> None:
         reqs = []
     des = (
         await db.execute(
-            select(DesignElement).where(
-                DesignElement.project_id == cr.project_id,
-                DesignElement.type == DesignElementType.DETAILED,
-            )
+            select(DesignElement).where(DesignElement.project_id == cr.project_id)
         )
     ).scalars().all()
     tcs = (

@@ -7,6 +7,10 @@ from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.modules.audit.service import audit
+from app.modules.audit.model import AuditAction
+from app.modules.auth.deps import require_permission
+from app.modules.auth.schema import TokenData
 from .model import IntegrationTestCase, IntegrationTestResult, ITCRequirementLink, ITCRiskLink
 from .schema import (
     IntegrationTestCaseCreate, IntegrationTestCaseUpdate, IntegrationTestCaseRead,
@@ -19,6 +23,15 @@ router = APIRouter(prefix="/integration-tests", tags=["integration-tests"])
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+async def _reload_test(db: AsyncSession, tc_id: uuid.UUID) -> IntegrationTestCase:
+    """Re-select a test case after commit so its lazy='selectin' relationships
+    are freshly loaded. db.refresh() expires relationships without reloading
+    them, which then triggers MissingGreenlet on the sync access in _build_read()."""
+    return (await db.execute(
+        select(IntegrationTestCase).where(IntegrationTestCase.id == tc_id)
+    )).scalar_one()
+
 
 def _build_read(tc: IntegrationTestCase) -> IntegrationTestCaseRead:
     latest = tc.results[0].result if tc.results else None
@@ -68,16 +81,27 @@ async def get_test(tc_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/", response_model=IntegrationTestCaseRead, status_code=201)
-async def create_test(body: IntegrationTestCaseCreate, db: AsyncSession = Depends(get_db)):
+async def create_test(
+    body: IntegrationTestCaseCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_INTEGRATION_TEST")),
+):
     tc = IntegrationTestCase(**body.model_dump())
     db.add(tc)
+    await db.flush()
+    await audit(db, "integration_test_case", tc.id, AuditAction.CREATE, current_user.user_id,
+                f"{tc.name} ({tc.test_type})")
     await db.commit()
-    await db.refresh(tc)
+    tc = await _reload_test(db, tc.id)
     return _build_read(tc)
 
 
 @router.put("/{tc_id}", response_model=IntegrationTestCaseRead)
-async def update_test(tc_id: str, body: IntegrationTestCaseUpdate, db: AsyncSession = Depends(get_db)):
+async def update_test(
+    tc_id: str, body: IntegrationTestCaseUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_INTEGRATION_TEST")),
+):
     tc = (await db.execute(
         select(IntegrationTestCase).where(IntegrationTestCase.id == uuid.UUID(tc_id))
     )).scalar_one_or_none()
@@ -85,18 +109,24 @@ async def update_test(tc_id: str, body: IntegrationTestCaseUpdate, db: AsyncSess
         raise HTTPException(404, "Integration test not found")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(tc, k, v)
+    await audit(db, "integration_test_case", tc.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
-    await db.refresh(tc)
+    tc = await _reload_test(db, tc.id)
     return _build_read(tc)
 
 
 @router.delete("/{tc_id}", status_code=204)
-async def delete_test(tc_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_test(
+    tc_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("DELETE_INTEGRATION_TEST")),
+):
     tc = (await db.execute(
         select(IntegrationTestCase).where(IntegrationTestCase.id == uuid.UUID(tc_id))
     )).scalar_one_or_none()
     if not tc:
         raise HTTPException(404, "Integration test not found")
+    await audit(db, "integration_test_case", tc.id, AuditAction.DELETE, current_user.user_id, tc.name)
     await db.delete(tc)
     await db.commit()
 
@@ -104,7 +134,11 @@ async def delete_test(tc_id: str, db: AsyncSession = Depends(get_db)):
 # ── results ───────────────────────────────────────────────────────────────────
 
 @router.post("/{tc_id}/results", response_model=ITCResultRead, status_code=201)
-async def record_result(tc_id: str, body: ITCResultCreate, db: AsyncSession = Depends(get_db)):
+async def record_result(
+    tc_id: str, body: ITCResultCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("EXECUTE_TEST")),
+):
     tc = (await db.execute(
         select(IntegrationTestCase).where(IntegrationTestCase.id == uuid.UUID(tc_id))
     )).scalar_one_or_none()
@@ -124,6 +158,10 @@ async def record_result(tc_id: str, body: ITCResultCreate, db: AsyncSession = De
 
     result = IntegrationTestResult(test_case_id=tc.id, **body.model_dump())
     db.add(result)
+    await db.flush()
+    lat = f", {body.latency_ms}ms" if body.latency_ms is not None else ""
+    await audit(db, "integration_test_result", result.id, AuditAction.CREATE, current_user.user_id,
+                f"{tc.name}: {body.result}{lat}")
     await db.commit()
     await db.refresh(result)
     return ITCResultRead.model_validate(result)
@@ -132,7 +170,11 @@ async def record_result(tc_id: str, body: ITCResultCreate, db: AsyncSession = De
 # ── traceability ──────────────────────────────────────────────────────────────
 
 @router.put("/{tc_id}/requirements", response_model=IntegrationTestCaseRead)
-async def set_requirements(tc_id: str, body: SetLinksPayload, db: AsyncSession = Depends(get_db)):
+async def set_requirements(
+    tc_id: str, body: SetLinksPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_INTEGRATION_TEST")),
+):
     tc = (await db.execute(
         select(IntegrationTestCase).where(IntegrationTestCase.id == uuid.UUID(tc_id))
     )).scalar_one_or_none()
@@ -141,13 +183,19 @@ async def set_requirements(tc_id: str, body: SetLinksPayload, db: AsyncSession =
     await db.execute(delete(ITCRequirementLink).where(ITCRequirementLink.itc_id == tc.id))
     for rid in body.ids:
         db.add(ITCRequirementLink(itc_id=tc.id, requirement_id=uuid.UUID(rid)))
+    await audit(db, "integration_test_case", tc.id, AuditAction.UPDATE, current_user.user_id,
+                f"Linked {len(body.ids)} requirement(s)")
     await db.commit()
-    await db.refresh(tc)
+    tc = await _reload_test(db, tc.id)
     return _build_read(tc)
 
 
 @router.put("/{tc_id}/risks", response_model=IntegrationTestCaseRead)
-async def set_risks(tc_id: str, body: SetLinksPayload, db: AsyncSession = Depends(get_db)):
+async def set_risks(
+    tc_id: str, body: SetLinksPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_INTEGRATION_TEST")),
+):
     tc = (await db.execute(
         select(IntegrationTestCase).where(IntegrationTestCase.id == uuid.UUID(tc_id))
     )).scalar_one_or_none()
@@ -156,8 +204,10 @@ async def set_risks(tc_id: str, body: SetLinksPayload, db: AsyncSession = Depend
     await db.execute(delete(ITCRiskLink).where(ITCRiskLink.itc_id == tc.id))
     for rid in body.ids:
         db.add(ITCRiskLink(itc_id=tc.id, risk_id=uuid.UUID(rid)))
+    await audit(db, "integration_test_case", tc.id, AuditAction.UPDATE, current_user.user_id,
+                f"Linked {len(body.ids)} risk(s)")
     await db.commit()
-    await db.refresh(tc)
+    tc = await _reload_test(db, tc.id)
     return _build_read(tc)
 
 

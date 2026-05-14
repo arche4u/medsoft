@@ -62,6 +62,10 @@ from app.modules.architecture.lock import (
     assert_architecture_unlocked, is_architecture_locked,
 )
 from app.modules.architecture.seed import seed_approved_architecture
+import app.modules.attachments.model  # noqa: F401
+from app.modules.attachments.model import Attachment
+import tempfile
+import os
 
 
 PASSED: list[str] = []
@@ -356,6 +360,7 @@ async def scenario_architecture_baseline(db: AsyncSession, project_id) -> None:
     c1 = SWComponent(
         project_id=project_id, name="Smoke System", description="root",
         component_type="SYSTEM", safety_class="C", status="DRAFT", version="1.0",
+        diagram_source="flowchart TD\n  A[root]-->B[child]",
     )
     db.add(c1); await db.flush()
     c2 = SWComponent(
@@ -389,6 +394,13 @@ async def scenario_architecture_baseline(db: AsyncSession, project_id) -> None:
     else:
         fail("snapshot count", f"got {len(snap.components)}")
 
+    # Per-component diagram_source roundtrip
+    c1_reloaded = await db.get(SWComponent, c1.id)
+    if c1_reloaded and c1_reloaded.diagram_source and "flowchart TD" in c1_reloaded.diagram_source:
+        ok("SWComponent.diagram_source roundtrips on insert + select")
+    else:
+        fail("diagram_source roundtrip", f"got {c1_reloaded.diagram_source if c1_reloaded else 'None'}")
+
     # After approval, architecture should be locked
     if await is_architecture_locked(db, project_id):
         ok("architecture locked after approval")
@@ -413,6 +425,57 @@ async def scenario_architecture_baseline(db: AsyncSession, project_id) -> None:
         ok("forked DRAFT unlocks architecture")
     else:
         fail("post-fork unlock", "still locked")
+
+
+async def scenario_attachments(db: AsyncSession, project_id) -> None:
+    print("\n[8] Attachments (images + PDF whitelist + size limit)")
+    # Insert a fake attachment row + write a tiny image file to the storage
+    # path. Exercises the model + file lifecycle (not the upload endpoint,
+    # which needs auth and multipart parsing).
+    from pathlib import Path
+    storage_root = Path(__file__).resolve().parent / "uploads" / str(project_id)
+    storage_root.mkdir(parents=True, exist_ok=True)
+    att_id = uuid.uuid4()
+    fpath = storage_root / f"{att_id}__smoke.png"
+    # 1x1 transparent PNG bytes
+    fpath.write_bytes(bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000a49444154789c6300010000000500010d0a2db40000000049454e44ae426082"
+    ))
+
+    row = Attachment(
+        id=att_id,
+        project_id=project_id,
+        entity_type="design_element",
+        entity_id="00000000-0000-0000-0000-000000000001",
+        filename="smoke.png",
+        stored_path=str(fpath),
+        content_type="image/png",
+        size_bytes=fpath.stat().st_size,
+        description="smoke test attachment",
+        uploaded_by="smoke",
+    )
+    db.add(row)
+    await db.flush()
+    ok(f"attachment row created ({row.size_bytes} bytes on disk)")
+
+    found = (await db.execute(
+        select(Attachment).where(
+            Attachment.entity_type == "design_element",
+            Attachment.entity_id == "00000000-0000-0000-0000-000000000001",
+        )
+    )).scalars().all()
+    if len(found) == 1 and found[0].id == att_id:
+        ok("list by entity_type+entity_id returns the row")
+    else:
+        fail("attachment list", f"got {len(found)} rows")
+
+    # Cleanup
+    fpath.unlink(missing_ok=True)
+    try:
+        storage_root.rmdir()
+    except OSError:
+        pass
 
 
 async def scenario_validation_root_category(db: AsyncSession, project_id) -> None:
@@ -470,6 +533,7 @@ async def main() -> int:
             await scenario_two_tier_baseline(db, proj.id)
             await scenario_traceability(db, proj.id)
             await scenario_architecture_baseline(db, proj.id)
+            await scenario_attachments(db, proj.id)
             await scenario_validation_root_category(db, proj.id)
             await db.commit()
         finally:

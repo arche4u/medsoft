@@ -20,10 +20,11 @@ from app.core.database import get_db
 from app.core.approval_signoff import check_independence
 from app.modules.audit.service import audit
 from app.modules.audit.model import AuditAction
-from app.modules.auth.deps import get_current_user
+from app.modules.auth.deps import require_permission
 from app.modules.auth.schema import TokenData
 from app.modules.config_mgmt.model import CMBaseline, CMConfigItem, CMBaselineItem
 
+from .constants import COMPONENT_TYPE_ORDER
 from .model import (
     ArchitectureBaseline,
     ArchitectureBaselineComponent,
@@ -33,6 +34,8 @@ from .model import (
 )
 from .schema import (
     ArchitectureBaselineCreate,
+    ArchitectureBaselineComponentRead,
+    ArchitectureBaselineInterfaceRead,
     ArchitectureBaselineRead,
     ArchitectureBaselineSummary,
     ArchitectureBaselineStatusTransition,
@@ -208,12 +211,78 @@ async def get_lock_state(
     )
 
 
+async def _hydrate_live_components(
+    db: AsyncSession, project_id: uuid.UUID, baseline_id: uuid.UUID,
+) -> tuple[list[ArchitectureBaselineComponentRead], list[ArchitectureBaselineInterfaceRead]]:
+    """Build snapshot-shaped views from live SWComponent/SWInterface rows.
+
+    Used for DRAFT/IN_REVIEW baselines so the PDF and read API show what
+    *will* be captured at approval. APPROVED baselines keep the frozen
+    snapshot tables.
+    """
+    comps = (await db.execute(
+        select(SWComponent).where(SWComponent.project_id == project_id)
+    )).scalars().all()
+    by_id = {c.id: c for c in comps}
+
+    def _sort_key(c: SWComponent) -> tuple[int, str]:
+        return (COMPONENT_TYPE_ORDER.get(c.component_type, 99), c.name)
+
+    comps_sorted = sorted(comps, key=_sort_key)
+    comp_views: list[ArchitectureBaselineComponentRead] = []
+    for i, c in enumerate(comps_sorted):
+        parent_name = by_id[c.parent_id].name if c.parent_id and c.parent_id in by_id else None
+        comp_views.append(ArchitectureBaselineComponentRead(
+            id=c.id, baseline_id=baseline_id, component_id=c.id,
+            name=c.name, description=c.description,
+            component_type=c.component_type, safety_class=c.safety_class,
+            version=c.version, rationale=c.rationale,
+            parent_name=parent_name, sort_order=i,
+        ))
+
+    ifaces = (await db.execute(
+        select(SWInterface).where(SWInterface.project_id == project_id)
+        .order_by(SWInterface.created_at)
+    )).scalars().all()
+    iface_views: list[ArchitectureBaselineInterfaceRead] = []
+    for i in ifaces:
+        src_name = by_id[i.source_component_id].name if i.source_component_id in by_id else ""
+        tgt_name = by_id[i.target_component_id].name if i.target_component_id in by_id else ""
+        flows = i.data_flows
+        summary = "\n".join(f"• {df.data_name} ({df.criticality}): {df.description or ''}" for df in flows) if flows else None
+        iface_views.append(ArchitectureBaselineInterfaceRead(
+            id=i.id, baseline_id=baseline_id, interface_id=i.id,
+            name=i.name, description=i.description,
+            interface_type=i.interface_type,
+            source_component_name=src_name, target_component_name=tgt_name,
+            data_format=i.data_format, communication_method=i.communication_method,
+            safety_relevant=i.safety_relevant,
+            data_flows_summary=summary,
+        ))
+
+    return comp_views, iface_views
+
+
 @router.get("/{baseline_id}", response_model=ArchitectureBaselineRead)
 async def get_baseline(baseline_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     b = await db.get(ArchitectureBaseline, baseline_id)
     if not b:
         raise HTTPException(404, "Architecture baseline not found")
-    return b
+    if b.status in ("DRAFT", "IN_REVIEW"):
+        comp_views, iface_views = await _hydrate_live_components(db, b.project_id, b.id)
+    else:
+        comp_views = [ArchitectureBaselineComponentRead.model_validate(c) for c in b.components]
+        iface_views = [ArchitectureBaselineInterfaceRead.model_validate(i) for i in b.interfaces]
+    return ArchitectureBaselineRead(
+        id=b.id, project_id=b.project_id,
+        version=b.version, status=b.status,
+        prepared_by=b.prepared_by, prepared_at=b.prepared_at,
+        reviewed_by=b.reviewed_by, reviewed_at=b.reviewed_at,
+        approved_by=b.approved_by, approved_at=b.approved_at,
+        review_notes=b.review_notes, cm_baseline_id=b.cm_baseline_id,
+        components=comp_views, interfaces=iface_views,
+        created_at=b.created_at, updated_at=b.updated_at,
+    )
 
 
 # ── Create / fork / delete ────────────────────────────────────────────────────
@@ -222,7 +291,7 @@ async def get_baseline(baseline_id: uuid.UUID, db: AsyncSession = Depends(get_db
 async def create_baseline(
     payload: ArchitectureBaselineCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("CREATE_ARCHITECTURE")),
 ):
     existing = (await db.execute(
         select(ArchitectureBaseline).where(
@@ -253,7 +322,7 @@ async def create_baseline(
 async def fork_baseline(
     baseline_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("CREATE_ARCHITECTURE")),
 ):
     source = await db.get(ArchitectureBaseline, baseline_id)
     if not source:
@@ -291,7 +360,7 @@ async def fork_baseline(
 async def delete_baseline(
     baseline_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("DELETE_ARCHITECTURE")),
 ):
     b = await db.get(ArchitectureBaseline, baseline_id)
     if not b:
@@ -313,7 +382,7 @@ async def transition_baseline(
     baseline_id: uuid.UUID,
     payload: ArchitectureBaselineStatusTransition,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_ARCHITECTURE")),
 ):
     b = await db.get(ArchitectureBaseline, baseline_id)
     if not b:

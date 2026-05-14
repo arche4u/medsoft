@@ -1,9 +1,22 @@
 """
 Master seed script — run this single file to populate a fresh database.
 
-Steps executed:
-  1. seed_comprehensive.py  — wipes DB; seeds 5 IEC 62304 projects with full data
-  2. seed_phase4.py         — adds 4 users (admin / qa / dev / reviewer) + RBAC roles + training
+Steps executed (order matters):
+  1. seed_comprehensive.py — wipes DB; seeds 5 IEC 62304 projects with full base
+                             data (requirements, risks, test cases, releases,
+                             documents, config management, change requests …).
+                             Also wipes users/roles/permissions — MUST run first.
+  2. seed_phase4.py        — users (admin / qa / qara / dev / tester / reviewer)
+                             + RBAC roles & permissions + training records. Runs
+                             before step 3 so architecture's e-signature seeding
+                             can resolve real user accounts.
+  3. seed_architecture.py  — per project: §5.3 components/interfaces + APPROVED
+                             Architecture v1.0, §4.3 software items, §5.4 design
+                             elements, §5.5 units, §5.6 integration tests, §5.7
+                             system tests, §5.8 release baselines + artifacts,
+                             §9 CAPA, and release e-signatures.
+
+Not seeded — generated on demand: DHF documents (POST /dhf/generate/{project_id}).
 
 Usage:
     cd backend && source .venv/bin/activate
@@ -16,11 +29,15 @@ import time
 STEPS = [
     {
         "script": "seed_comprehensive.py",
-        "label":  "Comprehensive project data (5 projects, all modules)",
+        "label":  "Comprehensive project data (5 projects, all base modules)",
     },
     {
         "script": "seed_phase4.py",
-        "label":  "Users, roles & training records",
+        "label":  "Users, roles, RBAC permissions & training records",
+    },
+    {
+        "script": "seed_architecture.py",
+        "label":  "Architecture, §4.3–§5.8 modules, CAPA & release e-signatures",
     },
 ]
 
@@ -67,16 +84,27 @@ def main():
     • Automated External Defibrillator (LED · Alarms · Control)
 
   Each project includes:
-    10 USER / 10 SYSTEM / 15 SOFTWARE requirements
-    15 test cases + 15 test executions
-    8 risks · 4 arch + 8 detailed design elements
-    5 validation records · 3 change requests · 2 releases
+    §5.2  10 USER / 10 SYSTEM / 15 SOFTWARE requirements · 8 risks
+    §4.3  software items (safety-classification tree)
+    §5.3  architecture components + interfaces + APPROVED v1.0 baseline
+    §5.4  design elements linked to architecture components
+    §5.5  software units + code artifacts + unit tests
+    §5.6  integration test cases + results
+    §5.7  system test cases + results
+    §5.8  releases + configuration-baseline snapshots + artifacts + e-signatures
+    §9    CAPA / problem reports with verified corrective actions
+    V&V   15 test cases + executions · validation records · change requests
+    §8    config management items + baselines · 34 documents
+
+  Generate on demand (not seeded): DHF — POST /dhf/generate/{project_id}
 
   Default login credentials:
-    admin@medsoft.local    / Admin@123    [ADMIN]
-    qa@medsoft.local       / Qa@123456    [QA]
-    dev@medsoft.local      / Dev@123456   [DEVELOPER]
-    reviewer@medsoft.local / Review@123   [REVIEWER]
+    admin@medsoft.local    / Admin@123      [ADMIN]
+    qa@medsoft.local       / Qa@123456      [QA]
+    qara@medsoft.local     / Qara@123456    [QARA]
+    dev@medsoft.local      / Dev@123456     [DEVELOPER]
+    tester@medsoft.local   / Test@123456    [TESTER]
+    reviewer@medsoft.local / Review@123     [REVIEWER]
 """)
 
 

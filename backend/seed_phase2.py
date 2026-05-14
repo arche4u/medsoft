@@ -9,11 +9,11 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.modules.projects.model import Project
-from app.modules.requirements.model import Requirement, RequirementType
+from app.modules.requirements.model import Requirement
 from app.modules.testcases.model import TestCase
 import app.modules.tracelinks.model  # noqa: F401 — resolve TraceLink forward ref
 import app.modules.risks.model  # noqa: F401 — resolve Risk forward ref
-from app.modules.design.model import DesignElement, DesignElementType, RequirementDesignLink
+import app.modules.design.model  # noqa: F401 — resolve DesignElement forward ref
 from app.modules.verification.model import TestExecution, ExecutionStatus
 from app.modules.validation.model import ValidationRecord, ValidationStatus
 
@@ -38,8 +38,9 @@ async def seed():
             select(Requirement).where(Requirement.project_id == proj.id)
         )).scalars().all()
 
-        user_reqs = [r for r in reqs if r.type == RequirementType.USER]
-        sw_reqs   = [r for r in reqs if r.type == RequirementType.SOFTWARE]
+        # Requirement.type is a plain String (per CLAUDE.md) — compare literals.
+        user_reqs = [r for r in reqs if r.type == "USER"]
+        sw_reqs   = [r for r in reqs if r.type == "SOFTWARE"]
         testcases = (await db.execute(
             select(TestCase).where(TestCase.project_id == proj.id)
         )).scalars().all()
@@ -48,55 +49,8 @@ async def seed():
             print("✗ No SOFTWARE requirements — run seed.py first")
             return
 
-        # ── Architecture elements ─────────────────────────────────────────────
-        arch1 = DesignElement(
-            project_id=proj.id, type=DesignElementType.ARCHITECTURE,
-            title="ARCH-001 Pump Control Subsystem",
-            description="Top-level component managing motor and flow control",
-        )
-        arch2 = DesignElement(
-            project_id=proj.id, type=DesignElementType.ARCHITECTURE,
-            title="ARCH-002 Safety Monitor Subsystem",
-            description="Dedicated safety monitoring and alarm generation",
-        )
-        db.add_all([arch1, arch2])
-        await db.flush()
-
-        # ── Detailed design elements ──────────────────────────────────────────
-        det1 = DesignElement(
-            project_id=proj.id, type=DesignElementType.DETAILED,
-            parent_id=arch1.id,
-            title="DES-001 PID Controller Module",
-            description="Discrete PID with Kp/Ki/Kd tuning interface, anti-windup, output clamping",
-        )
-        det2 = DesignElement(
-            project_id=proj.id, type=DesignElementType.DETAILED,
-            parent_id=arch1.id,
-            title="DES-002 Dosage Computation Module",
-            description="Weight-based dosage calculation with input validation and overflow guard",
-        )
-        det3 = DesignElement(
-            project_id=proj.id, type=DesignElementType.DETAILED,
-            parent_id=arch2.id,
-            title="DES-003 Pressure Alarm Module",
-            description="ADC sampling at 100ms intervals, threshold comparison, alarm GPIO driver",
-        )
-        db.add_all([det1, det2, det3])
-        await db.flush()
-
-        # ── Link SOFTWARE requirements to design elements ─────────────────────
-        sw_by_title = {r.title: r for r in sw_reqs}
-        sw1 = sw_by_title.get("SWS-001 PID algorithm implementation")
-        sw2 = sw_by_title.get("SWS-002 Dose computation module")
-        sw3 = sw_by_title.get("SWS-003 Pressure threshold check")
-
-        if sw1:
-            db.add(RequirementDesignLink(requirement_id=sw1.id, design_element_id=det1.id))
-        if sw2:
-            db.add(RequirementDesignLink(requirement_id=sw2.id, design_element_id=det2.id))
-        if sw3:
-            db.add(RequirementDesignLink(requirement_id=sw3.id, design_element_id=det3.id))
-        await db.flush()
+        # §5.4 design elements are seeded by seed_architecture.py — they link
+        # to §5.3 SWComponents, which this legacy Phase-2 seed doesn't create.
 
         # ── Test executions ───────────────────────────────────────────────────
         tc_by_title = {tc.title: tc for tc in testcases}
@@ -123,8 +77,6 @@ async def seed():
         await db.flush()
 
         await db.commit()
-        print(f"✓ 2 ARCH + 3 DETAILED design elements")
-        print(f"✓ 3 requirement → design links")
         print(f"✓ {len(executions)} test executions")
         print(f"✓ {min(len(user_reqs), 2)} validation records")
 

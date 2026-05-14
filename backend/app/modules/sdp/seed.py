@@ -8,7 +8,7 @@ seeded projects need one to be exercisable end-to-end.
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .defaults import SECTIONS, PHASES, ROLES
+from .defaults import build_sections, PHASES, ROLES
 from .model import SoftwareDevelopmentPlan, SDPSection, SDPLifecyclePhase, SDPProjectRole
 
 
@@ -49,7 +49,7 @@ async def seed_approved_sdp(
     db.add(sdp)
     await db.flush()
 
-    for s in SECTIONS:
+    for s in build_sections(lifecycle_model):
         db.add(SDPSection(sdp_id=sdp.id, **s))
 
     for p in PHASES:

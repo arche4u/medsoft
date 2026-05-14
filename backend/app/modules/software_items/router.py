@@ -3,6 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
+from app.modules.audit.service import audit
+from app.modules.audit.model import AuditAction
+from app.modules.auth.deps import require_permission
+from app.modules.auth.schema import TokenData
 from .model import SoftwareItem, SoftwareItemRiskLink, SoftwareItemRequirementLink
 from .schema import (
     SoftwareItemCreate, SoftwareItemRead, SoftwareItemUpdate,
@@ -14,6 +18,28 @@ router = APIRouter(prefix="/software-items", tags=["software-items"])
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+_CLASS_RANK = {"A": 1, "B": 2, "C": 3}
+
+
+def _validate_classification(
+    safety_class: str, justification: str | None, parent: SoftwareItem | None,
+) -> None:
+    """IEC 62304 §4.3 — a software item inherits its parent's safety class.
+    It may carry a *lower* class only with a documented rationale (the
+    segregation justification). Equal or higher classes need no justification;
+    root items (the software system itself) are unconstrained."""
+    if parent is None:
+        return
+    if _CLASS_RANK[safety_class] < _CLASS_RANK[parent.safety_class]:
+        if not (justification or "").strip():
+            raise HTTPException(
+                400,
+                f"Class {safety_class} is lower than parent '{parent.name}' "
+                f"(Class {parent.safety_class}). IEC 62304 §4.3 requires a "
+                f"classification justification documenting the segregation rationale.",
+            )
+
 
 def _suggest_class(risks: list) -> tuple[str, str]:
     """Derive the minimum required safety class from linked risks."""
@@ -35,29 +61,28 @@ async def _run_compliance(
     req_ids: list[uuid.UUID],
 ) -> ComplianceStatus:
     from app.modules.risks.model import RiskControl
-    from app.modules.design.model import DesignElement, DesignElementType
+    from app.modules.architecture.model import SWComponent
     from app.modules.tracelinks.model import TraceLink
     from app.modules.testcases.model import TestCase
 
     safety_class = item.safety_class
     checks: list[ComplianceCheck] = []
 
-    # ── Rule 1: Architecture design element exists (Class B & C) ─────────────
+    # ── Rule 1: §5.3 architecture component exists (Class B & C) ─────────────
     arch_required = safety_class in ("B", "C")
     if arch_required:
         arch_count = (await db.execute(
-            select(func.count(DesignElement.id)).where(
-                DesignElement.project_id == item.project_id,
-                DesignElement.type == DesignElementType.ARCHITECTURE,
+            select(func.count(SWComponent.id)).where(
+                SWComponent.project_id == item.project_id,
             )
         )).scalar_one()
         checks.append(ComplianceCheck(
             rule="architecture_required",
-            label="Architecture design element exists",
+            label="Software architecture defined (§5.3)",
             required=True,
             satisfied=arch_count > 0,
-            detail=f"{arch_count} ARCHITECTURE element(s) found" if arch_count > 0
-                   else "No ARCHITECTURE design elements — create one in Design Elements",
+            detail=f"{arch_count} architecture component(s) defined" if arch_count > 0
+                   else "No architecture components — define them in SW Architecture",
         ))
 
     # ── Rule 2: Test cases linked via requirements (Class B & C) ─────────────
@@ -220,14 +245,29 @@ async def list_items(
 
 
 @router.post("/", response_model=SoftwareItemRead, status_code=201)
-async def create_item(payload: SoftwareItemCreate, db: AsyncSession = Depends(get_db)):
+async def create_item(
+    payload: SoftwareItemCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_SOFTWARE_ITEM")),
+):
+    parent = None
     if payload.parent_id:
         parent = await db.get(SoftwareItem, payload.parent_id)
         if not parent or parent.project_id != payload.project_id:
             raise HTTPException(400, "Parent item not found in this project")
 
-    item = SoftwareItem(**payload.model_dump())
+    # IEC 62304 §4.3 — inherit the parent's class when none is given; a root
+    # item (the software system) defaults to Class C (safest assumption).
+    safety_class = payload.safety_class or (parent.safety_class if parent else "C")
+    _validate_classification(safety_class, payload.classification_justification, parent)
+
+    data = payload.model_dump()
+    data["safety_class"] = safety_class
+    item = SoftwareItem(**data)
     db.add(item)
+    await db.flush()
+    await audit(db, "software_item", item.id, AuditAction.CREATE, current_user.user_id,
+                f"{item.name} (Class {item.safety_class})")
     await db.commit()
     await db.refresh(item)
     return _to_read(item)
@@ -243,23 +283,50 @@ async def get_item(item_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 @router.put("/{item_id}", response_model=SoftwareItemRead)
 async def update_item(
-    item_id: uuid.UUID, payload: SoftwareItemUpdate, db: AsyncSession = Depends(get_db)
+    item_id: uuid.UUID, payload: SoftwareItemUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_ITEM")),
 ):
     item = await db.get(SoftwareItem, item_id)
     if not item:
         raise HTTPException(404, "Software item not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+
+    data = payload.model_dump(exclude_unset=True)
+
+    # IEC 62304 §4.3 — re-validate classification whenever the class or the
+    # parent changes. Resolve the *effective* parent + class + justification
+    # after this update, then apply the inheritance rule.
+    if "safety_class" in data or "parent_id" in data:
+        new_parent_id = data["parent_id"] if "parent_id" in data else item.parent_id
+        if new_parent_id == item_id:
+            raise HTTPException(400, "An item cannot be its own parent")
+        parent = None
+        if new_parent_id:
+            parent = await db.get(SoftwareItem, new_parent_id)
+            if not parent or parent.project_id != item.project_id:
+                raise HTTPException(400, "Parent item not found in this project")
+        new_class = data.get("safety_class") or item.safety_class
+        new_just = data.get("classification_justification", item.classification_justification)
+        _validate_classification(new_class, new_just, parent)
+
+    for k, v in data.items():
         setattr(item, k, v)
+    await audit(db, "software_item", item.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
     await db.refresh(item)
     return _to_read(item)
 
 
 @router.delete("/{item_id}", status_code=204)
-async def delete_item(item_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_item(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("DELETE_SOFTWARE_ITEM")),
+):
     item = await db.get(SoftwareItem, item_id)
     if not item:
         raise HTTPException(404, "Software item not found")
+    await audit(db, "software_item", item.id, AuditAction.DELETE, current_user.user_id, item.name)
     await db.delete(item)
     await db.commit()
 
@@ -268,13 +335,16 @@ async def delete_item(item_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 @router.put("/{item_id}/status", response_model=SoftwareItemRead)
 async def transition_status(
-    item_id: uuid.UUID, payload: StatusTransition, db: AsyncSession = Depends(get_db)
+    item_id: uuid.UUID, payload: StatusTransition,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_ITEM")),
 ):
     item = await db.get(SoftwareItem, item_id)
     if not item:
         raise HTTPException(404, "Software item not found")
 
     new_status = payload.status
+    prev_status = item.status
 
     # Gate APPROVED: must have compliance passing
     if new_status == "APPROVED":
@@ -292,6 +362,8 @@ async def transition_status(
             raise HTTPException(400, f"Cannot approve: compliance failures — {'; '.join(failed)}")
 
     item.status = new_status
+    await audit(db, "software_item", item.id, AuditAction.UPDATE, current_user.user_id,
+                f"Status: {prev_status} → {new_status}")
     await db.commit()
     await db.refresh(item)
     return _to_read(item)
@@ -301,7 +373,9 @@ async def transition_status(
 
 @router.put("/{item_id}/risks", response_model=SoftwareItemRead)
 async def set_risk_links(
-    item_id: uuid.UUID, payload: LinkRisksPayload, db: AsyncSession = Depends(get_db)
+    item_id: uuid.UUID, payload: LinkRisksPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_ITEM")),
 ):
     item = await db.get(SoftwareItem, item_id)
     if not item:
@@ -315,6 +389,8 @@ async def set_risk_links(
     for rid in payload.risk_ids:
         db.add(SoftwareItemRiskLink(software_item_id=item_id, risk_id=rid))
 
+    await audit(db, "software_item", item.id, AuditAction.UPDATE, current_user.user_id,
+                f"Linked {len(payload.risk_ids)} risk(s)")
     await db.commit()
     await db.refresh(item)
     return _to_read(item)
@@ -324,7 +400,9 @@ async def set_risk_links(
 
 @router.put("/{item_id}/requirements", response_model=SoftwareItemRead)
 async def set_requirement_links(
-    item_id: uuid.UUID, payload: LinkRequirementsPayload, db: AsyncSession = Depends(get_db)
+    item_id: uuid.UUID, payload: LinkRequirementsPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_ITEM")),
 ):
     item = await db.get(SoftwareItem, item_id)
     if not item:
@@ -337,6 +415,8 @@ async def set_requirement_links(
     for req_id in payload.requirement_ids:
         db.add(SoftwareItemRequirementLink(software_item_id=item_id, requirement_id=req_id))
 
+    await audit(db, "software_item", item.id, AuditAction.UPDATE, current_user.user_id,
+                f"Linked {len(payload.requirement_ids)} requirement(s)")
     await db.commit()
     await db.refresh(item)
     return _to_read(item)

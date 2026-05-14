@@ -3,13 +3,17 @@
 import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { api, Project, DesignElement, DesignElementType, Requirement, DesignLink } from "@/lib/api";
+import { api, Project, DesignElement, Requirement, DesignLink, SWComponent } from "@/lib/api";
 import { InlineEditPanel, type FieldDef } from "@/components/InlineEditPanel";
+import AttachmentsPanel from "@/components/AttachmentsPanel";
+import MermaidView from "@/components/MermaidView";
 
-const TYPE_META: Record<DesignElementType, { label: string; color: string }> = {
-  ARCHITECTURE: { label: "Architecture", color: "#1565c0" },
-  DETAILED:     { label: "Detailed",     color: "#4a148c" },
+// IEC 62304 §5.4 — design elements detail a §5.3 SWComponent. They are grouped
+// under their component here; the cross-component hierarchy lives in §5.3.
+const COMP_TYPE_COLOR: Record<string, string> = {
+  SYSTEM: "#1a237e", SUBSYSTEM: "#1565c0", ITEM: "#6a1b9a", UNIT: "#1b5e20",
 };
+const DET_COLOR = "#4a148c";
 
 // Shared field config used by all design element edit panels
 const designFields: FieldDef[] = [
@@ -17,93 +21,48 @@ const designFields: FieldDef[] = [
   { name: "description", label: "Description", type: "textarea", autoResize: true, placeholder: "Optional", flex: "3 1 280px" },
 ];
 
-// ── Mermaid renderer ──────────────────────────────────────────────────────────
-function MermaidPreview({ source }: { source: string }) {
-  const ref  = useRef<HTMLDivElement>(null);
-  const [err, setErr] = useState("");
-
-  useEffect(() => {
-    if (!source.trim() || !ref.current) return;
-    let cancelled = false;
-    setErr("");
-
-    import("mermaid").then(mod => {
-      const mermaid = mod.default;
-      mermaid.initialize({ startOnLoad: false, theme: "default", securityLevel: "loose" });
-      const id = `mm-${Math.random().toString(36).slice(2)}`;
-      mermaid.render(id, source)
-        .then(({ svg }) => {
-          if (!cancelled && ref.current) ref.current.innerHTML = svg;
-        })
-        .catch(e => {
-          if (!cancelled) setErr(String(e?.message ?? e));
-          if (ref.current) ref.current.innerHTML = "";
-        });
-    });
-
-    return () => { cancelled = true; };
-  }, [source]);
-
-  return (
-    <div>
-      {err && (
-        <div style={{ color: "#b71c1c", background: "#fff5f5", border: "1px solid #fca5a5", borderRadius: 6, padding: "8px 12px", fontSize: 12, marginBottom: 8 }}>
-          ⚠ {err}
-        </div>
-      )}
-      <div ref={ref} style={{ minHeight: 40 }} />
-    </div>
-  );
-}
-
 // ── Diagram editor panel ──────────────────────────────────────────────────────
 const MERMAID_EXAMPLES: Record<string, { label: string; code: string }> = {
   state: {
     label: "State Machine",
     code: `stateDiagram-v2
-  [*] --> Idle
-  Idle --> Running : start()
-  Running --> Paused : pause()
-  Paused --> Running : resume()
-  Running --> Error : fault
-  Error --> Idle : reset()
-  Running --> [*] : stop()`,
+    [*] --> Idle
+    Idle --> Running: start
+    Running --> Idle: stop
+    Running --> Error: fault
+    Error --> Idle: reset`,
   },
   sequence: {
     label: "Sequence Diagram",
     code: `sequenceDiagram
-  participant UI
-  participant Controller
-  participant Sensor
-  UI->>Controller: startMonitoring()
-  Controller->>Sensor: enable()
-  Sensor-->>Controller: dataReady
-  Controller-->>UI: displayReading(value)`,
+    participant UI
+    participant Controller
+    participant Sensor
+    UI->>Controller: request
+    Controller->>Sensor: read
+    Sensor-->>Controller: value
+    Controller-->>UI: result`,
   },
   flowchart: {
     label: "Flowchart",
     code: `flowchart TD
-  A([Start]) --> B{Input valid?}
-  B -- Yes --> C[Process data]
-  B -- No --> D[Show error]
-  C --> E{Threshold exceeded?}
-  E -- Yes --> F[Trigger alarm]
-  E -- No --> G([Done])
-  F --> G`,
+    Start --> Validate
+    Validate --> Process
+    Process --> Output`,
   },
   class: {
     label: "Class Diagram",
     code: `classDiagram
-  class Controller {
-    +String id
-    +start()
-    +stop()
-  }
-  class Sensor {
-    +float threshold
-    +read() float
-  }
-  Controller --> Sensor : uses`,
+    class Controller {
+      +String id
+      +start()
+      +stop()
+    }
+    class Sensor {
+      +float threshold
+      +read() float
+    }
+    Controller --> Sensor : uses`,
   },
 };
 
@@ -124,7 +83,7 @@ function DiagramPanel({ element, onSaved }: {
       onSaved(updated);
       setMsg("Saved.");
       setTimeout(() => setMsg(""), 2000);
-    } catch (e: any) { setMsg("Error: " + e.message); }
+    } catch (e) { setMsg("Error: " + (e instanceof Error ? e.message : String(e))); }
     finally { setSaving(false); }
   }
 
@@ -198,7 +157,7 @@ function DiagramPanel({ element, onSaved }: {
             padding: "12px", minHeight: 220, overflowX: "auto",
           }}>
             {preview.trim()
-              ? <MermaidPreview source={preview} />
+              ? <MermaidView source={preview} />
               : <span style={{ color: "#cbd5e1", fontSize: 13 }}>Select a template or type Mermaid source to preview</span>
             }
           </div>
@@ -208,24 +167,28 @@ function DiagramPanel({ element, onSaved }: {
       {/* Mermaid syntax hint */}
       <div style={{ marginTop: 10, fontSize: 11, color: "#94a3b8" }}>
         Supports: <code>stateDiagram-v2</code>, <code>sequenceDiagram</code>, <code>flowchart</code>, <code>classDiagram</code>, <code>erDiagram</code> —
-        <a href="https://mermaid.js.org/syntax/stateDiagram.html" target="_blank" rel="noreferrer" style={{ color: "#3949ab", marginLeft: 4 }}>Mermaid docs ↗</a>
+        <a href="https://mermaid.js.org/intro/" target="_blank" rel="noreferrer" style={{ color: "#3949ab", marginLeft: 4 }}>Mermaid docs ↗</a>
       </div>
     </div>
   );
 }
 
-// ── Single element row used in filtered (non-ALL) view ───────────────────────
-function ElementRow({ el, onDelete, onUpdate, highlighted, linkedReqs }: {
+// ── Recursive design element row (handles parent_id sub-nesting) ─────────────
+function DesignElementRow({ el, childrenOf, depth, onDelete, onUpdate, highlightId, linkedReqsForEl }: {
   el: DesignElement;
+  childrenOf: (id: string) => DesignElement[];
+  depth: number;
   onDelete: (id: string) => void;
   onUpdate: (el: DesignElement) => void;
-  highlighted?: boolean;
-  linkedReqs?: Requirement[];
+  highlightId?: string;
+  linkedReqsForEl: (id: string) => Requirement[];
 }) {
-  const [diagramOpen, setDiagramOpen] = useState(!!highlighted);
+  const [diagramOpen, setDiagramOpen] = useState(false);
+  const [filesOpen,   setFilesOpen]   = useState(false);
   const [editing,     setEditing]     = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
-  const color = TYPE_META[el.type].color;
+  const highlighted = el.id === highlightId;
+  const kids = childrenOf(el.id);
 
   useEffect(() => {
     if (highlighted && rowRef.current) {
@@ -234,288 +197,162 @@ function ElementRow({ el, onDelete, onUpdate, highlighted, linkedReqs }: {
   }, [highlighted]);
 
   return (
-    <div ref={rowRef} style={{
-      transition: "background 0.4s",
-      background: highlighted ? "#fefce8" : "transparent",
-      outline: highlighted ? "2px solid #fbbf24" : "none",
-      borderRadius: highlighted ? 4 : 0,
-    }}>
-      {editing ? (
-        <div style={{ padding: "8px 12px", borderBottom: "1px solid #e0e0e0" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-            <span style={{ background: color, color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700 }}>
-              {el.type === "ARCHITECTURE" ? "ARCH" : "DTL"}
+    <div>
+      <div ref={rowRef} style={{
+        transition: "background 0.4s",
+        background: highlighted ? "#fefce8" : "transparent",
+        outline: highlighted ? "2px solid #fbbf24" : "none",
+        borderRadius: highlighted ? 4 : 0,
+      }}>
+        {editing ? (
+          <div style={{ padding: "8px 12px", borderBottom: "1px solid #e0e0e0", marginLeft: depth * 22 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <span style={{ background: DET_COLOR, color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700 }}>DESIGN</span>
+              {el.readable_id && (
+                <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: DET_COLOR }}>{el.readable_id}</span>
+              )}
+            </div>
+            <InlineEditPanel
+              fields={designFields}
+              initialValues={{ title: el.title, description: el.description ?? "" }}
+              accentColor="#ce93d8"
+              accentBg="#fdf4ff"
+              onSave={async (vals) => {
+                const updated = await api.design.updateElement(el.id, { title: vals.title.trim(), description: vals.description.trim() || undefined });
+                onUpdate(updated);
+                setEditing(false);
+              }}
+              onCancel={() => setEditing(false)}
+            />
+          </div>
+        ) : (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "7px 10px",
+            paddingLeft: 10 + depth * 22,
+            borderBottom: diagramOpen || filesOpen ? "none" : "1px solid #e0e0e0",
+            borderLeft: depth > 0 ? "4px solid #e8eaf6" : "none",
+          }}>
+            {depth > 0 && <span style={{ color: "#aaa", fontSize: 12, flexShrink: 0 }}>└</span>}
+            <span style={{ background: DET_COLOR, color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+              DESIGN
             </span>
             {el.readable_id && (
-              <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color }}>{el.readable_id}</span>
+              <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: DET_COLOR, background: "#f3e5f5", borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
+                {el.readable_id}
+              </span>
             )}
+            <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{el.title}</span>
+            {linkedReqsForEl(el.id).map(r => (
+              <a key={r.id} href={`/requirements?type=${r.type}&highlight=${r.id}`}
+                title={r.title}
+                style={{ textDecoration: "none", display: "inline-flex", alignItems: "center",
+                  background: "#ede7f6", border: "1px solid #ce93d8", borderRadius: 4,
+                  padding: "1px 7px", fontSize: 11, fontWeight: 700, color: "#6a1b9a",
+                  flexShrink: 0, fontFamily: "monospace" }}>
+                {r.readable_id ?? "REQ"}
+              </a>
+            ))}
+            {el.description && <span style={{ color: "#888", fontSize: 12 }}>{el.description}</span>}
+            {el.diagram_source && (
+              <span style={{ fontSize: 11, color: "#6d28d9", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "1px 7px" }}>
+                diagram
+              </span>
+            )}
+            <button onClick={() => setEditing(true)} style={editBtnStyle} title="Edit">✎</button>
+            <button
+              onClick={() => setDiagramOpen(o => !o)}
+              title="Edit diagram"
+              style={{
+                padding: "2px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
+                border: `1px solid ${diagramOpen ? "#6d28d9" : "#c5cae9"}`,
+                background: diagramOpen ? "#f5f3ff" : "#fff",
+                color: diagramOpen ? "#6d28d9" : "#64748b",
+              }}>
+              ◈ Diagram
+            </button>
+            <button
+              onClick={() => setFilesOpen(o => !o)}
+              title="Attach images / PDF supporting documents"
+              style={{
+                padding: "2px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
+                border: `1px solid ${filesOpen ? "#6d28d9" : "#c5cae9"}`,
+                background: filesOpen ? "#f5f3ff" : "#fff",
+                color: filesOpen ? "#6d28d9" : "#64748b",
+              }}>
+              📎 Files
+            </button>
+            <button onClick={() => onDelete(el.id)} style={deleteBtnStyle}>✕</button>
           </div>
-          <InlineEditPanel
-            fields={designFields}
-            initialValues={{ title: el.title, description: el.description ?? "" }}
-            accentColor={color + "60"}
-            accentBg={color + "08"}
-            onSave={async (vals) => {
-              const updated = await api.design.updateElement(el.id, { title: vals.title.trim(), description: vals.description.trim() || undefined });
-              onUpdate(updated);
-              setEditing(false);
-            }}
-            onCancel={() => setEditing(false)}
-          />
-        </div>
-      ) : (
-        <div style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "9px 12px",
-          borderBottom: diagramOpen ? "none" : "1px solid #e0e0e0",
-        }}>
-          <span style={{
-            background: color, color: "#fff",
-            borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0,
-          }}>{el.type === "ARCHITECTURE" ? "ARCH" : "DTL"}</span>
-          {el.readable_id && (
-            <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color, borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
-              {el.readable_id}
-            </span>
-          )}
-          <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{el.title}</span>
-          {linkedReqs?.map(r => (
-            <a key={r.id} href={`/requirements?type=${r.type}&highlight=${r.id}`}
-              title={r.title}
-              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center",
-                background: "#ede7f6", border: "1px solid #ce93d8", borderRadius: 4,
-                padding: "1px 7px", fontSize: 11, fontWeight: 700, color: "#6a1b9a",
-                flexShrink: 0, fontFamily: "monospace" }}>
-              {r.readable_id ?? "REQ"}
-            </a>
-          ))}
-          {el.description && <span style={{ color: "#888", fontSize: 12 }}>{el.description}</span>}
-          {el.diagram_source && (
-            <span style={{ fontSize: 11, color, background: "#f5f5f5", border: "1px solid #ddd", borderRadius: 10, padding: "1px 7px" }}>
-              diagram
-            </span>
-          )}
-          <button onClick={() => setEditing(true)} style={editBtnStyle} title="Edit">✎</button>
-          <button
-            onClick={() => setDiagramOpen(o => !o)}
-            title="Edit diagram"
-            style={{
-              padding: "2px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
-              border: `1px solid ${diagramOpen ? color : "#c5cae9"}`,
-              background: diagramOpen ? color + "20" : "#fff",
-              color: diagramOpen ? color : "#64748b",
-            }}>
-            ◈ Diagram
-          </button>
-          <button onClick={() => onDelete(el.id)} style={deleteBtnStyle}>✕</button>
-        </div>
-      )}
-      {!editing && diagramOpen && (
-        <DiagramPanel element={el} onSaved={updated => { onUpdate(updated); setDiagramOpen(true); }} />
-      )}
+        )}
+        {!editing && diagramOpen && (
+          <div style={{ marginLeft: depth * 22 }}>
+            <DiagramPanel element={el} onSaved={updated => { onUpdate(updated); }} />
+          </div>
+        )}
+        {!editing && filesOpen && (
+          <div style={{ padding: "6px 12px 12px", borderBottom: "1px solid #e0e0e0", marginLeft: depth * 22 }}>
+            <AttachmentsPanel projectId={el.project_id} entityType="design_element" entityId={el.id} />
+          </div>
+        )}
+      </div>
+
+      {/* Sub-nested children */}
+      {kids.map(child => (
+        <DesignElementRow
+          key={child.id} el={child} childrenOf={childrenOf} depth={depth + 1}
+          onDelete={onDelete} onUpdate={onUpdate}
+          highlightId={highlightId} linkedReqsForEl={linkedReqsForEl}
+        />
+      ))}
     </div>
   );
 }
 
-// ── Collapsible ARCHITECTURE node ─────────────────────────────────────────────
-function ArchNode({ arch, children, onDelete, onUpdate, highlightId, linkedReqsForEl }: {
-  arch: DesignElement;
-  children: DesignElement[];
+// ── Component group — a §5.3 component header + its §5.4 design element tree ──
+function ComponentGroup({ component, elements, onDelete, onUpdate, highlightId, linkedReqsForEl }: {
+  component: SWComponent;
+  elements: DesignElement[];
   onDelete: (id: string) => void;
   onUpdate: (el: DesignElement) => void;
   highlightId?: string;
-  linkedReqsForEl?: (id: string) => Requirement[];
+  linkedReqsForEl: (id: string) => Requirement[];
 }) {
-  const archHighlighted = arch.id === highlightId;
-  const [open,         setOpen]         = useState(true);
-  const [diagram,      setDiagram]      = useState(false);
-  const [detDiagramId, setDetDiagramId] = useState<string | null>(null);
-  const [editingArch,  setEditingArch]  = useState(false);
-  const [editingDetId, setEditingDetId] = useState<string | null>(null);
-  const archRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (archHighlighted && archRef.current) {
-      archRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [archHighlighted]);
+  const [open, setOpen] = useState(true);
+  const color = COMP_TYPE_COLOR[component.component_type] ?? "#546e7a";
+  const roots = elements.filter(e => !e.parent_id);
+  const childrenOf = (id: string) => elements.filter(e => e.parent_id === id);
 
   return (
-    <div style={{ marginBottom: 4 }}>
-      {/* ARCHITECTURE row */}
-      {editingArch ? (
-        <div ref={archRef} style={{ padding: "8px 10px", background: "#e8eaf6", borderRadius: 6, borderLeft: "4px solid #1565c0" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-            <span style={{ background: "#1565c0", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700 }}>ARCH</span>
-            {arch.readable_id && (
-              <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#1565c0" }}>{arch.readable_id}</span>
-            )}
-          </div>
-          <InlineEditPanel
-            fields={designFields}
-            initialValues={{ title: arch.title, description: arch.description ?? "" }}
-            accentColor="#9fa8da"
-            accentBg="#e8eaf6"
-            onSave={async (vals) => {
-              const updated = await api.design.updateElement(arch.id, { title: vals.title.trim(), description: vals.description.trim() || undefined });
-              onUpdate(updated);
-              setEditingArch(false);
-            }}
-            onCancel={() => setEditingArch(false)}
-          />
-        </div>
-      ) : (
-      <div ref={archRef} style={{
-        display: "flex", alignItems: "center", gap: 8,
-        padding: "8px 10px",
-        background: archHighlighted ? "#fefce8" : "#e8eaf6",
-        borderRadius: diagram ? "6px 6px 0 0" : 6,
-        borderLeft: "4px solid #1565c0",
-        borderBottom: diagram ? "none" : undefined,
-        transition: "background 0.4s",
-        outline: archHighlighted ? "2px solid #fbbf24" : "none",
+    <div style={{ marginBottom: 8 }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
+        background: "#eef1fa", borderRadius: open ? "6px 6px 0 0" : 6,
+        borderLeft: `4px solid ${color}`,
       }}>
-        <span onClick={() => setOpen(o => !o)} style={{ color: "#1565c0", fontSize: 13, fontWeight: 700, cursor: "pointer", userSelect: "none", minWidth: 16 }}>
+        <span onClick={() => setOpen(o => !o)} style={{ color, fontSize: 13, fontWeight: 700, cursor: "pointer", userSelect: "none", minWidth: 16 }}>
           {open ? "▾" : "▸"}
         </span>
-        <span style={{ background: "#1565c0", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-          ARCH
+        <span style={{ background: color, color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+          {component.component_type}
         </span>
-        {arch.readable_id && (
-          <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#1565c0", background: "#dce3f5", borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
-            {arch.readable_id}
-          </span>
-        )}
-        <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{arch.title}</span>
-        {linkedReqsForEl?.(arch.id).map(r => (
-          <a key={r.id} href={`/requirements?type=${r.type}&highlight=${r.id}`}
-            title={r.title}
-            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center",
-              background: "#ede7f6", border: "1px solid #ce93d8", borderRadius: 4,
-              padding: "1px 7px", fontSize: 11, fontWeight: 700, color: "#6a1b9a",
-              flexShrink: 0, fontFamily: "monospace" }}>
-            {r.readable_id ?? "REQ"}
-          </a>
-        ))}
-        {arch.description && <span style={{ color: "#666", fontSize: 12 }}>{arch.description}</span>}
-        {arch.diagram_source && (
-          <span style={{ fontSize: 11, color: "#3949ab", background: "#e8eaf6", border: "1px solid #c5cae9", borderRadius: 10, padding: "1px 7px" }}>
-            diagram
-          </span>
-        )}
-        <span style={{ fontSize: 12, color: "#888" }}>{children.length} detailed</span>
-        <button onClick={e => { e.stopPropagation(); setEditingArch(true); }} style={editBtnStyle} title="Edit">✎</button>
-        <button
-          onClick={e => { e.stopPropagation(); setDiagram(d => !d); setOpen(true); }}
-          title="Edit diagram"
-          style={{
-            padding: "2px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
-            border: `1px solid ${diagram ? "#3949ab" : "#c5cae9"}`,
-            background: diagram ? "#e8eaf6" : "#fff",
-            color: diagram ? "#3949ab" : "#64748b",
-          }}>
-          ◈ Diagram
-        </button>
-        <button onClick={e => { e.stopPropagation(); onDelete(arch.id); }} style={deleteBtnStyle}>✕</button>
+        <span style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{component.name}</span>
+        <span style={{ fontSize: 12, color: "#888" }}>
+          {elements.length} design element{elements.length !== 1 ? "s" : ""}
+        </span>
       </div>
-      )}
-
-      {/* Diagram panel for ARCH */}
-      {diagram && (
-        <DiagramPanel element={arch} onSaved={updated => { onUpdate(updated); }} />
-      )}
-
-      {/* DETAILED children */}
-      {open && children.map(det => {
-        const detHighlighted = det.id === highlightId;
-        return (
-          <div key={det.id}
-            ref={el => { if (detHighlighted && el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-            style={{ transition: "background 0.4s", background: detHighlighted ? "#fefce8" : "transparent" }}
-          >
-            {editingDetId === det.id ? (
-              <div style={{ padding: "6px 10px 6px 36px", borderLeft: "4px solid #ce93d8", marginLeft: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                  <span style={{ color: "#aaa", fontSize: 12 }}>└</span>
-                  <span style={{ background: "#4a148c", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700 }}>DTL</span>
-                  {det.readable_id && (
-                    <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#4a148c" }}>{det.readable_id}</span>
-                  )}
-                </div>
-                <InlineEditPanel
-                  fields={designFields}
-                  initialValues={{ title: det.title, description: det.description ?? "" }}
-                  accentColor="#ce93d8"
-                  accentBg="#fdf4ff"
-                  onSave={async (vals) => {
-                    const updated = await api.design.updateElement(det.id, { title: vals.title.trim(), description: vals.description.trim() || undefined });
-                    onUpdate(updated);
-                    setEditingDetId(null);
-                  }}
-                  onCancel={() => setEditingDetId(null)}
+      {open && (
+        <div style={{ background: "#fff", border: "1px solid #ddd", borderTop: "none", borderRadius: "0 0 6px 6px" }}>
+          {roots.length === 0
+            ? <p style={{ color: "#ccc", fontSize: 12, fontStyle: "italic", padding: "8px 14px", margin: 0 }}>No design elements for this component yet.</p>
+            : roots.map(el => (
+                <DesignElementRow
+                  key={el.id} el={el} childrenOf={childrenOf} depth={0}
+                  onDelete={onDelete} onUpdate={onUpdate}
+                  highlightId={highlightId} linkedReqsForEl={linkedReqsForEl}
                 />
-              </div>
-            ) : (
-              <div style={{
-                display: "flex", alignItems: "center", gap: 8,
-                padding: "7px 10px 7px 36px",
-                borderBottom: detDiagramId === det.id ? "none" : "1px solid #e0e0e0",
-                borderLeft: detHighlighted ? "4px solid #fbbf24" : "4px solid #e8eaf6",
-                marginLeft: 12,
-              }}>
-                <span style={{ color: "#aaa", fontSize: 12, flexShrink: 0 }}>└</span>
-                <span style={{ background: "#4a148c", color: "#fff", borderRadius: 3, padding: "1px 7px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                  DTL
-                </span>
-                {det.readable_id && (
-                  <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: "#4a148c", background: "#f3e5f5", borderRadius: 3, padding: "1px 6px", flexShrink: 0 }}>
-                    {det.readable_id}
-                  </span>
-                )}
-                <span style={{ fontWeight: 500, fontSize: 14, flex: 1 }}>{det.title}</span>
-                {linkedReqsForEl?.(det.id).map(r => (
-                  <a key={r.id} href={`/requirements?type=${r.type}&highlight=${r.id}`}
-                    title={r.title}
-                    style={{ textDecoration: "none", display: "inline-flex", alignItems: "center",
-                      background: "#ede7f6", border: "1px solid #ce93d8", borderRadius: 4,
-                      padding: "1px 7px", fontSize: 11, fontWeight: 700, color: "#6a1b9a",
-                      flexShrink: 0, fontFamily: "monospace" }}>
-                    {r.readable_id ?? "REQ"}
-                  </a>
-                ))}
-                {det.description && <span style={{ color: "#888", fontSize: 12 }}>{det.description}</span>}
-                {det.diagram_source && (
-                  <span style={{ fontSize: 11, color: "#6d28d9", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, padding: "1px 7px" }}>
-                    diagram
-                  </span>
-                )}
-                <button onClick={() => setEditingDetId(det.id)} style={editBtnStyle} title="Edit">✎</button>
-                <button
-                  onClick={() => setDetDiagramId(id => id === det.id ? null : det.id)}
-                  title="Edit diagram"
-                  style={{
-                    padding: "2px 9px", fontSize: 11, borderRadius: 4, cursor: "pointer",
-                    border: `1px solid ${detDiagramId === det.id ? "#6d28d9" : "#c5cae9"}`,
-                    background: detDiagramId === det.id ? "#f5f3ff" : "#fff",
-                    color: detDiagramId === det.id ? "#6d28d9" : "#64748b",
-                  }}>
-                  ◈ Diagram
-                </button>
-                <button onClick={() => onDelete(det.id)} style={deleteBtnStyle}>✕</button>
-              </div>
-            )}
-            {editingDetId !== det.id && detDiagramId === det.id && (
-              <div style={{ marginLeft: 12 }}>
-                <DiagramPanel element={det} onSaved={updated => { onUpdate(updated); }} />
-              </div>
-            )}
-          </div>
-        );
-      })}
-
-      {open && children.length === 0 && (
-        <div style={{ padding: "5px 10px 5px 48px", color: "#ccc", fontSize: 12, fontStyle: "italic" }}>
-          No detailed elements yet
+              ))
+          }
         </div>
       )}
     </div>
@@ -525,19 +362,18 @@ function ArchNode({ arch, children, onDelete, onUpdate, highlightId, linkedReqsF
 // ── Inner page ────────────────────────────────────────────────────────────────
 function DesignPageInner() {
   const params      = useSearchParams();
-  const typeParam   = params.get("type") ?? "ALL";
   const highlightId = params.get("highlight") ?? "";
 
   const [projects, setProjects]   = useState<Project[]>([]);
+  const [components, setComponents] = useState<SWComponent[]>([]);
   const [elements, setElements]   = useState<DesignElement[]>([]);
   const [swReqs, setSwReqs]       = useState<Requirement[]>([]);
   const [allReqs, setAllReqs]     = useState<Requirement[]>([]);
   const [desLinks, setDesLinks]   = useState<DesignLink[]>([]);
   const [projectId, setProjectId] = useActiveProject();
-  const [filter, setFilter]       = useState<string>(highlightId ? "ALL" : typeParam);
 
   // create form
-  const [elType, setElType]     = useState<DesignElementType>("ARCHITECTURE");
+  const [componentId, setComponentId] = useState("");
   const [parentId, setParentId] = useState("");
   const [title, setTitle]       = useState("");
   const [desc, setDesc]         = useState("");
@@ -551,16 +387,17 @@ function DesignPageInner() {
   const [linkMsg, setLinkMsg]     = useState("");
 
   useEffect(() => { api.projects.list().then(setProjects); }, []);
-  useEffect(() => { if (!highlightId) setFilter(typeParam); }, [typeParam]);
 
   const reload = async () => {
     if (!projectId) return;
-    const [els, reqs, allR, links] = await Promise.all([
+    const [comps, els, reqs, allR, links] = await Promise.all([
+      api.architecture.listComponents(projectId),
       api.design.listElements(projectId),
       api.requirements.list(projectId, "SOFTWARE"),
       api.requirements.list(projectId),
       api.design.listLinks(),
     ]);
+    setComponents(comps);
     setElements(els);
     setSwReqs(reqs);
     setAllReqs(allR);
@@ -568,11 +405,11 @@ function DesignPageInner() {
   };
 
   useEffect(() => {
-    if (!projectId) { setElements([]); setSwReqs([]); setAllReqs([]); setDesLinks([]); return; }
+    if (!projectId) { setComponents([]); setElements([]); setSwReqs([]); setAllReqs([]); setDesLinks([]); return; }
     reload();
   }, [projectId]);
 
-  // Optimistic update for diagram saves — avoids full reload
+  // Optimistic update for diagram/edit saves — avoids full reload
   const handleElementUpdate = (updated: DesignElement) => {
     setElements(prev => prev.map(e => e.id === updated.id ? updated : e));
   };
@@ -582,13 +419,14 @@ function DesignPageInner() {
     setSaving(true); setFormErr("");
     try {
       await api.design.createElement({
-        project_id: projectId, type: elType,
-        parent_id: parentId || undefined,
-        title: title.trim(), description: desc.trim() || undefined,
+        project_id: projectId,
+        component_id: componentId,
+        parent_id: parentId || null,
+        title: title.trim(), description: desc.trim() || null,
       });
       setTitle(""); setDesc(""); setParentId("");
       await reload();
-    } catch (e: any) { setFormErr(e.message); }
+    } catch (e) { setFormErr(e instanceof Error ? e.message : String(e)); }
     finally { setSaving(false); }
   }
 
@@ -599,40 +437,47 @@ function DesignPageInner() {
       await api.design.createLink({ requirement_id: linkReqId, design_element_id: linkElId });
       setLinkMsg("Linked successfully.");
       setLinkReqId(""); setLinkElId("");
-    } catch (e: any) { setLinkMsg(`Error: ${e.message}`); }
+      await reload();
+    } catch (e) { setLinkMsg(`Error: ${e instanceof Error ? e.message : String(e)}`); }
     finally { setLinking(false); }
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this design element?")) return;
+    if (!confirm("Delete this design element? Any sub-nested elements are detached, not deleted.")) return;
     await api.design.deleteElement(id);
     await reload();
   }
 
-  const archElements  = elements.filter(e => e.type === "ARCHITECTURE");
-  const detailedOf    = (archId: string) => elements.filter(e => e.parent_id === archId);
-  const reqById       = Object.fromEntries(allReqs.map(r => [r.id, r]));
-  // map elementId → linked requirements
+  // Component-type sort order so the tree mirrors the §5.3 hierarchy ordering.
+  const TYPE_ORDER: Record<string, number> = { SYSTEM: 0, SUBSYSTEM: 1, ITEM: 2, UNIT: 3 };
+  const sortedComponents = [...components].sort(
+    (a, b) => (TYPE_ORDER[a.component_type] ?? 9) - (TYPE_ORDER[b.component_type] ?? 9) || a.name.localeCompare(b.name)
+  );
+  const elementsOf = (componentId: string) => elements.filter(e => e.component_id === componentId);
+  const componentsWithElements = sortedComponents.filter(c => elementsOf(c.id).length > 0);
+
+  const componentById = Object.fromEntries(components.map(c => [c.id, c]));
+  const reqById = Object.fromEntries(allReqs.map(r => [r.id, r]));
   const linkedReqsForEl = (elId: string) =>
     desLinks.filter(l => l.design_element_id === elId).map(l => reqById[l.requirement_id]).filter(Boolean) as Requirement[];
-  const filteredElements = filter === "ALL" ? elements : elements.filter(e => e.type === filter);
-  const counts = {
-    ALL:          elements.length,
-    ARCHITECTURE: elements.filter(e => e.type === "ARCHITECTURE").length,
-    DETAILED:     elements.filter(e => e.type === "DETAILED").length,
-  };
+
+  // Parent options for the create form: design elements already on the chosen component.
+  const parentOptions = componentId ? elementsOf(componentId) : [];
   const diagramCount = elements.filter(e => e.diagram_source).length;
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <h1 style={{ margin: 0 }}>Design Elements</h1>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 4, flexWrap: "wrap" }}>
+        <h1 style={{ margin: 0 }}>Detailed Design</h1>
         {diagramCount > 0 && (
           <span style={{ fontSize: 12, background: "#e8eaf6", color: "#3949ab", border: "1px solid #c5cae9", borderRadius: 12, padding: "2px 10px", fontWeight: 600 }}>
             ◈ {diagramCount} diagram{diagramCount !== 1 ? "s" : ""}
           </span>
         )}
       </div>
+      <p style={{ margin: "0 0 16px", color: "#546e7a", fontSize: 13 }}>
+        IEC 62304 §5.4 — detailed design of the §5.3 software architecture components.
+      </p>
 
       <select value={projectId} onChange={e => setProjectId(e.target.value)} style={{ ...inputStyle, marginBottom: 20 }}>
         <option value="">— Select project</option>
@@ -644,20 +489,26 @@ function DesignPageInner() {
         <section style={cardStyle}>
           <h2 style={{ marginTop: 0, fontSize: 15 }}>Add Design Element</h2>
           <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <select value={elType} onChange={e => { setElType(e.target.value as DesignElementType); setParentId(""); }} style={inputStyle}>
-              <option value="ARCHITECTURE">Architecture (top-level)</option>
-              <option value="DETAILED">Detailed (under architecture)</option>
+            <select value={componentId} onChange={e => { setComponentId(e.target.value); setParentId(""); }} required style={inputStyle} disabled={!projectId}>
+              <option value="">— §5.3 Component *</option>
+              {sortedComponents.map(c => (
+                <option key={c.id} value={c.id}>[{c.component_type}] {c.name}</option>
+              ))}
             </select>
-            {elType === "DETAILED" && (
-              <select value={parentId} onChange={e => setParentId(e.target.value)} required style={inputStyle}>
-                <option value="">— Select Architecture parent *</option>
-                {archElements.map(e => <option key={e.id} value={e.id}>{e.readable_id ? `${e.readable_id} ` : ""}{e.title}</option>)}
+            {parentOptions.length > 0 && (
+              <select value={parentId} onChange={e => setParentId(e.target.value)} style={inputStyle}>
+                <option value="">— Sub-nest under (optional)</option>
+                {parentOptions.map(el => (
+                  <option key={el.id} value={el.id}>{el.readable_id ? `${el.readable_id} ` : ""}{el.title}</option>
+                ))}
               </select>
             )}
             <input placeholder="Title *" value={title} onChange={e => setTitle(e.target.value)} required style={inputStyle} />
             <input placeholder="Description (optional)" value={desc} onChange={e => setDesc(e.target.value)} style={inputStyle} />
             {formErr && <p style={{ color: "red", margin: 0, fontSize: 13 }}>{formErr}</p>}
-            <button type="submit" disabled={saving || !projectId} style={btnStyle}>{saving ? "Saving…" : "Add Element"}</button>
+            <button type="submit" disabled={saving || !projectId || !componentId || !title.trim()} style={btnStyle}>
+              {saving ? "Saving…" : "Add Element"}
+            </button>
           </form>
         </section>
 
@@ -671,7 +522,14 @@ function DesignPageInner() {
             </select>
             <select value={linkElId} onChange={e => setLinkElId(e.target.value)} required style={inputStyle} disabled={!projectId}>
               <option value="">— Design element *</option>
-              {elements.map(e => <option key={e.id} value={e.id}>{e.readable_id ? `${e.readable_id} ` : ""}[{e.type === "ARCHITECTURE" ? "ARCH" : "DTL"}] {e.title}</option>)}
+              {elements.map(el => {
+                const c = componentById[el.component_id];
+                return (
+                  <option key={el.id} value={el.id}>
+                    {el.readable_id ? `${el.readable_id} ` : ""}{el.title}{c ? ` — ${c.name}` : ""}
+                  </option>
+                );
+              })}
             </select>
             {linkMsg && <p style={{ color: linkMsg.startsWith("Error") ? "red" : "#2e7d32", margin: 0, fontSize: 13 }}>{linkMsg}</p>}
             <button type="submit" disabled={linking || !linkReqId || !linkElId} style={btnStyle}>{linking ? "Linking…" : "Link"}</button>
@@ -679,53 +537,31 @@ function DesignPageInner() {
         </section>
       </div>
 
-      {/* Filter tabs */}
-      {projectId && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-          {(["ALL", "ARCHITECTURE", "DETAILED"] as const).map(t => (
-            <button key={t} onClick={() => setFilter(t)} style={{
-              padding: "5px 14px", borderRadius: 20, border: "none", cursor: "pointer",
-              fontSize: 13, fontWeight: 500,
-              background: filter === t ? (t === "ARCHITECTURE" ? "#1565c0" : t === "DETAILED" ? "#4a148c" : "#37474f") : "#f0f0f0",
-              color: filter === t ? "#fff" : "#555",
-            }}>
-              {t === "ALL" ? "All" : TYPE_META[t].label}
-              <span style={{ marginLeft: 6, opacity: 0.75 }}>({counts[t]})</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Tree / list */}
+      {/* Tree grouped by §5.3 component */}
       <section>
         <h2 style={{ fontSize: 15, marginBottom: 10 }}>
-          Design Tree ({filteredElements.length} elements{filter !== "ALL" ? ` — ${TYPE_META[filter as DesignElementType]?.label ?? filter}` : ""})
+          Design Tree ({elements.length} element{elements.length !== 1 ? "s" : ""} across {componentsWithElements.length} component{componentsWithElements.length !== 1 ? "s" : ""})
         </h2>
         {!projectId ? (
           <p style={{ color: "#888" }}>Select a project.</p>
+        ) : components.length === 0 ? (
+          <p style={{ color: "#888" }}>
+            No §5.3 architecture components yet — define them in <a href="/architecture" style={{ color: "#1565c0" }}>SW Architecture</a> first.
+          </p>
         ) : elements.length === 0 ? (
-          <p style={{ color: "#888" }}>No design elements yet.</p>
-        ) : filter === "ALL" ? (
-          <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-            {archElements.length === 0
-              ? <p style={{ color: "#aaa", margin: 0 }}>No architecture elements yet.</p>
-              : archElements.map(arch => (
-                  <ArchNode
-                    key={arch.id}
-                    arch={arch}
-                    children={detailedOf(arch.id)}
-                    onDelete={handleDelete}
-                    onUpdate={handleElementUpdate}
-                    highlightId={highlightId}
-                    linkedReqsForEl={linkedReqsForEl}
-                  />
-                ))
-            }
-          </div>
+          <p style={{ color: "#888" }}>No design elements yet. Pick a component above and add one.</p>
         ) : (
-          <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 6, overflow: "hidden" }}>
-            {filteredElements.map(el => (
-              <ElementRow key={el.id} el={el} onDelete={handleDelete} onUpdate={handleElementUpdate} highlighted={el.id === highlightId} linkedReqs={linkedReqsForEl(el.id)} />
+          <div>
+            {componentsWithElements.map(c => (
+              <ComponentGroup
+                key={c.id}
+                component={c}
+                elements={elementsOf(c.id)}
+                onDelete={handleDelete}
+                onUpdate={handleElementUpdate}
+                highlightId={highlightId}
+                linkedReqsForEl={linkedReqsForEl}
+              />
             ))}
           </div>
         )}

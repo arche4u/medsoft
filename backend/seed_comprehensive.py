@@ -15,7 +15,8 @@ from app.modules.requirements.model import Requirement
 from app.modules.testcases.model import TestCase
 from app.modules.tracelinks.model import TraceLink
 from app.modules.risks.model import Risk, _compute_level
-from app.modules.design.model import DesignElement, DesignElementType, RequirementDesignLink
+import app.modules.design.model  # noqa: F401 — register design_elements table for FK resolution
+# §5.4 design elements themselves are seeded by seed_architecture.py (they link to §5.3 components).
 from app.modules.verification.model import TestExecution, ExecutionStatus
 from app.modules.validation.model import ValidationRecord, ValidationStatus
 from app.modules.change_control.model import ChangeRequest, ChangeRequestState, ChangeImpact
@@ -23,7 +24,6 @@ from app.modules.release.model import Release, ReleaseStatus, ReleaseItem
 from app.modules.sdp.seed import seed_approved_sdp
 from app.modules.requirements.seed import seed_approved_srs
 from app.modules.requirements.router import _ensure_builtins
-from app.modules.architecture.seed import seed_approved_architecture
 import app.modules.architecture.model  # noqa: F401  ensure mapper registered
 import app.modules.audit.model  # noqa: F401
 import app.modules.sdp.model  # noqa: F401  (ensure mapper registered before TRUNCATE)
@@ -40,15 +40,6 @@ def req(proj_id, typ, rid, title, desc=None, parent_id=None):
 def risk(req_id, hazard, sit, harm, s, p):
     return Risk(requirement_id=req_id, hazard=hazard, hazardous_situation=sit,
                 harm=harm, severity=s, probability=p, risk_level=_compute_level(s, p))
-
-def arch(proj_id, rid, title, desc=None):
-    return DesignElement(project_id=proj_id, readable_id=rid,
-                         type=DesignElementType.ARCHITECTURE, title=title, description=desc)
-
-def det(proj_id, rid, parent_id, title, desc=None):
-    return DesignElement(project_id=proj_id, readable_id=rid,
-                         type=DesignElementType.DETAILED, parent_id=parent_id,
-                         title=title, description=desc)
 
 def tc(proj_id, rid, title, desc=None):
     return TestCase(project_id=proj_id, readable_id=rid, title=title, description=desc)
@@ -281,50 +272,8 @@ async def seed():
                  "Central monitoring gap", 3, 3),
         ])
         await db.flush()
-
-        # ── Design elements ────────────────────────────────────────────────
-        pa1 = arch(p1.id, "ARC-001", "Display & Touch Subsystem",
-                   "15\" LCD controller, backlight PWM, FT5426 touch IC")
-        pa2 = arch(p1.id, "ARC-002", "LED & Audio Alarm Subsystem",
-                   "WS2812B LED strip, piezo buzzer amplifier, alarm state machine")
-        pa3 = arch(p1.id, "ARC-003", "Data Management Subsystem",
-                   "NAND flash driver, ring-buffer trend store, alarm event log")
-        pa4 = arch(p1.id, "ARC-004", "Connectivity Subsystem",
-                   "Wi-Fi SoC, TLS stack, FHIR client, central station framer")
-        db.add_all([pa1, pa2, pa3, pa4])
-        await db.flush()
-
-        pd1 = det(p1.id, "DET-001", pa1.id, "Waveform Tile Layout Engine",
-                  "Grid compositor with drag-and-drop; NVRAM persistence")
-        pd2 = det(p1.id, "DET-002", pa1.id, "Touch Gesture Recogniser",
-                  "Tap/swipe/long-press classifier on FT5426 raw events")
-        pd3 = det(p1.id, "DET-003", pa1.id, "Backlight ALS Controller",
-                  "I2C ALS read → PWM duty map, hysteresis filter")
-        pd4 = det(p1.id, "DET-004", pa2.id, "LED PWM Driver",
-                  "SPI DMA to WS2812B; colour palette mapped to alarm state")
-        pd5 = det(p1.id, "DET-005", pa2.id, "Alarm Escalation State Machine",
-                  "SILENT→ACTIVE→ESCALATED with timer and volume ramp")
-        pd6 = det(p1.id, "DET-006", pa2.id, "Alarm Suspend Watchdog",
-                  "Countdown timer; auto-resume on expiry")
-        pd7 = det(p1.id, "DET-007", pa3.id, "72-Hour Trend Ring Buffer",
-                  "Circular NAND buffer, 1 s resolution, wear levelling")
-        pd8 = det(p1.id, "DET-008", pa4.id, "FHIR R4 Observation Publisher",
-                  "Bundle serialiser, HTTP retry with exponential backoff")
-        pd9 = det(p1.id, "DET-009", pa4.id, "Wi-Fi Link Manager",
-                  "Association FSM, TLS1.3, 5 s reconnect guarantee")
-        db.add_all([pd1, pd2, pd3, pd4, pd5, pd6, pd7, pd8, pd9])
-        await db.flush()
-
-        rdlinks = [
-            (psw["SWR-001"].id, pd1.id), (psw["SWR-002"].id, pd2.id),
-            (psw["SWR-015"].id, pd3.id), (psw["SWR-004"].id, pd4.id),
-            (psw["SWR-005"].id, pd5.id), (psw["SWR-006"].id, pd6.id),
-            (psw["SWR-007"].id, pd7.id), (psw["SWR-009"].id, pd8.id),
-            (psw["SWR-010"].id, pd9.id),
-        ]
-        for r_id, d_id in rdlinks:
-            db.add(RequirementDesignLink(requirement_id=r_id, design_element_id=d_id))
-        await db.flush()
+        # §5.4 design elements are seeded in seed_architecture.py (they link to
+        # §5.3 SWComponents, which don't exist until that step runs).
 
         # ── Test executions ────────────────────────────────────────────────
         execs = [
@@ -592,36 +541,7 @@ async def seed():
         ])
         await db.flush()
 
-        ea1 = arch(p2.id, "ARC-001", "RF Power Stage", "H-bridge driver, gate signal path, output transformer")
-        ea2 = arch(p2.id, "ARC-002", "Sensing & Measurement", "V/I ADC, impedance calculator, leakage monitor, NTC")
-        ea3 = arch(p2.id, "ARC-003", "Control & Safety Logic", "PID, FSM, interlock AND gate, watchdog")
-        ea4 = arch(p2.id, "ARC-004", "User Interface & Indicators", "LED driver, tone DAC, front-panel input MCU")
-        db.add_all([ea1, ea2, ea3, ea4])
-        await db.flush()
-
-        ed_list = [
-            det(p2.id, "DET-001", ea3.id, "RF Power PID Controller", "Discrete PID with anti-windup; 1 MHz update rate"),
-            det(p2.id, "DET-002", ea3.id, "Mode Selection FSM", "STANDBY/READY/ACTIVE/FAULT transitions"),
-            det(p2.id, "DET-003", ea3.id, "RF Gate Interlock", "Hardware AND: FSM + REM + Thermal + Leakage"),
-            det(p2.id, "DET-004", ea2.id, "Impedance Calculator", "100 µs V_rms/I_rms, IIR filtered"),
-            det(p2.id, "DET-005", ea2.id, "REM Contact Monitor", "Dual-pad ratio algorithm"),
-            det(p2.id, "DET-006", ea2.id, "Leakage Current Monitor", "1 kHz sampling, 80 µA threshold"),
-            det(p2.id, "DET-007", ea4.id, "LED Mode Controller", "IS31FL3193 I2C driver, colour palette"),
-            det(p2.id, "DET-008", ea4.id, "Tone Generator", "DAC 800 Hz, Cut/Coag patterns"),
-        ]
-        edet = {}
-        for d in ed_list:
-            db.add(d)
-        await db.flush()
-        ed_list_objs = ed_list  # reference by index below
-
-        for sw_k, d_obj in [
-            ("SWR-001", ed_list[0]), ("SWR-002", ed_list[1]), ("SWR-015", ed_list[2]),
-            ("SWR-004", ed_list[3]), ("SWR-005", ed_list[4]), ("SWR-006", ed_list[5]),
-            ("SWR-007", ed_list[6]), ("SWR-010", ed_list[7]),
-        ]:
-            db.add(RequirementDesignLink(requirement_id=esw[sw_k].id, design_element_id=d_obj.id))
-        await db.flush()
+        # §5.4 design elements seeded in seed_architecture.py (see project 1).
 
         for tc_k, status, notes in [
             ("TC-001", ExecutionStatus.PASS, "Mean power 79.4 W; max deviation 7.6% — within ±10%"),
@@ -864,27 +784,7 @@ async def seed():
         ])
         await db.flush()
 
-        ia1 = arch(p3.id, "ARC-001", "Drug Delivery Control", "Motor PID, VTBI engine, drug library service")
-        ia2 = arch(p3.id, "ARC-002", "Sensing & Safety Interlocks", "Pressure FSM, AIE classifier, free-flow valve")
-        ia3 = arch(p3.id, "ARC-003", "LED & Alarm Output", "LED bar driver, alarm arbitrator, buzzer")
-        ia4 = arch(p3.id, "ARC-004", "Security & Logging", "PIN auth, tamper-evident log, BLE gateway")
-        db.add_all([ia1, ia2, ia3, ia4])
-        await db.flush()
-
-        for sw_k, d_obj in [
-            ("SWR-003", det(p3.id, "DET-001", ia1.id, "Motor Drive PID", "Velocity PID, encoder feedback, stall detect")),
-            ("SWR-001", det(p3.id, "DET-002", ia1.id, "Drug Library Lookup", "512-entry binary search, hard/soft limits")),
-            ("SWR-004", det(p3.id, "DET-003", ia2.id, "Occlusion Pressure FSM", "Configurable threshold, alarm relay")),
-            ("SWR-005", det(p3.id, "DET-004", ia2.id, "AIE Bubble Classifier", "FFT-based, 50 µL threshold")),
-            ("SWR-012", det(p3.id, "DET-005", ia2.id, "Free-flow Valve ISR", "GPIO ISR, 100 ms solenoid assert")),
-            ("SWR-007", det(p3.id, "DET-006", ia3.id, "LED Animation Controller", "8-LED SPI, priority-mapped patterns")),
-            ("SWR-013", det(p3.id, "DET-007", ia3.id, "Alarm Priority Arbitrator", "Priority queue, buzzer + LED routing")),
-            ("SWR-010", det(p3.id, "DET-008", ia4.id, "Tamper-Evident Log", "HMAC-SHA256 chain")),
-        ]:
-            db.add(d_obj)
-            await db.flush()
-            db.add(RequirementDesignLink(requirement_id=isw[sw_k].id, design_element_id=d_obj.id))
-        await db.flush()
+        # §5.4 design elements seeded in seed_architecture.py (see project 1).
 
         for tc_k, status, notes in [
             ("TC-001", ExecutionStatus.PASS, "Hard-limit rejection confirmed; alarm raised immediately"),
@@ -1140,27 +1040,7 @@ async def seed():
         ])
         await db.flush()
 
-        ha1 = arch(p4.id, "ARC-001", "Blood Circuit Control", "Blood pump PID, safety interlock, TMP monitor")
-        ha2 = arch(p4.id, "ARC-002", "Dialysate Preparation", "Conductivity monitor, thermal PID, UF control")
-        ha3 = arch(p4.id, "ARC-003", "Safety Sensors", "Air detector, blood leak sensor, pressure transducers")
-        ha4 = arch(p4.id, "ARC-004", "UI & Data Management", "Touchscreen config, alarm log, CSV export")
-        db.add_all([ha1, ha2, ha3, ha4])
-        await db.flush()
-
-        for sw_k, d_obj in [
-            ("SWR-001", det(p4.id, "DET-001", ha1.id, "Blood Pump PID", "PI control, encoder feedback, 50 Hz")),
-            ("SWR-015", det(p4.id, "DET-002", ha1.id, "Safety Interlock Controller", "Hardware AND, all-sensor health")),
-            ("SWR-002", det(p4.id, "DET-003", ha2.id, "Conductivity Alarm Evaluator", "3-sample MA, inhibit relay")),
-            ("SWR-004", det(p4.id, "DET-004", ha2.id, "Thermal PID Controller", "RTD feedback, PWM heater")),
-            ("SWR-012", det(p4.id, "DET-005", ha2.id, "UF Pump PID with Load Cell", "Gravimetric feedback, ±2%")),
-            ("SWR-005", det(p4.id, "DET-006", ha3.id, "Air Detector FSM", "Ultrasonic, clamp solenoid, 500 ms")),
-            ("SWR-006", det(p4.id, "DET-007", ha3.id, "Blood Leak Optical Sensor", "640 nm OD, baseline cal")),
-            ("SWR-009", det(p4.id, "DET-008", ha4.id, "Alarm Log SQLite Writer", "eMMC persistence, audit trail")),
-        ]:
-            db.add(d_obj)
-            await db.flush()
-            db.add(RequirementDesignLink(requirement_id=hsw[sw_k].id, design_element_id=d_obj.id))
-        await db.flush()
+        # §5.4 design elements seeded in seed_architecture.py (see project 1).
 
         for tc_k, status, notes in [
             ("TC-001", ExecutionStatus.PASS, "Mean flow 49.1 mL/min; max deviation 2.8% — within ±5%"),
@@ -1416,27 +1296,7 @@ async def seed():
         ])
         await db.flush()
 
-        aa1 = arch(p5.id, "ARC-001", "ECG Analysis Engine", "Signal acquisition, noise filter, VF/VT classifier")
-        aa2 = arch(p5.id, "ARC-002", "High-Voltage Shock Delivery", "Flyback charge controller, H-bridge, bleed interlock")
-        aa3 = arch(p5.id, "ARC-003", "CPR Feedback System", "Accelerometer, depth estimator, rate advisor")
-        aa4 = arch(p5.id, "ARC-004", "Guidance, Safety & Logging", "LED sequencer, audio player, safety gate, event logger")
-        db.add_all([aa1, aa2, aa3, aa4])
-        await db.flush()
-
-        for sw_k, d_obj in [
-            ("SWR-001", det(p5.id, "DET-001", aa1.id, "VF/VT Rhythm Classifier", "STE algorithm, 200 ms window, FFT")),
-            ("SWR-002", det(p5.id, "DET-002", aa1.id, "ECG Noise Filter", "Bandpass + notch + CPR blanker")),
-            ("SWR-003", det(p5.id, "DET-003", aa2.id, "Capacitor Charge Controller", "PWM flyback, 2000 V ± 5%")),
-            ("SWR-004", det(p5.id, "DET-004", aa2.id, "Biphasic Shock Sequencer", "H-bridge, 150 J truncated exp")),
-            ("SWR-014", det(p5.id, "DET-005", aa2.id, "Charge Abort & Bleed Interlock", "200 ms bleed MOSFET")),
-            ("SWR-005", det(p5.id, "DET-006", aa3.id, "CPR Depth Estimator", "Double-integrate, HP filter")),
-            ("SWR-007", det(p5.id, "DET-007", aa4.id, "LED Guidance Sequencer", "4-LED GPIO state machine")),
-            ("SWR-015", det(p5.id, "DET-008", aa4.id, "Shock Delivery Safety Gate", "Hardware AND, 5 inputs")),
-        ]:
-            db.add(d_obj)
-            await db.flush()
-            db.add(RequirementDesignLink(requirement_id=asw[sw_k].id, design_element_id=d_obj.id))
-        await db.flush()
+        # §5.4 design elements seeded in seed_architecture.py (see project 1).
 
         for tc_k, status, notes in [
             ("TC-001", ExecutionStatus.PASS, "Sensitivity 93.5% on 200-episode AHA database"),
@@ -1554,19 +1414,9 @@ async def seed():
         await db.flush()
         print(f"✓ Seeded 5 APPROVED SRS v1.0 baselines (CM-mirrored, requirements now locked)")
 
-        # ══════════════════════════════════════════════════════════════════════
-        # Architecture baselines (IEC 62304 §5.3) — APPROVED v1.0 per project
-        # *if components exist*. Currently seeded projects use DesignElement
-        # (legacy), not SWComponent, so most calls no-op cleanly; the helper
-        # is wired up ready for when component seeding is added.
-        # ══════════════════════════════════════════════════════════════════════
-        archs_made = 0
-        for proj in (p1, p2, p3, p4, p5):
-            res = await seed_approved_architecture(db, project_id=proj.id)
-            if res is not None:
-                archs_made += 1
-        await db.flush()
-        print(f"✓ Seeded {archs_made} APPROVED Architecture baselines (no-op when project has no SWComponents)")
+        # Architecture components + baselines are seeded in a separate step
+        # (seed_architecture.py) — keeps this file focused on the legacy
+        # requirements / risks / design-elements / tests data.
 
         await db.commit()
 
@@ -1581,7 +1431,7 @@ async def seed():
     print("Project 5: Automated External Defibrillator — LED + Alarms + Control")
     print(f"{'='*65}")
     print("Each project: 10 USER | 10 SYS | 15 SW | 15 TC | 8+ risks")
-    print("              4 ARCH + 8 DETAILED design | 15 test executions")
+    print("              15 test executions (§5.4 design elements: seed_architecture.py)")
     print("              5 validation records | 3 change requests | 2 releases")
     print("              + 1 APPROVED SDP per project (release gate ready)")
     print(f"{'='*65}\n")

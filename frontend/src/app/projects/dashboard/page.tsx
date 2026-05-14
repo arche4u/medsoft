@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, Project, Requirement, TestCase, Risk, RequirementCategory, DesignCategory, TestCategory, RiskCategory } from "@/lib/api";
+import { api, Project, Requirement, TestCase, Risk, RequirementCategory, TestCategory, RiskCategory } from "@/lib/api";
 import { useActiveProject } from "@/lib/useActiveProject";
 import DashboardSrsPanel from "./DashboardSrsPanel";
 
@@ -285,7 +285,6 @@ export default function ProjectDashboardPage() {
   const [testcases,    setTestcases]    = useState<TestCase[]>([]);
   const [risks,        setRisks]        = useState<Risk[]>([]);
   const [cats,         setCats]         = useState<RequirementCategory[]>([]);
-  const [designCats,   setDesignCats]   = useState<DesignCategory[]>([]);
   const [testCats,     setTestCats]     = useState<TestCategory[]>([]);
   const [riskCats,     setRiskCats]     = useState<RiskCategory[]>([]);
 
@@ -299,17 +298,16 @@ export default function ProjectDashboardPage() {
   useEffect(() => { api.projects.list().then(setProjects); }, []);
 
   useEffect(() => {
-    if (!activeId) { setProject(null); setRequirements([]); setTestcases([]); setRisks([]); setCats([]); setDesignCats([]); setTestCats([]); setRiskCats([]); return; }
+    if (!activeId) { setProject(null); setRequirements([]); setTestcases([]); setRisks([]); setCats([]); setTestCats([]); setRiskCats([]); return; }
     Promise.all([
       api.projects.list(),
       api.requirements.list(activeId),
       api.testcases.list(activeId),
       api.risks.list(undefined, activeId),
       api.requirements.categories.list(activeId),
-      api.design.categories.list(activeId),
       api.testcases.categories.list(activeId),
       api.risks.categories.list(activeId),
-    ]).then(([projs, reqs, tcs, rks, cs, dcs, tcs2, rcs]) => {
+    ]).then(([projs, reqs, tcs, rks, cs, tcs2, rcs]) => {
       const p = projs.find(x => x.id === activeId) ?? null;
       setProject(p);
       setName(p?.name ?? "");
@@ -318,7 +316,6 @@ export default function ProjectDashboardPage() {
       setTestcases(tcs);
       setRisks(rks);
       setCats(cs);
-      setDesignCats(dcs);
       setTestCats(tcs2);
       setRiskCats(rcs);
     });
@@ -471,16 +468,6 @@ export default function ProjectDashboardPage() {
             onAdd={d => api.requirements.categories.create(d)}
             onDelete={api.requirements.categories.delete}
             onUpdate={api.requirements.categories.update}
-          />
-          <FolderPanel
-            title="Design Element Folders"
-            description="Group and categorize architecture & detailed design elements"
-            icon="□"
-            categories={designCats}
-            projectId={activeId}
-            onAdd={api.design.categories.create}
-            onDelete={api.design.categories.delete}
-            onUpdate={api.design.categories.update}
           />
           <FolderPanel
             title="Test Folders"

@@ -180,7 +180,9 @@ async def generate_dhf(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
             {
                 "id": str(de.id),
                 "readable_id": de.readable_id,
-                "type": de.type.value,
+                # §5.4 detailed design now belongs to a §5.3 component (the old
+                # ARCHITECTURE/DETAILED `type` tier was dropped in k8f9a0b1c2d3).
+                "component_id": str(de.component_id) if de.component_id else None,
                 "title": de.title,
                 "description": de.description,
                 "parent_id": str(de.parent_id) if de.parent_id else None,

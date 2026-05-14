@@ -18,7 +18,7 @@ from .schema import (
     SDPRoleCreate, SDPRoleRead, SDPRoleUpdate,
     SDPComplianceCheck, SDPComplianceStatus,
 )
-from .defaults import SECTIONS, PHASES, ROLES
+from .defaults import build_sections, PHASES, ROLES
 from app.core.approval_signoff import check_independence
 
 router = APIRouter(prefix="/sdp", tags=["sdp"])
@@ -54,7 +54,7 @@ async def _seed_defaults(db: AsyncSession, sdp: SoftwareDevelopmentPlan) -> None
     """Populate sections, phases, and roles from IEC 62304-aligned defaults."""
     safety_class = sdp.safety_class
 
-    for s in SECTIONS:
+    for s in build_sections(sdp.lifecycle_model):
         db.add(SDPSection(sdp_id=sdp.id, **s))
 
     for p in PHASES:

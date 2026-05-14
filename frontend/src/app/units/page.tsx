@@ -7,6 +7,7 @@ import {
   UnitCompliance, UnitCoverageMetrics,
   Requirement, Risk, SWComponent,
 } from "@/lib/api";
+import AttachmentsPanel from "@/components/AttachmentsPanel";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -485,7 +486,7 @@ function TracePanel({
 
 // ── Unit row ──────────────────────────────────────────────────────────────────
 
-type UnitTab = "overview" | "code" | "tests" | "trace" | "compliance";
+type UnitTab = "overview" | "code" | "tests" | "trace" | "compliance" | "files";
 
 function UnitRow({
   unit, requirements, risks, onRefresh,
@@ -549,6 +550,7 @@ function UnitRow({
     { id: "tests", label: `Tests (${unit.test_cases.length})` },
     { id: "trace", label: "Traceability" },
     { id: "compliance", label: "Compliance" },
+    { id: "files", label: "📎 Files" },
   ];
 
   return (
@@ -643,6 +645,15 @@ function UnitRow({
             {tab === "tests" && <TestCaseManager unit={unit} onRefresh={onRefresh} />}
             {tab === "trace" && <TracePanel unit={unit} requirements={requirements} risks={risks} onRefresh={onRefresh} />}
             {tab === "compliance" && <CompliancePanel unitId={unit.id} />}
+            {tab === "files" && (
+              <div style={{ padding: "0.7rem 0.9rem" }}>
+                <AttachmentsPanel
+                  projectId={unit.project_id}
+                  entityType="software_unit"
+                  entityId={unit.id}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -799,7 +810,7 @@ export default function UnitsPage() {
           Software Unit Verification
         </h1>
         <p style={{ fontSize: "0.82rem", color: "#64748b" }}>
-          IEC 62304 §5.5 / §5.6 — Unit implementation, test cases, and verification evidence
+          IEC 62304 §5.5 — Unit implementation, test cases, and verification evidence
         </p>
       </div>
 

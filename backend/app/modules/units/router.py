@@ -7,6 +7,10 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.modules.audit.service import audit
+from app.modules.audit.model import AuditAction
+from app.modules.auth.deps import require_permission
+from app.modules.auth.schema import TokenData
 from .model import SoftwareUnit, CodeArtifact, UnitTestCase, UnitTestResult, UnitRequirementLink, UnitRiskLink
 from .schema import (
     SoftwareUnitCreate, SoftwareUnitUpdate, SoftwareUnitRead,
@@ -23,6 +27,24 @@ MIN_COVERAGE_CLASS_C = 80.0
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
+async def _reload_unit(db: AsyncSession, unit_id: uuid.UUID) -> SoftwareUnit:
+    """Re-select a unit after commit so its lazy='selectin' relationships are
+    freshly loaded. db.refresh() expires relationships without reloading them,
+    which then triggers a MissingGreenlet error on the sync access inside
+    _build_unit_read()."""
+    return (await db.execute(
+        select(SoftwareUnit).where(SoftwareUnit.id == unit_id)
+    )).scalar_one()
+
+
+async def _reload_testcase(db: AsyncSession, tc_id: uuid.UUID) -> UnitTestCase:
+    """Re-select a test case after commit (see _reload_unit) so tc.results is
+    freshly loaded for the response builder."""
+    return (await db.execute(
+        select(UnitTestCase).where(UnitTestCase.id == tc_id)
+    )).scalar_one()
+
 
 def _build_unit_read(unit: SoftwareUnit) -> SoftwareUnitRead:
     tc_reads = []
@@ -113,31 +135,48 @@ async def get_unit(unit_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/", response_model=SoftwareUnitRead, status_code=201)
-async def create_unit(body: SoftwareUnitCreate, db: AsyncSession = Depends(get_db)):
+async def create_unit(
+    body: SoftwareUnitCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_SOFTWARE_UNIT")),
+):
     unit = SoftwareUnit(**body.model_dump())
     db.add(unit)
+    await db.flush()
+    await audit(db, "software_unit", unit.id, AuditAction.CREATE, current_user.user_id,
+                f"{unit.name} (Class {unit.safety_class})")
     await db.commit()
-    await db.refresh(unit)
+    unit = await _reload_unit(db, unit.id)
     return _build_unit_read(unit)
 
 
 @router.put("/{unit_id}", response_model=SoftwareUnitRead)
-async def update_unit(unit_id: str, body: SoftwareUnitUpdate, db: AsyncSession = Depends(get_db)):
+async def update_unit(
+    unit_id: str, body: SoftwareUnitUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_UNIT")),
+):
     unit = (await db.execute(select(SoftwareUnit).where(SoftwareUnit.id == uuid.UUID(unit_id)))).scalar_one_or_none()
     if not unit:
         raise HTTPException(404, "Unit not found")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(unit, k, v)
+    await audit(db, "software_unit", unit.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
-    await db.refresh(unit)
+    unit = await _reload_unit(db, unit.id)
     return _build_unit_read(unit)
 
 
 @router.delete("/{unit_id}", status_code=204)
-async def delete_unit(unit_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_unit(
+    unit_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("DELETE_SOFTWARE_UNIT")),
+):
     unit = (await db.execute(select(SoftwareUnit).where(SoftwareUnit.id == uuid.UUID(unit_id)))).scalar_one_or_none()
     if not unit:
         raise HTTPException(404, "Unit not found")
+    await audit(db, "software_unit", unit.id, AuditAction.DELETE, current_user.user_id, unit.name)
     await db.delete(unit)
     await db.commit()
 
@@ -145,7 +184,11 @@ async def delete_unit(unit_id: str, db: AsyncSession = Depends(get_db)):
 # ── status transitions ────────────────────────────────────────────────────────
 
 @router.put("/{unit_id}/status", response_model=SoftwareUnitRead)
-async def transition_status(unit_id: str, body: UnitStatusTransition, db: AsyncSession = Depends(get_db)):
+async def transition_status(
+    unit_id: str, body: UnitStatusTransition,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_UNIT")),
+):
     unit = (await db.execute(select(SoftwareUnit).where(SoftwareUnit.id == uuid.UUID(unit_id)))).scalar_one_or_none()
     if not unit:
         raise HTTPException(404, "Unit not found")
@@ -165,9 +208,12 @@ async def transition_status(unit_id: str, body: UnitStatusTransition, db: AsyncS
             if tc.results[0].result != "PASS":
                 raise HTTPException(400, f"Test case '{tc.name}' is not PASS")
 
+    prev_status = unit.status
     unit.status = new_status
+    await audit(db, "software_unit", unit.id, AuditAction.UPDATE, current_user.user_id,
+                f"Status: {prev_status} → {new_status}")
     await db.commit()
-    await db.refresh(unit)
+    unit = await _reload_unit(db, unit.id)
     return _build_unit_read(unit)
 
 
@@ -209,62 +255,91 @@ async def get_coverage(unit_id: str, db: AsyncSession = Depends(get_db)):
 # ── traceability links ────────────────────────────────────────────────────────
 
 @router.put("/{unit_id}/requirements", response_model=SoftwareUnitRead)
-async def set_requirements(unit_id: str, body: SetLinksPayload, db: AsyncSession = Depends(get_db)):
+async def set_requirements(
+    unit_id: str, body: SetLinksPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_UNIT")),
+):
     unit = (await db.execute(select(SoftwareUnit).where(SoftwareUnit.id == uuid.UUID(unit_id)))).scalar_one_or_none()
     if not unit:
         raise HTTPException(404, "Unit not found")
     await db.execute(delete(UnitRequirementLink).where(UnitRequirementLink.unit_id == unit.id))
     for rid in body.ids:
         db.add(UnitRequirementLink(unit_id=unit.id, requirement_id=uuid.UUID(rid)))
+    await audit(db, "software_unit", unit.id, AuditAction.UPDATE, current_user.user_id,
+                f"Linked {len(body.ids)} requirement(s)")
     await db.commit()
-    await db.refresh(unit)
+    unit = await _reload_unit(db, unit.id)
     return _build_unit_read(unit)
 
 
 @router.put("/{unit_id}/risks", response_model=SoftwareUnitRead)
-async def set_risks(unit_id: str, body: SetLinksPayload, db: AsyncSession = Depends(get_db)):
+async def set_risks(
+    unit_id: str, body: SetLinksPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_UNIT")),
+):
     unit = (await db.execute(select(SoftwareUnit).where(SoftwareUnit.id == uuid.UUID(unit_id)))).scalar_one_or_none()
     if not unit:
         raise HTTPException(404, "Unit not found")
     await db.execute(delete(UnitRiskLink).where(UnitRiskLink.unit_id == unit.id))
     for rid in body.ids:
         db.add(UnitRiskLink(unit_id=unit.id, risk_id=uuid.UUID(rid)))
+    await audit(db, "software_unit", unit.id, AuditAction.UPDATE, current_user.user_id,
+                f"Linked {len(body.ids)} risk(s)")
     await db.commit()
-    await db.refresh(unit)
+    unit = await _reload_unit(db, unit.id)
     return _build_unit_read(unit)
 
 
 # ── code artifacts ────────────────────────────────────────────────────────────
 
 @router.post("/{unit_id}/artifacts", response_model=CodeArtifactRead, status_code=201)
-async def add_artifact(unit_id: str, body: CodeArtifactCreate, db: AsyncSession = Depends(get_db)):
+async def add_artifact(
+    unit_id: str, body: CodeArtifactCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_UNIT")),
+):
     unit = (await db.execute(select(SoftwareUnit).where(SoftwareUnit.id == uuid.UUID(unit_id)))).scalar_one_or_none()
     if not unit:
         raise HTTPException(404, "Unit not found")
     artifact = CodeArtifact(unit_id=unit.id, **body.model_dump())
     db.add(artifact)
+    await db.flush()
+    await audit(db, "code_artifact", artifact.id, AuditAction.CREATE, current_user.user_id,
+                f"{artifact.repository}{(' @ ' + artifact.commit_id) if artifact.commit_id else ''}")
     await db.commit()
     await db.refresh(artifact)
     return CodeArtifactRead.model_validate(artifact)
 
 
 @router.put("/artifacts/{artifact_id}", response_model=CodeArtifactRead)
-async def update_artifact(artifact_id: str, body: CodeArtifactUpdate, db: AsyncSession = Depends(get_db)):
+async def update_artifact(
+    artifact_id: str, body: CodeArtifactUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_UNIT")),
+):
     artifact = (await db.execute(select(CodeArtifact).where(CodeArtifact.id == uuid.UUID(artifact_id)))).scalar_one_or_none()
     if not artifact:
         raise HTTPException(404, "Artifact not found")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(artifact, k, v)
+    await audit(db, "code_artifact", artifact.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
     await db.refresh(artifact)
     return CodeArtifactRead.model_validate(artifact)
 
 
 @router.delete("/artifacts/{artifact_id}", status_code=204)
-async def delete_artifact(artifact_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_artifact(
+    artifact_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_UNIT")),
+):
     artifact = (await db.execute(select(CodeArtifact).where(CodeArtifact.id == uuid.UUID(artifact_id)))).scalar_one_or_none()
     if not artifact:
         raise HTTPException(404, "Artifact not found")
+    await audit(db, "code_artifact", artifact.id, AuditAction.DELETE, current_user.user_id, artifact.repository)
     await db.delete(artifact)
     await db.commit()
 
@@ -272,14 +347,21 @@ async def delete_artifact(artifact_id: str, db: AsyncSession = Depends(get_db)):
 # ── unit test cases ───────────────────────────────────────────────────────────
 
 @router.post("/{unit_id}/testcases", response_model=UnitTestCaseRead, status_code=201)
-async def add_testcase(unit_id: str, body: UnitTestCaseCreate, db: AsyncSession = Depends(get_db)):
+async def add_testcase(
+    unit_id: str, body: UnitTestCaseCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_UNIT")),
+):
     unit = (await db.execute(select(SoftwareUnit).where(SoftwareUnit.id == uuid.UUID(unit_id)))).scalar_one_or_none()
     if not unit:
         raise HTTPException(404, "Unit not found")
     tc = UnitTestCase(unit_id=unit.id, **body.model_dump())
     db.add(tc)
+    await db.flush()
+    await audit(db, "unit_test_case", tc.id, AuditAction.CREATE, current_user.user_id,
+                f"{tc.name} ({tc.test_type})")
     await db.commit()
-    await db.refresh(tc)
+    tc = await _reload_testcase(db, tc.id)
     latest = tc.results[0].result if tc.results else None
     return UnitTestCaseRead(
         id=tc.id, unit_id=tc.unit_id, name=tc.name, description=tc.description,
@@ -289,14 +371,19 @@ async def add_testcase(unit_id: str, body: UnitTestCaseCreate, db: AsyncSession 
 
 
 @router.put("/testcases/{tc_id}", response_model=UnitTestCaseRead)
-async def update_testcase(tc_id: str, body: UnitTestCaseUpdate, db: AsyncSession = Depends(get_db)):
+async def update_testcase(
+    tc_id: str, body: UnitTestCaseUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_UNIT")),
+):
     tc = (await db.execute(select(UnitTestCase).where(UnitTestCase.id == uuid.UUID(tc_id)))).scalar_one_or_none()
     if not tc:
         raise HTTPException(404, "Test case not found")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(tc, k, v)
+    await audit(db, "unit_test_case", tc.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
-    await db.refresh(tc)
+    tc = await _reload_testcase(db, tc.id)
     latest = tc.results[0].result if tc.results else None
     return UnitTestCaseRead(
         id=tc.id, unit_id=tc.unit_id, name=tc.name, description=tc.description,
@@ -307,10 +394,15 @@ async def update_testcase(tc_id: str, body: UnitTestCaseUpdate, db: AsyncSession
 
 
 @router.delete("/testcases/{tc_id}", status_code=204)
-async def delete_testcase(tc_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_testcase(
+    tc_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SOFTWARE_UNIT")),
+):
     tc = (await db.execute(select(UnitTestCase).where(UnitTestCase.id == uuid.UUID(tc_id)))).scalar_one_or_none()
     if not tc:
         raise HTTPException(404, "Test case not found")
+    await audit(db, "unit_test_case", tc.id, AuditAction.DELETE, current_user.user_id, tc.name)
     await db.delete(tc)
     await db.commit()
 
@@ -318,7 +410,11 @@ async def delete_testcase(tc_id: str, db: AsyncSession = Depends(get_db)):
 # ── test results ──────────────────────────────────────────────────────────────
 
 @router.post("/testcases/{tc_id}/results", response_model=UnitTestResultRead, status_code=201)
-async def record_result(tc_id: str, body: UnitTestResultCreate, db: AsyncSession = Depends(get_db)):
+async def record_result(
+    tc_id: str, body: UnitTestResultCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("EXECUTE_TEST")),
+):
     tc = (await db.execute(select(UnitTestCase).where(UnitTestCase.id == uuid.UUID(tc_id)))).scalar_one_or_none()
     if not tc:
         raise HTTPException(404, "Test case not found")
@@ -326,6 +422,10 @@ async def record_result(tc_id: str, body: UnitTestResultCreate, db: AsyncSession
         raise HTTPException(400, "Result must be PASS or FAIL")
     result = UnitTestResult(test_case_id=tc.id, **body.model_dump())
     db.add(result)
+    await db.flush()
+    cov = f", coverage {body.coverage_percentage}%" if body.coverage_percentage is not None else ""
+    await audit(db, "unit_test_result", result.id, AuditAction.CREATE, current_user.user_id,
+                f"{tc.name}: {body.result}{cov}")
     await db.commit()
     await db.refresh(result)
     return UnitTestResultRead.model_validate(result)

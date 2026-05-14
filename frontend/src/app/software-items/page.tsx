@@ -28,6 +28,10 @@ const STATUS_META: Record<SoftwareItemStatus, { color: string; bg: string }> = {
   APPROVED: { color: "#1b5e20", bg: "#e8f5e9" },
 };
 
+// IEC 62304 §4.3 — a software item inherits its parent's safety class and may
+// only be classified *lower* with a documented segregation justification.
+const CLASS_RANK: Record<SoftwareSafetyClass, number> = { A: 1, B: 2, C: 3 };
+
 // ── Compliance Indicator ──────────────────────────────────────────────────────
 
 function ComplianceIndicator({ compliance }: { compliance: ComplianceStatus }) {
@@ -99,10 +103,11 @@ function ComplianceIndicator({ compliance }: { compliance: ComplianceStatus }) {
 // ── Classification Panel ──────────────────────────────────────────────────────
 
 function ClassificationPanel({
-  item, risks, requirements,
+  item, parent, risks, requirements,
   onUpdate, onLinkRisks, onLinkReqs,
 }: {
   item: SoftwareItem;
+  parent: SoftwareItem | null;
   risks: Risk[];
   requirements: Requirement[];
   onUpdate: (d: Partial<SoftwareItem>) => void;
@@ -112,6 +117,10 @@ function ClassificationPanel({
   const [cls, setCls] = useState<SoftwareSafetyClass>(item.safety_class);
   const [just, setJust] = useState(item.classification_justification ?? "");
   const [dirty, setDirty] = useState(false);
+
+  // IEC 62304 §4.3 — a lower class than the parent needs a documented rationale.
+  const belowParent = parent ? CLASS_RANK[cls] < CLASS_RANK[parent.safety_class] : false;
+  const justRequired = belowParent && !just.trim();
 
   // Linked risk multi-select
   const [selectedRisks, setSelectedRisks] = useState<Set<string>>(new Set(item.risk_ids));
@@ -166,6 +175,21 @@ function ClassificationPanel({
           {meta.label} — {meta.desc}
         </div>
 
+        {/* IEC 62304 §4.3 inheritance context */}
+        {parent && (
+          <div style={{
+            fontSize: 12, padding: "8px 10px", borderRadius: 6, marginBottom: 12,
+            background: belowParent ? "#fff3e0" : "#eceff1",
+            border: `1px solid ${belowParent ? "#ffcc80" : "#cfd8dc"}`,
+            color: belowParent ? "#e65100" : "#546e7a",
+          }}>
+            Parent <strong>{parent.name}</strong> is {CLASS_META[parent.safety_class].label}.
+            {belowParent
+              ? " §4.3: a lower class requires a documented segregation justification below."
+              : " This item inherits or exceeds the parent's class — no justification required."}
+          </div>
+        )}
+
         {/* Process requirements for selected class */}
         <div style={{ background: "#f5f5f5", borderRadius: 6, padding: "10px 12px", marginBottom: 12, fontSize: 12 }}>
           <div style={{ fontWeight: 600, marginBottom: 6, color: "#37474f" }}>IEC 62304 Process Requirements</div>
@@ -198,20 +222,28 @@ function ClassificationPanel({
         </div>
 
         {/* Justification */}
-        <label style={sty.label}>Classification Justification</label>
+        <label style={sty.label}>
+          Classification Justification
+          {belowParent && <span style={{ color: "#e65100", marginLeft: 4 }}>* required (§4.3)</span>}
+        </label>
         <textarea
           value={just}
           onChange={e => { setJust(e.target.value); setDirty(true); }}
           rows={3}
-          placeholder="Explain why this safety class was assigned..."
-          style={sty.textarea}
+          placeholder={belowParent
+            ? "Required: document the segregation rationale for classifying below the parent…"
+            : "Explain why this safety class was assigned…"}
+          style={{
+            ...sty.textarea,
+            ...(justRequired ? { border: "1px solid #ffab40" } : {}),
+          }}
         />
 
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           <button
-            disabled={!dirty}
+            disabled={!dirty || justRequired}
             onClick={() => { onUpdate({ safety_class: cls, classification_justification: just || null }); setDirty(false); }}
-            style={{ ...sty.btn, opacity: dirty ? 1 : 0.5 }}
+            style={{ ...sty.btn, opacity: !dirty || justRequired ? 0.5 : 1 }}
           >
             Save Classification
           </button>
@@ -296,10 +328,11 @@ function ClassificationPanel({
 // ── Item Row ──────────────────────────────────────────────────────────────────
 
 function ItemRow({
-  item, risks, requirements, depth,
+  item, parent, risks, requirements, depth,
   onRefresh,
 }: {
   item: SoftwareItem;
+  parent: SoftwareItem | null;
   risks: Risk[];
   requirements: Requirement[];
   depth: number;
@@ -481,7 +514,7 @@ function ItemRow({
 
           {tab === "classification" && (
             <ClassificationPanel
-              item={item} risks={risks} requirements={requirements}
+              item={item} parent={parent} risks={risks} requirements={requirements}
               onUpdate={handleUpdate}
               onLinkRisks={handleLinkRisks}
               onLinkReqs={handleLinkReqs}
@@ -514,12 +547,26 @@ function AddItemForm({
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [itemType, setItemType] = useState<SoftwareItemType>("SUBSYSTEM");
-  const [safetyClass, setSafetyClass] = useState<SoftwareSafetyClass>("A");
+  const [safetyClass, setSafetyClass] = useState<SoftwareSafetyClass>("C");
   const [parentId, setParentId] = useState("");
+  const [just, setJust] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // IEC 62304 §4.3 — selecting a parent inherits its class by default; a class
+  // below the parent's needs a documented segregation justification.
+  const parent = allItems.find(i => i.id === parentId) ?? null;
+  const belowParent = parent ? CLASS_RANK[safetyClass] < CLASS_RANK[parent.safety_class] : false;
+  const justRequired = belowParent && !just.trim();
+
+  function handleParentChange(pid: string) {
+    setParentId(pid);
+    // Inherit the parent's class on selection (user can still override down).
+    const p = allItems.find(i => i.id === pid);
+    if (p) setSafetyClass(p.safety_class);
+  }
+
   async function handleCreate() {
-    if (!name.trim()) return;
+    if (!name.trim() || justRequired) return;
     setSaving(true);
     try {
       await api.softwareItems.create({
@@ -529,8 +576,9 @@ function AddItemForm({
         item_type: itemType,
         safety_class: safetyClass,
         parent_id: parentId || null,
+        classification_justification: just.trim() || null,
       });
-      setName(""); setDesc(""); setParentId("");
+      setName(""); setDesc(""); setParentId(""); setJust("");
       onCreated();
     } finally {
       setSaving(false);
@@ -555,7 +603,7 @@ function AddItemForm({
           <option value="B">Class B</option>
           <option value="C">Class C</option>
         </select>
-        <select value={parentId} onChange={e => setParentId(e.target.value)}
+        <select value={parentId} onChange={e => handleParentChange(e.target.value)}
           style={{ ...sty.input, width: 160 }}>
           <option value="">— No parent —</option>
           {allItems.map(i => (
@@ -564,10 +612,27 @@ function AddItemForm({
         </select>
         <input placeholder="Description" value={desc} onChange={e => setDesc(e.target.value)}
           style={{ ...sty.input, flex: "2 1 200px" }} />
-        <button onClick={handleCreate} disabled={!name.trim() || saving} style={sty.btn}>
+        <button onClick={handleCreate} disabled={!name.trim() || saving || justRequired} style={sty.btn}>
           {saving ? "Adding…" : "+ Add"}
         </button>
       </div>
+
+      {/* §4.3 — justification required when classifying below the parent */}
+      {belowParent && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 12, color: "#e65100", marginBottom: 4 }}>
+            Class {safetyClass} is below parent <strong>{parent!.name}</strong> (Class {parent!.safety_class}).
+            IEC 62304 §4.3 requires a segregation justification.
+          </div>
+          <textarea
+            value={just}
+            onChange={e => setJust(e.target.value)}
+            rows={2}
+            placeholder="Document the segregation rationale for classifying below the parent…"
+            style={{ ...sty.textarea, border: justRequired ? "1px solid #ffab40" : sty.textarea.border }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -663,15 +728,15 @@ function SoftwareItemsPageInner() {
   const itemMap = new Map(items.map(i => [i.id, i]));
   const roots = items.filter(i => !i.parent_id || !itemMap.has(i.parent_id));
 
-  function renderTree(item: SoftwareItem, depth: number): React.ReactNode {
+  function renderTree(item: SoftwareItem, depth: number, parent: SoftwareItem | null): React.ReactNode {
     const children = items.filter(i => i.parent_id === item.id);
     return (
       <div key={item.id}>
         <ItemRow
-          item={item} risks={risks} requirements={requirements}
+          item={item} parent={parent} risks={risks} requirements={requirements}
           depth={depth} onRefresh={load}
         />
-        {children.map(c => renderTree(c, depth + 1))}
+        {children.map(c => renderTree(c, depth + 1, item))}
       </div>
     );
   }
@@ -722,7 +787,7 @@ function SoftwareItemsPageInner() {
                 </div>
               </div>
             ) : (
-              roots.map(r => renderTree(r, 0))
+              roots.map(r => renderTree(r, 0, null))
             )}
           </div>
         </>

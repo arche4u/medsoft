@@ -9,6 +9,10 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.modules.audit.service import audit
+from app.modules.audit.model import AuditAction
+from app.modules.auth.deps import require_permission
+from app.modules.auth.schema import TokenData
 from .model import (
     SystemTestCase, SystemTestResult,
     STAdditionalReqLink, STRiskLink,
@@ -45,6 +49,15 @@ DEFAULT_CHECKLIST = [
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+async def _reload_test(db: AsyncSession, tc_id: uuid.UUID) -> SystemTestCase:
+    """Re-select a test case after commit so its lazy='selectin' relationships
+    are freshly loaded. db.refresh() expires relationships without reloading
+    them, which then triggers MissingGreenlet on the sync access in _build_read()."""
+    return (await db.execute(
+        select(SystemTestCase).where(SystemTestCase.id == tc_id)
+    )).scalar_one()
+
 
 def _build_read(tc: SystemTestCase) -> SystemTestCaseRead:
     latest = tc.results[0].result if tc.results else None
@@ -88,16 +101,27 @@ async def get_test(tc_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/", response_model=SystemTestCaseRead, status_code=201)
-async def create_test(body: SystemTestCaseCreate, db: AsyncSession = Depends(get_db)):
+async def create_test(
+    body: SystemTestCaseCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_SYSTEM_TEST")),
+):
     tc = SystemTestCase(**body.model_dump())
     db.add(tc)
+    await db.flush()
+    await audit(db, "system_test_case", tc.id, AuditAction.CREATE, current_user.user_id,
+                f"{tc.name} ({tc.test_type})")
     await db.commit()
-    await db.refresh(tc)
+    tc = await _reload_test(db, tc.id)
     return _build_read(tc)
 
 
 @router.put("/{tc_id}", response_model=SystemTestCaseRead)
-async def update_test(tc_id: str, body: SystemTestCaseUpdate, db: AsyncSession = Depends(get_db)):
+async def update_test(
+    tc_id: str, body: SystemTestCaseUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SYSTEM_TEST")),
+):
     tc = (await db.execute(
         select(SystemTestCase).where(SystemTestCase.id == uuid.UUID(tc_id))
     )).scalar_one_or_none()
@@ -105,18 +129,24 @@ async def update_test(tc_id: str, body: SystemTestCaseUpdate, db: AsyncSession =
         raise HTTPException(404, "System test not found")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(tc, k, v)
+    await audit(db, "system_test_case", tc.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
-    await db.refresh(tc)
+    tc = await _reload_test(db, tc.id)
     return _build_read(tc)
 
 
 @router.delete("/{tc_id}", status_code=204)
-async def delete_test(tc_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_test(
+    tc_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("DELETE_SYSTEM_TEST")),
+):
     tc = (await db.execute(
         select(SystemTestCase).where(SystemTestCase.id == uuid.UUID(tc_id))
     )).scalar_one_or_none()
     if not tc:
         raise HTTPException(404, "System test not found")
+    await audit(db, "system_test_case", tc.id, AuditAction.DELETE, current_user.user_id, tc.name)
     await db.delete(tc)
     await db.commit()
 
@@ -124,7 +154,11 @@ async def delete_test(tc_id: str, db: AsyncSession = Depends(get_db)):
 # ── results ───────────────────────────────────────────────────────────────────
 
 @router.post("/{tc_id}/results", response_model=STResultRead, status_code=201)
-async def record_result(tc_id: str, body: STResultCreate, db: AsyncSession = Depends(get_db)):
+async def record_result(
+    tc_id: str, body: STResultCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("EXECUTE_TEST")),
+):
     tc = (await db.execute(
         select(SystemTestCase).where(SystemTestCase.id == uuid.UUID(tc_id))
     )).scalar_one_or_none()
@@ -134,6 +168,9 @@ async def record_result(tc_id: str, body: STResultCreate, db: AsyncSession = Dep
         raise HTTPException(400, "result must be PASS or FAIL")
     r = SystemTestResult(test_case_id=tc.id, **body.model_dump())
     db.add(r)
+    await db.flush()
+    await audit(db, "system_test_result", r.id, AuditAction.CREATE, current_user.user_id,
+                f"{tc.name}: {body.result}")
     await db.commit()
     await db.refresh(r)
     return STResultRead.model_validate(r)
@@ -142,7 +179,11 @@ async def record_result(tc_id: str, body: STResultCreate, db: AsyncSession = Dep
 # ── traceability ──────────────────────────────────────────────────────────────
 
 @router.put("/{tc_id}/requirements", response_model=SystemTestCaseRead)
-async def set_requirements(tc_id: str, body: SetLinksPayload, db: AsyncSession = Depends(get_db)):
+async def set_requirements(
+    tc_id: str, body: SetLinksPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SYSTEM_TEST")),
+):
     tc = (await db.execute(
         select(SystemTestCase).where(SystemTestCase.id == uuid.UUID(tc_id))
     )).scalar_one_or_none()
@@ -151,13 +192,19 @@ async def set_requirements(tc_id: str, body: SetLinksPayload, db: AsyncSession =
     await db.execute(delete(STAdditionalReqLink).where(STAdditionalReqLink.stc_id == tc.id))
     for rid in body.ids:
         db.add(STAdditionalReqLink(stc_id=tc.id, requirement_id=uuid.UUID(rid)))
+    await audit(db, "system_test_case", tc.id, AuditAction.UPDATE, current_user.user_id,
+                f"Linked {len(body.ids)} additional requirement(s)")
     await db.commit()
-    await db.refresh(tc)
+    tc = await _reload_test(db, tc.id)
     return _build_read(tc)
 
 
 @router.put("/{tc_id}/risks", response_model=SystemTestCaseRead)
-async def set_risks(tc_id: str, body: SetLinksPayload, db: AsyncSession = Depends(get_db)):
+async def set_risks(
+    tc_id: str, body: SetLinksPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_SYSTEM_TEST")),
+):
     tc = (await db.execute(
         select(SystemTestCase).where(SystemTestCase.id == uuid.UUID(tc_id))
     )).scalar_one_or_none()
@@ -166,8 +213,10 @@ async def set_risks(tc_id: str, body: SetLinksPayload, db: AsyncSession = Depend
     await db.execute(delete(STRiskLink).where(STRiskLink.stc_id == tc.id))
     for rid in body.ids:
         db.add(STRiskLink(stc_id=tc.id, risk_id=uuid.UUID(rid)))
+    await audit(db, "system_test_case", tc.id, AuditAction.UPDATE, current_user.user_id,
+                f"Linked {len(body.ids)} risk(s)")
     await db.commit()
-    await db.refresh(tc)
+    tc = await _reload_test(db, tc.id)
     return _build_read(tc)
 
 
@@ -178,8 +227,16 @@ async def get_coverage(project_id: str, db: AsyncSession = Depends(get_db)):
     from app.modules.requirements.model import Requirement
 
     pid = uuid.UUID(project_id)
+    # IEC 62304 §5.7 — software system testing verifies SYSTEM + SOFTWARE
+    # requirements. USER requirements are confirmed by *validation*
+    # (ValidationRecord), not system tests — so they are excluded from
+    # system-test coverage (see the separate "USER requirements validated"
+    # release-readiness gate).
     reqs = (await db.execute(
-        select(Requirement).where(Requirement.project_id == pid).order_by(Requirement.created_at)
+        select(Requirement).where(
+            Requirement.project_id == pid,
+            Requirement.type.in_(["SYSTEM", "SOFTWARE"]),
+        ).order_by(Requirement.created_at)
     )).scalars().all()
 
     tests = (await db.execute(
@@ -284,9 +341,9 @@ async def _compute_readiness(release_id: str, project_id: str, db: AsyncSession)
     gate("sdp", "Approved SDP exists", sdp is not None,
          "SDP approved" if sdp else "No approved SDP found")
 
-    # 2 — System test coverage
+    # 2 — System test coverage (SYSTEM + SOFTWARE requirements; see get_coverage)
     cov = await get_coverage(project_id, db)
-    gate("sys_coverage", "All requirements have system tests",
+    gate("sys_coverage", "All SYSTEM/SOFTWARE requirements have system tests",
          cov.uncovered_requirements == 0,
          f"{cov.covered_requirements}/{cov.total_requirements} requirements covered")
 
@@ -294,6 +351,22 @@ async def _compute_readiness(release_id: str, project_id: str, db: AsyncSession)
     gate("sys_pass", "No failed system tests",
          cov.failed == 0,
          f"{cov.failed} failed system test(s)" if cov.failed else "All system tests passing")
+
+    # 3b — USER requirement validation. V-model: USER needs are *validated*,
+    # not system-tested — every USER requirement needs a PASSED ValidationRecord.
+    from app.modules.requirements.model import Requirement as _Req
+    from app.modules.validation.model import ValidationRecord
+    user_reqs = (await db.execute(
+        select(_Req).where(_Req.project_id == pid, _Req.type == "USER")
+    )).scalars().all()
+    val_recs = (await db.execute(
+        select(ValidationRecord).where(ValidationRecord.project_id == pid)
+    )).scalars().all()
+    passed_user_ids = {vr.related_requirement_id for vr in val_recs if vr.status == "PASSED"}
+    validated = sum(1 for r in user_reqs if r.id in passed_user_ids)
+    gate("validation", "All USER requirements validated",
+         validated == len(user_reqs),
+         f"{validated}/{len(user_reqs)} USER requirements have a passing validation record")
 
     # 4 — Integration test coverage
     from app.modules.integration_tests.router import get_coverage as itc_cov
@@ -318,13 +391,19 @@ async def _compute_readiness(release_id: str, project_id: str, db: AsyncSession)
          len(unverified_c) == 0,
          f"{len(unverified_c)} Class C unit(s) not verified" if unverified_c else "All Class C units verified")
 
-    # 6 — No unresolved HIGH risks
+    # 6 — No unresolved HIGH risks. Risks belong to requirements, not projects
+    # directly, so reach the project through the requirement join. A HIGH risk
+    # counts as resolved once it reaches a terminal status — ACCEPTED (residual
+    # risk evaluated and accepted) or CLOSED (controls verified, file complete).
     from app.modules.risks.model import Risk
+    from app.modules.requirements.model import Requirement
     open_high = (await db.execute(
-        select(Risk).where(
-            Risk.project_id == pid,
+        select(Risk)
+        .join(Requirement, Requirement.id == Risk.requirement_id)
+        .where(
+            Requirement.project_id == pid,
             Risk.risk_level == "HIGH",
-            Risk.status != "RESOLVED",
+            Risk.status.not_in(["ACCEPTED", "CLOSED"]),
         )
     )).scalars().all()
     gate("high_risks", "No unresolved HIGH risks",
@@ -378,16 +457,27 @@ async def get_checklist(release_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/release/{release_id}/checklist", response_model=ChecklistItemRead, status_code=201)
-async def add_checklist_item(release_id: str, body: ChecklistItemCreate, db: AsyncSession = Depends(get_db)):
+async def add_checklist_item(
+    release_id: str, body: ChecklistItemCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_RELEASE")),
+):
     item = ReleaseChecklistItem(release_id=uuid.UUID(release_id), **body.model_dump())
     db.add(item)
+    await db.flush()
+    await audit(db, "release_checklist_item", item.id, AuditAction.CREATE, current_user.user_id,
+                f"{item.item_name} [{item.category}]")
     await db.commit()
     await db.refresh(item)
     return ChecklistItemRead.model_validate(item)
 
 
 @router.put("/checklist/{item_id}", response_model=ChecklistItemRead)
-async def update_checklist_item(item_id: str, body: ChecklistItemUpdate, db: AsyncSession = Depends(get_db)):
+async def update_checklist_item(
+    item_id: str, body: ChecklistItemUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_RELEASE")),
+):
     item = (await db.execute(
         select(ReleaseChecklistItem).where(ReleaseChecklistItem.id == uuid.UUID(item_id))
     )).scalar_one_or_none()
@@ -395,6 +485,8 @@ async def update_checklist_item(item_id: str, body: ChecklistItemUpdate, db: Asy
         raise HTTPException(404, "Checklist item not found")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(item, k, v)
+    await audit(db, "release_checklist_item", item.id, AuditAction.UPDATE, current_user.user_id,
+                f"status={item.status}")
     await db.commit()
     await db.refresh(item)
     return ChecklistItemRead.model_validate(item)
@@ -411,21 +503,34 @@ async def list_artifacts(release_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/release/{release_id}/artifacts", response_model=ReleaseArtifactRead, status_code=201)
-async def add_artifact(release_id: str, body: ReleaseArtifactCreate, db: AsyncSession = Depends(get_db)):
+async def add_artifact(
+    release_id: str, body: ReleaseArtifactCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_RELEASE")),
+):
     art = ReleaseArtifact(release_id=uuid.UUID(release_id), **body.model_dump())
     db.add(art)
+    await db.flush()
+    await audit(db, "release_artifact", art.id, AuditAction.CREATE, current_user.user_id,
+                f"{art.artifact_type}: {art.label or art.reference_id}")
     await db.commit()
     await db.refresh(art)
     return ReleaseArtifactRead.model_validate(art)
 
 
 @router.delete("/artifacts/{artifact_id}", status_code=204)
-async def delete_artifact(artifact_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_artifact(
+    artifact_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_RELEASE")),
+):
     art = (await db.execute(
         select(ReleaseArtifact).where(ReleaseArtifact.id == uuid.UUID(artifact_id))
     )).scalar_one_or_none()
     if not art:
         raise HTTPException(404, "Artifact not found")
+    await audit(db, "release_artifact", art.id, AuditAction.DELETE, current_user.user_id,
+                art.label or art.reference_id)
     await db.delete(art)
     await db.commit()
 
@@ -433,7 +538,11 @@ async def delete_artifact(artifact_id: str, db: AsyncSession = Depends(get_db)):
 # ── Traceability snapshot ─────────────────────────────────────────────────────
 
 @router.post("/release/{release_id}/snapshot", response_model=ReleaseSnapshotRead)
-async def capture_snapshot(release_id: str, db: AsyncSession = Depends(get_db)):
+async def capture_snapshot(
+    release_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_RELEASE")),
+):
     from app.modules.release.model import Release
     from app.modules.requirements.model import Requirement
     from app.modules.risks.model import Risk
@@ -448,7 +557,11 @@ async def capture_snapshot(release_id: str, db: AsyncSession = Depends(get_db)):
 
     pid = rel.project_id
     reqs = (await db.execute(select(Requirement).where(Requirement.project_id == pid))).scalars().all()
-    risks = (await db.execute(select(Risk).where(Risk.project_id == pid))).scalars().all()
+    # Risks belong to requirements, not projects directly — join through.
+    risks = (await db.execute(
+        select(Risk).join(Requirement, Requirement.id == Risk.requirement_id)
+        .where(Requirement.project_id == pid)
+    )).scalars().all()
     units = (await db.execute(select(SoftwareUnit).where(SoftwareUnit.project_id == pid))).scalars().all()
     components_q = (await db.execute(select(SWComponent).where(SWComponent.project_id == pid))).scalars().all()
     sys_tests = (await db.execute(select(SystemTestCase).where(SystemTestCase.project_id == pid))).scalars().all()
@@ -499,7 +612,9 @@ async def capture_snapshot(release_id: str, db: AsyncSession = Depends(get_db)):
             snapshot_json=json.dumps(snapshot),
         )
         db.add(existing)
-
+    await db.flush()
+    await audit(db, "release_snapshot", existing.id, AuditAction.CREATE, current_user.user_id,
+                f"Release {rel.version}: {snapshot['counts']}")
     await db.commit()
     await db.refresh(existing)
     return ReleaseSnapshotRead(

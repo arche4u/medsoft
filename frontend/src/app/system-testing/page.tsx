@@ -741,7 +741,7 @@ export default function SystemTestingPage() {
     <div style={{ padding: "1.5rem", maxWidth: 1040, margin: "0 auto" }}>
       <div style={{ marginBottom: "1.1rem" }}>
         <h1 style={{ fontSize: "1.35rem", fontWeight: 800, color: "#1e293b", marginBottom: "0.2rem" }}>System Testing & Release</h1>
-        <p style={{ fontSize: "0.82rem", color: "#64748b" }}>IEC 62304 §5.8 — End-to-end test execution, requirement coverage, release gates, and configuration snapshots</p>
+        <p style={{ fontSize: "0.82rem", color: "#64748b" }}>IEC 62304 §5.7 — End-to-end test execution, requirement coverage, release gates, and configuration snapshots</p>
       </div>
 
       {!projectId ? (

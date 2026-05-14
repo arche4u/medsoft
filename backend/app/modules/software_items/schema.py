@@ -11,7 +11,8 @@ class SoftwareItemCreate(BaseModel):
     name: str
     description: str | None = None
     item_type: str = Field(default="SUBSYSTEM", pattern="^(SYSTEM|SUBSYSTEM|UNIT)$")
-    safety_class: str = Field(default="A", pattern="^[ABC]$")
+    # Optional: when omitted the item inherits its parent's class (IEC 62304 §4.3).
+    safety_class: str | None = Field(default=None, pattern="^[ABC]$")
     classification_justification: str | None = None
 
 

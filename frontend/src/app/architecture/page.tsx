@@ -1,21 +1,35 @@
 "use client";
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import ArchitectureBaselineBar from "./ArchitectureBaselineBar";
+import ArchitectureDiagrams from "./ArchitectureDiagrams";
+import { downloadArchitecturePdf } from "./pdf";
+import AttachmentsPanel from "@/components/AttachmentsPanel";
+import MermaidView from "@/components/MermaidView";
+import { useActiveProject } from "@/lib/useActiveProject";
 import {
   api,
   SWComponent, SWComponentTreeNode, SWInterface, SWDataFlow,
   ComponentType, ComponentStatus, InterfaceType, DataFlowCriticality,
   ArchCompliance, ArchComplianceCheck,
+  ArchitectureBaseline, ArchitectureBaselineSummary,
+  ComponentTypeInfo,
   Risk, Requirement, TestCase,
 } from "@/lib/api";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TYPE_META: Record<ComponentType, { color: string; bg: string; indent: number }> = {
-  SYSTEM:    { color: "#1a237e", bg: "#e8eaf6", indent: 0 },
-  SUBSYSTEM: { color: "#1565c0", bg: "#e3f2fd", indent: 20 },
-  ITEM:      { color: "#6a1b9a", bg: "#f3e5f5", indent: 40 },
-  UNIT:      { color: "#1b5e20", bg: "#e8f5e9", indent: 60 },
+// The component-type taxonomy (names, parent rules, ordering, chip colours)
+// is owned by the backend — fetched from GET /architecture/component-types and
+// threaded down as `typeMeta` / `componentTypes` props. No hardcoded
+// SYSTEM/SUBSYSTEM/ITEM/UNIT chain in this file.
+type TypeMeta = { color: string; bg: string; indent: number };
+const FALLBACK_TYPE_META: TypeMeta = { color: "#546e7a", bg: "#eceff1", indent: 0 };
+// Neutral chip style for component-name chips in the Interface Map (the chip
+// is not driven by the component's own type, so it doesn't use typeMeta).
+const COMP_CHIP_STYLE: React.CSSProperties = {
+  fontSize: 12, fontWeight: 600, color: "#1565c0", background: "#e3f2fd",
+  padding: "3px 8px", borderRadius: 4,
 };
 
 const STATUS_META: Record<ComponentStatus, { color: string; bg: string }> = {
@@ -33,6 +47,22 @@ const IFACE_TYPE_COLOR: Record<InterfaceType, string> = {
 const CRITICALITY_COLOR: Record<DataFlowCriticality, string> = {
   LOW: "#1b5e20", MEDIUM: "#e65100", HIGH: "#b71c1c", CRITICAL: "#880e4f",
 };
+
+const MERMAID_STARTERS: Record<string, { label: string; code: string }> = {
+  flowchart: {
+    label: "Flowchart",
+    code: "flowchart TD\n    Start --> Validate\n    Validate --> Process\n    Process --> Output",
+  },
+  sequence: {
+    label: "Sequence",
+    code: "sequenceDiagram\n    participant UI\n    participant Controller\n    participant Sensor\n    UI->>Controller: request\n    Controller->>Sensor: read\n    Sensor-->>Controller: value\n    Controller-->>UI: result",
+  },
+  state: {
+    label: "State Machine",
+    code: "stateDiagram-v2\n    [*] --> Idle\n    Idle --> Running: start\n    Running --> Idle: stop\n    Running --> Error: fault\n    Error --> Idle: reset",
+  },
+};
+
 
 // ── Compliance badge ──────────────────────────────────────────────────────────
 
@@ -157,7 +187,7 @@ function TracePanel({
 
 function ComponentRow({
   node, depth, interfaces, requirements, risks, testcases,
-  onRefresh,
+  typeMeta, onRefresh,
 }: {
   node: SWComponentTreeNode;
   depth: number;
@@ -165,10 +195,11 @@ function ComponentRow({
   requirements: Requirement[];
   risks: Risk[];
   testcases: TestCase[];
+  typeMeta: Record<string, TypeMeta>;
   onRefresh: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [tab, setTab] = useState<"info" | "trace" | "compliance">("info");
+  const [tab, setTab] = useState<"info" | "trace" | "compliance" | "diagram" | "files">("info");
   const [compliance, setCompliance] = useState<ArchCompliance | null>(null);
   const [fullComp, setFullComp] = useState<SWComponent | null>(null);
   const [editing, setEditing] = useState(false);
@@ -178,8 +209,11 @@ function ComponentRow({
   const [editRationale, setEditRationale] = useState("");
   const [approver, setApprover] = useState("");
   const [saving, setSaving] = useState(false);
+  const [diagramDraft, setDiagramDraft] = useState("");
+  const [diagramSaved, setDiagramSaved] = useState("");
+  const [diagramSaving, setDiagramSaving] = useState(false);
 
-  const tm = TYPE_META[node.component_type];
+  const tm = typeMeta[node.component_type] ?? FALLBACK_TYPE_META;
   const sm = STATUS_META[node.status];
 
   async function open() {
@@ -187,8 +221,19 @@ function ComponentRow({
       const c = await api.architecture.getComponent(node.id);
       setFullComp(c);
       setEditRationale(c.rationale ?? "");
+      setDiagramDraft(c.diagram_source ?? "");
+      setDiagramSaved(c.diagram_source ?? "");
     }
     setExpanded(v => !v);
+  }
+
+  async function handleSaveDiagram() {
+    setDiagramSaving(true);
+    try {
+      const updated = await api.architecture.updateComponent(node.id, { diagram_source: diagramDraft || null });
+      setFullComp(updated);
+      setDiagramSaved(updated.diagram_source ?? "");
+    } finally { setDiagramSaving(false); }
   }
 
   async function loadCompliance() {
@@ -196,7 +241,7 @@ function ComponentRow({
     setCompliance(c);
   }
 
-  async function handleTabChange(t: "info" | "trace" | "compliance") {
+  async function handleTabChange(t: "info" | "trace" | "compliance" | "diagram" | "files") {
     setTab(t);
     if (t === "compliance" && !compliance) loadCompliance();
   }
@@ -323,14 +368,18 @@ function ComponentRow({
           </div>
 
           {/* Tabs */}
-          <div style={{ display: "flex", borderBottom: "1px solid #e0e0e0", marginBottom: 14 }}>
-            {(["info", "trace", "compliance"] as const).map(t => (
+          <div style={{ display: "flex", borderBottom: "1px solid #e0e0e0", marginBottom: 14, flexWrap: "wrap" }}>
+            {(["info", "trace", "compliance", "diagram", "files"] as const).map(t => (
               <button key={t} onClick={() => handleTabChange(t)} style={{
                 ...sty.tabBtn,
                 borderBottom: tab === t ? "2px solid #1a237e" : "2px solid transparent",
                 color: tab === t ? "#1a237e" : "#546e7a", fontWeight: tab === t ? 600 : 400,
               }}>
-                {t === "info" ? "Info & Interfaces" : t === "trace" ? "Traceability" : "Compliance"}
+                {t === "info" ? "Info & Interfaces"
+                  : t === "trace" ? "Traceability"
+                  : t === "compliance" ? "Compliance"
+                  : t === "diagram" ? `📐 Diagram${diagramSaved ? " ●" : ""}`
+                  : "📎 Files"}
               </button>
             ))}
           </div>
@@ -409,6 +458,64 @@ function ComponentRow({
               ? <CompliancePanel compliance={compliance} />
               : <div style={{ padding: 20, textAlign: "center", color: "#78909c" }}>Loading…</div>
           )}
+
+          {tab === "diagram" && (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 360px", minWidth: 320 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <label style={sty.label}>Mermaid source</label>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {Object.entries(MERMAID_STARTERS).map(([k, v]) => (
+                      <button key={k} type="button" onClick={() => setDiagramDraft(v.code)} style={sty.btnGhost}
+                        title={`Insert a ${v.label} starter template`}>
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <textarea
+                  value={diagramDraft}
+                  onChange={e => setDiagramDraft(e.target.value)}
+                  readOnly={node.status === "APPROVED"}
+                  rows={14}
+                  placeholder={"Type Mermaid source here, or insert a starter template above.\n\nExample:\nflowchart TD\n  A --> B"}
+                  style={{ ...sty.textarea, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 }}
+                />
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                  {node.status !== "APPROVED" && (
+                    <button onClick={handleSaveDiagram} disabled={diagramSaving || diagramDraft === diagramSaved} style={sty.btn}>
+                      {diagramSaving ? "Saving…" : diagramDraft === diagramSaved ? "Saved" : "Save diagram"}
+                    </button>
+                  )}
+                  {diagramDraft && (
+                    <button type="button" onClick={() => setDiagramDraft("")} style={sty.btnGhost} disabled={node.status === "APPROVED"}>
+                      Clear
+                    </button>
+                  )}
+                  <a href="https://mermaid.js.org/intro/" target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#1565c0", marginLeft: "auto" }}>
+                    Mermaid docs ↗
+                  </a>
+                </div>
+              </div>
+              <div style={{ flex: "1 1 360px", minWidth: 320 }}>
+                <label style={sty.label}>Preview</label>
+                {diagramDraft.trim()
+                  ? <MermaidView source={diagramDraft} containerStyle={{ padding: 10, background: "#fff", border: "1px solid #e0e0e0", borderRadius: 6 }} />
+                  : <div style={{ fontSize: 12, color: "#90a4ae", padding: 14, background: "#fafafa", border: "1px dashed #cfd8dc", borderRadius: 6 }}>
+                      No diagram yet. Insert a starter template or type Mermaid source on the left.
+                    </div>}
+              </div>
+            </div>
+          )}
+
+          {tab === "files" && fullComp && (
+            <AttachmentsPanel
+              projectId={fullComp.project_id}
+              entityType="sw_component"
+              entityId={node.id}
+              readonly={node.status === "APPROVED"}
+            />
+          )}
         </div>
       )}
 
@@ -417,7 +524,7 @@ function ComponentRow({
         <ComponentRow
           key={child.id} node={child} depth={depth + 1}
           interfaces={interfaces} requirements={requirements} risks={risks} testcases={testcases}
-          onRefresh={onRefresh}
+          typeMeta={typeMeta} onRefresh={onRefresh}
         />
       ))}
     </div>
@@ -445,6 +552,39 @@ function InterfaceMap({
   const [safety, setSafety] = useState(false);
   const [saving, setSaving] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Inline-edit state for an existing interface
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [eType, setEType] = useState<InterfaceType>("API");
+  const [eName, setEName] = useState("");
+  const [eDesc, setEDesc] = useState("");
+  const [eFmt, setEFmt] = useState("");
+  const [eMethod, setEMethod] = useState("");
+  const [eSafety, setESafety] = useState(false);
+
+  function startEdit(iface: SWInterface) {
+    setEditingId(iface.id);
+    setEType(iface.interface_type);
+    setEName(iface.name);
+    setEDesc(iface.description ?? "");
+    setEFmt(iface.data_format ?? "");
+    setEMethod(iface.communication_method ?? "");
+    setESafety(iface.safety_relevant);
+    setExpandedId(null);
+  }
+
+  async function saveEdit(id: string) {
+    if (!eName.trim()) return;
+    setSaving(true);
+    try {
+      await api.architecture.updateInterface(id, {
+        interface_type: eType, name: eName.trim(), description: eDesc || null,
+        data_format: eFmt || null, communication_method: eMethod || null, safety_relevant: eSafety,
+      });
+      setEditingId(null);
+      onRefresh();
+    } finally { setSaving(false); }
+  }
 
   // Data flow add state
   const [dfName, setDfName] = useState("");
@@ -563,10 +703,44 @@ function InterfaceMap({
       ) : (
         interfaces.map(iface => (
           <div key={iface.id} style={{ ...sty.panel, marginBottom: 8 }}>
+            {editingId === iface.id ? (
+              /* ── Inline edit form ───────────────────────────────── */
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                  <span style={COMP_CHIP_STYLE}>
+                    {iface.source_component_name}
+                  </span>
+                  <span style={{ color: "#90a4ae", fontSize: 16 }}>→</span>
+                  <span style={COMP_CHIP_STYLE}>
+                    {iface.target_component_name}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#90a4ae" }}>(endpoints can&apos;t change — delete &amp; re-add to repoint)</span>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                  <select value={eType} onChange={e => setEType(e.target.value as InterfaceType)} style={{ ...sty.input, width: 110 }}>
+                    {["DATA", "CONTROL", "API", "SIGNAL"].map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <input value={eName} onChange={e => setEName(e.target.value)} placeholder="Interface name *" style={{ ...sty.input, flex: "1 1 200px" }} />
+                  <input value={eFmt} onChange={e => setEFmt(e.target.value)} placeholder="Data format" style={{ ...sty.input, flex: "1 1 140px" }} />
+                  <input value={eMethod} onChange={e => setEMethod(e.target.value)} placeholder="Communication method" style={{ ...sty.input, flex: "1 1 160px" }} />
+                </div>
+                <textarea value={eDesc} onChange={e => setEDesc(e.target.value)} placeholder="Description…" rows={2} style={{ ...sty.textarea, marginBottom: 8 }} />
+                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                  <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, cursor: "pointer" }}>
+                    <input type="checkbox" checked={eSafety} onChange={e => setESafety(e.target.checked)} />
+                    Safety-relevant interface
+                  </label>
+                  <button onClick={() => saveEdit(iface.id)} disabled={saving || !eName.trim()} style={sty.btn}>
+                    {saving ? "Saving…" : "Save"}
+                  </button>
+                  <button onClick={() => setEditingId(null)} style={sty.btnGhost}>Cancel</button>
+                </div>
+              </div>
+            ) : (
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               {/* Arrow diagram */}
               <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "1 1 300px" }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: TYPE_META["SUBSYSTEM"].color, background: TYPE_META["SUBSYSTEM"].bg, padding: "3px 8px", borderRadius: 4 }}>
+                <span style={COMP_CHIP_STYLE}>
                   {iface.source_component_name}
                 </span>
                 <span style={{ color: IFACE_TYPE_COLOR[iface.interface_type], fontSize: 16 }}>→</span>
@@ -574,7 +748,7 @@ function InterfaceMap({
                   {iface.interface_type}
                 </span>
                 <span style={{ color: IFACE_TYPE_COLOR[iface.interface_type], fontSize: 16 }}>→</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: TYPE_META["SUBSYSTEM"].color, background: TYPE_META["SUBSYSTEM"].bg, padding: "3px 8px", borderRadius: 4 }}>
+                <span style={COMP_CHIP_STYLE}>
                   {iface.target_component_name}
                 </span>
               </div>
@@ -588,10 +762,12 @@ function InterfaceMap({
                 )}
                 {iface.data_format && <span style={{ fontSize: 10, color: "#546e7a", background: "#f5f5f5", padding: "2px 6px", borderRadius: 3 }}>{iface.data_format}</span>}
                 <span style={{ fontSize: 11, color: "#78909c" }}>{iface.data_flows.length} flow{iface.data_flows.length !== 1 ? "s" : ""}</span>
+                <button onClick={() => startEdit(iface)} style={sty.iconBtn} title="Edit interface">✎</button>
                 <button onClick={() => setExpandedId(expandedId === iface.id ? null : iface.id)} style={sty.iconBtn} title="Data flows">⋯</button>
                 <button onClick={() => deleteInterface(iface.id)} style={{ ...sty.iconBtn, color: "#b71c1c" }}>✕</button>
               </div>
             </div>
+            )}
 
             {/* Data flows */}
             {expandedId === iface.id && (
@@ -632,35 +808,43 @@ function InterfaceMap({
 // ── Add component form ────────────────────────────────────────────────────────
 
 function AddComponentForm({
-  projectId, components, onCreated,
+  projectId, components, componentTypes, onCreated,
 }: {
   projectId: string;
   components: SWComponent[];
+  componentTypes: ComponentTypeInfo[];
   onCreated: () => void;
 }) {
   const [name, setName] = useState("");
-  const [type, setType] = useState<ComponentType>("SUBSYSTEM");
+  const [type, setType] = useState<string>("");
   const [cls, setCls] = useState("A");
   const [desc, setDesc] = useState("");
   const [parentId, setParentId] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const allowedParents = components.filter(c => {
-    if (type === "SYSTEM") return false;
-    if (type === "SUBSYSTEM") return c.component_type === "SYSTEM";
-    if (type === "ITEM") return c.component_type === "SUBSYSTEM";
-    if (type === "UNIT") return c.component_type === "ITEM" || c.component_type === "SUBSYSTEM";
-    return false;
-  });
+  // Default the type selector to the first non-root type once the taxonomy
+  // loads (mirrors the previous "SUBSYSTEM" default without hardcoding it).
+  useEffect(() => {
+    if (!type && componentTypes.length > 0) {
+      const firstChild = componentTypes.find(t => t.parents.length > 0) ?? componentTypes[0];
+      setType(firstChild.name);
+    }
+  }, [componentTypes, type]);
+
+  const selectedType = componentTypes.find(t => t.name === type);
+  const allowedParentTypes = selectedType?.parents ?? [];
+  const isRootType = !!selectedType && allowedParentTypes.length === 0;
+  const allowedParents = components.filter(c => allowedParentTypes.includes(c.component_type));
+  const parentHint = allowedParentTypes.length ? allowedParentTypes.join(" or ") : "none";
 
   async function handleCreate() {
-    if (!name.trim()) return;
+    if (!name.trim() || !type) return;
     setSaving(true);
     try {
       await api.architecture.createComponent({
         project_id: projectId,
         name: name.trim(), description: desc || null,
-        component_type: type, safety_class: cls,
+        component_type: type as ComponentType, safety_class: cls,
         parent_id: parentId || null,
       });
       setName(""); setDesc(""); setParentId("");
@@ -677,30 +861,26 @@ function AddComponentForm({
       <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10 }}>Add Component</div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Name *" style={{ ...sty.input, flex: "1 1 180px" }} />
-        <select value={type} onChange={e => { setType(e.target.value as ComponentType); setParentId(""); }} style={{ ...sty.input, width: 120 }}>
-          {["SYSTEM", "SUBSYSTEM", "ITEM", "UNIT"].map(t => <option key={t} value={t}>{t}</option>)}
+        <select value={type} onChange={e => { setType(e.target.value); setParentId(""); }} style={{ ...sty.input, width: 120 }}>
+          {componentTypes.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
         </select>
         <select value={cls} onChange={e => setCls(e.target.value)} style={{ ...sty.input, width: 90 }}>
           {["A", "B", "C"].map(c => <option key={c} value={c}>Class {c}</option>)}
         </select>
-        {type !== "SYSTEM" && (
+        {!isRootType && (
           <select value={parentId} onChange={e => setParentId(e.target.value)} style={{ ...sty.input, flex: "1 1 180px" }}>
-            <option value="">— parent ({VALID_PARENT_TYPES[type]}) —</option>
+            <option value="">— parent ({parentHint}) —</option>
             {allowedParents.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         )}
         <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description" style={{ ...sty.input, flex: "2 1 200px" }} />
-        <button onClick={handleCreate} disabled={!name.trim() || saving} style={sty.btn}>
+        <button onClick={handleCreate} disabled={!name.trim() || !type || saving} style={sty.btn}>
           {saving ? "Adding…" : "+ Add"}
         </button>
       </div>
     </div>
   );
 }
-
-const VALID_PARENT_TYPES: Record<ComponentType, string> = {
-  SYSTEM: "none", SUBSYSTEM: "SYSTEM", ITEM: "SUBSYSTEM", UNIT: "ITEM or SUBSYSTEM",
-};
 
 // ── Summary cards ─────────────────────────────────────────────────────────────
 
@@ -750,9 +930,9 @@ function SummaryCards({ components, interfaces }: { components: SWComponent[]; i
 
 function ArchitecturePageInner() {
   const searchParams = useSearchParams();
-  const projectId = searchParams.get("project") ?? (
-    typeof window !== "undefined" ? localStorage.getItem("medsoft_active_project") ?? "" : ""
-  );
+  // Shared project context — reads localStorage + follows sidebar switches.
+  // A URL ?project= deep-link still overrides it (see effect below).
+  const [projectId, setProjectId] = useActiveProject();
 
   const [tree, setTree] = useState<SWComponentTreeNode[]>([]);
   const [flatComponents, setFlatComponents] = useState<SWComponent[]>([]);
@@ -760,9 +940,17 @@ function ArchitecturePageInner() {
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [risks, setRisks] = useState<Risk[]>([]);
   const [testcases, setTestcases] = useState<TestCase[]>([]);
+  // Component-type taxonomy from the backend (single source of truth).
+  const [componentTypes, setComponentTypes] = useState<ComponentTypeInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"tree" | "interfaces">("tree");
+  const [tab, setTab] = useState<"tree" | "interfaces" | "diagrams">("tree");
   const [error, setError] = useState<string | null>(null);
+  // Architecture baseline state — populated by ArchitectureBaselineBar via onState
+  const [archBaselineSummaries, setArchBaselineSummaries] = useState<ArchitectureBaselineSummary[]>([]);
+  const [archBaselineDetail, setArchBaselineDetail] = useState<ArchitectureBaseline | null>(null);
+  // Bumped on every page reload so the baseline bar refetches its detail —
+  // keeps the PDF / counts in sync after a component or interface changes.
+  const [archReloadKey, setArchReloadKey] = useState(0);
 
   const load = useCallback(async () => {
     if (!projectId) { setLoading(false); return; }
@@ -785,15 +973,31 @@ function ArchitecturePageInner() {
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+      setArchReloadKey(k => k + 1);
+    }
   }, [projectId]);
 
-  useEffect(() => { load(); }, [load]);
+  // URL ?project= deep-link overrides the shared context (and persists it).
   useEffect(() => {
-    const h = () => load();
-    window.addEventListener("medsoft:project_changed", h);
-    return () => window.removeEventListener("medsoft:project_changed", h);
-  }, [load]);
+    const fromUrl = searchParams.get("project");
+    if (fromUrl && fromUrl !== projectId) setProjectId(fromUrl);
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reload whenever the resolved project changes.
+  useEffect(() => { load(); }, [load]);
+
+  // Component-type taxonomy is project-independent — fetch once.
+  useEffect(() => {
+    api.architecture.componentTypes().then(setComponentTypes).catch(() => {});
+  }, []);
+
+  // Derive the typeMeta lookup (color/bg/indent by type name) from the taxonomy.
+  const typeMeta: Record<string, TypeMeta> = {};
+  for (const t of componentTypes) {
+    typeMeta[t.name] = { color: t.color, bg: t.bg, indent: t.order * 20 };
+  }
 
   if (!projectId) {
     return (
@@ -806,12 +1010,35 @@ function ArchitecturePageInner() {
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto" }}>
-      <div style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: "#1a237e" }}>Software Architecture</h1>
-        <p style={{ margin: "4px 0 0", color: "#546e7a", fontSize: 14 }}>
-          IEC 62304 §5.3 / §5.4 — Hierarchical component design with interface definitions
-        </p>
+      <div style={{ marginBottom: 20, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: "#1a237e" }}>Software Architecture</h1>
+          <p style={{ margin: "4px 0 0", color: "#546e7a", fontSize: 14 }}>
+            IEC 62304 §5.3 / §5.4 — Hierarchical component design with interface definitions
+          </p>
+        </div>
+        {archBaselineDetail && (
+          <button
+            onClick={() => downloadArchitecturePdf(archBaselineDetail, "", archBaselineSummaries)}
+            title="Download the Software Architecture Document as PDF"
+            style={{
+              background: "#fff", color: "#4a148c",
+              border: "1px solid #ce93d8", borderRadius: 6,
+              padding: "6px 14px", cursor: "pointer",
+              fontSize: 13, fontWeight: 600,
+            }}
+          >
+            ⬇ Architecture PDF
+          </button>
+        )}
       </div>
+
+      <ArchitectureBaselineBar
+        projectId={projectId}
+        reloadKey={archReloadKey}
+        onMutated={load}
+        onState={s => { setArchBaselineSummaries(s.baselines); setArchBaselineDetail(s.detail); }}
+      />
 
       {error && (
         <div style={{ padding: "10px 14px", background: "#ffebee", color: "#b71c1c", borderRadius: 6, marginBottom: 14 }}>{error}</div>
@@ -824,12 +1051,12 @@ function ArchitecturePageInner() {
           <SummaryCards components={flatComponents} interfaces={interfaces} />
 
           {tab === "tree" && (
-            <AddComponentForm projectId={projectId} components={flatComponents} onCreated={load} />
+            <AddComponentForm projectId={projectId} components={flatComponents} componentTypes={componentTypes} onCreated={load} />
           )}
 
           {/* Tabs */}
           <div style={{ display: "flex", borderBottom: "1px solid #e0e0e0", marginBottom: 16, marginTop: 8 }}>
-            {(["tree", "interfaces"] as const).map(t => (
+            {(["tree", "interfaces", "diagrams"] as const).map(t => (
               <button key={t} onClick={() => setTab(t)} style={{
                 ...sty.tabBtn,
                 borderBottom: tab === t ? "2px solid #1a237e" : "2px solid transparent",
@@ -839,17 +1066,29 @@ function ArchitecturePageInner() {
               }}>
                 {t === "tree"
                   ? `Architecture Tree (${flatComponents.length})`
-                  : `Interface Map (${interfaces.length})`}
+                  : t === "interfaces"
+                    ? `Interface Map (${interfaces.length})`
+                    : `Diagrams`}
               </button>
             ))}
           </div>
+          {tab === "diagrams" && (
+            <ArchitectureDiagrams components={flatComponents} interfaces={interfaces} />
+          )}
 
           {tab === "tree" && (
             tree.length === 0 ? (
               <div style={sty.emptyState}>
                 <div style={{ fontSize: 36, marginBottom: 8 }}>📐</div>
-                <div style={{ fontWeight: 600 }}>No components yet</div>
-                <div style={{ color: "#78909c", marginTop: 4 }}>Start with a SYSTEM component, then add SUBSYSTEM and ITEM children.</div>
+                <div style={{ fontWeight: 600 }}>No components yet for this project</div>
+                <div style={{ color: "#78909c", marginTop: 4 }}>
+                  Start with a SYSTEM component, then add SUBSYSTEM and ITEM children.
+                </div>
+                <div style={{ color: "#90a4ae", marginTop: 12, fontSize: 12 }}>
+                  If you just re-seeded the database, your active project ID may be stale.{" "}
+                  <a href="/projects" style={{ color: "#1565c0", textDecoration: "underline" }}>Pick a project</a>{" "}
+                  to refresh the selection.
+                </div>
               </div>
             ) : (
               <div>
@@ -857,7 +1096,7 @@ function ArchitecturePageInner() {
                   <ComponentRow
                     key={root.id} node={root} depth={0}
                     interfaces={interfaces} requirements={requirements} risks={risks} testcases={testcases}
-                    onRefresh={load}
+                    typeMeta={typeMeta} onRefresh={load}
                   />
                 ))}
               </div>

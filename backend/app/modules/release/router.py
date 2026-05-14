@@ -32,7 +32,7 @@ router = APIRouter(prefix="/release", tags=["release"])
 async def create_release(
     body: ReleaseCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("CREATE_RELEASE")),
 ):
     rel = Release(
         project_id=body.project_id,
@@ -41,7 +41,7 @@ async def create_release(
     )
     db.add(rel)
     await db.flush()
-    await audit(db, "Release", rel.id, AuditAction.CREATE, current_user.user_id)
+    await audit(db, "Release", rel.id, AuditAction.CREATE, current_user.user_id, f"v{rel.version}")
     await db.commit()
     await db.refresh(rel)
     return rel
@@ -269,7 +269,7 @@ async def _check_readiness(release_id: uuid.UUID, db: AsyncSession) -> Readiness
 async def add_release_item(
     body: ReleaseItemCreate,
     db: AsyncSession = Depends(get_db),
-    _: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("CREATE_RELEASE")),
 ):
     rel = (await db.execute(select(Release).where(Release.id == body.release_id))).scalar_one_or_none()
     if not rel:
@@ -278,6 +278,9 @@ async def add_release_item(
         raise HTTPException(400, "Items can only be added to DRAFT releases")
     item = ReleaseItem(**body.model_dump())
     db.add(item)
+    await db.flush()
+    await audit(db, "ReleaseItem", item.id, AuditAction.CREATE, current_user.user_id,
+                f"Release v{rel.version}")
     await db.commit()
     await db.refresh(item)
     return item
@@ -287,7 +290,7 @@ async def add_release_item(
 async def delete_release_item(
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("CREATE_RELEASE")),
 ):
     item = (await db.execute(select(ReleaseItem).where(ReleaseItem.id == item_id))).scalar_one_or_none()
     if not item:
@@ -295,5 +298,6 @@ async def delete_release_item(
     rel = (await db.execute(select(Release).where(Release.id == item.release_id))).scalar_one_or_none()
     if rel and rel.status != ReleaseStatus.DRAFT:
         raise HTTPException(400, "Items can only be removed from DRAFT releases")
+    await audit(db, "ReleaseItem", item.id, AuditAction.DELETE, current_user.user_id)
     await db.delete(item)
     await db.commit()

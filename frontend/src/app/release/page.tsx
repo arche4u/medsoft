@@ -133,7 +133,7 @@ export default function ReleasePage() {
   const getItemOptions = () => {
     if (itemType === "testcase") return testcases.map(tc => ({ id: tc.id, label: tc.title }));
     if (itemType === "requirement") return requirements.map(r => ({ id: r.id, label: `[${r.type}] ${r.title}` }));
-    return designElements.map(de => ({ id: de.id, label: `[${de.type}] ${de.title}` }));
+    return designElements.map(de => ({ id: de.id, label: `${de.readable_id ?? "DESIGN"} ${de.title}` }));
   };
 
   const cardStyle: React.CSSProperties = { background: "#fff", border: "1px solid #ddd", borderRadius: 8, padding: "1.5rem", marginBottom: "1rem" };

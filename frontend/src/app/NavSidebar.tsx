@@ -67,15 +67,27 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    // Spans the whole IEC 62304 software lifecycle (§5 development, §6
+    // maintenance touchpoints, §7 risk, §5.5–§5.7 verification) — labelled
+    // "Develop" rather than "Design" so the section name matches its scope.
     id: "design",
-    label: "Design",
+    label: "Develop",
     icon: <IconDesign />,
+    // Groups are ordered by ascending IEC 62304 clause: §4.3 → §5.2 → §5.3/§5.4
+    // → §5.5–§5.7 → §7. The sidebar mirrors the standard's lifecycle sequence.
     groups: [
       {
-        // Order follows IEC 62304 §5 sequence: plan → analyze → design → build.
-        group: "Design",
+        // IEC 62304 §4.3 — software safety classification register. First,
+        // because classification precedes requirements analysis in the standard.
+        group: "Classification",
         items: [
-          { href: "/sdp", label: "Dev Plan (SDP)" },                          // §5.1
+          { href: "/software-items", label: "Software Items" },                // §4.3
+        ],
+      },
+      {
+        // IEC 62304 §5.2 — software requirements analysis.
+        group: "Requirements",
+        items: [
           {
             href: "/requirements",                                            // §5.2
             label: "Requirements",
@@ -85,26 +97,38 @@ const SECTIONS: Section[] = [
               { href: "/requirements?type=SOFTWARE", label: "Software" },
             ],
           },
+        ],
+      },
+      {
+        // IEC 62304 §5.3 → §5.4. SDP (§5.1) lives in Docs > IEC 62304 Plans
+        // alongside the other plan documents.
+        group: "Design",
+        items: [
           { href: "/architecture", label: "SW Architecture" },                // §5.3
+          { href: "/design",       label: "Detailed Design" },                // §5.4 — grouped under §5.3 components
+        ],
+      },
+      {
+        // IEC 62304 §5.5–§5.7 verification + cross-cutting V&V / traceability.
+        group: "Verification",
+        items: [
+          { href: "/units", label: "Unit Verification" },                      // §5.5
+          { href: "/integration-tests", label: "Integration Tests" },          // §5.6
+          { href: "/system-testing", label: "System Testing & Release" },      // §5.7 + §5.8 release-mgmt
           {
-            href: "/software-items",                                          // §4.3 / §5 classification
-            label: "Software Items",
+            // Legacy generic test register (pre-§5.5/§5.6/§5.7 modules) — still
+            // load-bearing for the release gate, DHF, and the Trace Matrix.
+            href: "/testcases",
+            label: "Test Register",
             subItems: [
-              { href: "/software-items", label: "All Items" },
-            ],
-          },
-          {
-            href: "/design",                                                  // §5.4
-            label: "Design Elements",
-            subItems: [
-              { href: "/design?type=ARCHITECTURE", label: "Architecture" },
-              { href: "/design?type=DETAILED",     label: "Detailed" },
+              { href: "/testcases",    label: "Test Cases" },
+              { href: "/verification", label: "Test Execution" },
             ],
           },
         ],
       },
       {
-        // §7 Risk Management — cross-cutting, separate group.
+        // §7 Software risk management — last clause-numbered group.
         group: "Risk",
         items: [
           {
@@ -119,23 +143,15 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        group: "Testing",
+        // Cross-cutting V&V + traceability spine — spans every §-level above.
+        // Not a clause-numbered process, so it sits last as the "whole picture".
+        group: "Traceability",
         items: [
-          { href: "/units", label: "Unit Verification" },
-          { href: "/integration-tests", label: "Integration Tests" },
-          { href: "/system-testing", label: "System Testing" },
-          {
-            href: "/testcases",
-            label: "Testing",
-            subItems: [
-              { href: "/testcases",    label: "Test Cases" },
-              { href: "/verification", label: "Test Execution" },
-              { href: "/validation",   label: "Validation Records" },
-              { href: "/tracelinks",   label: "Trace Matrix" },
-              { href: "/traceability", label: "V-Model Tree" },
-              { href: "/impact",       label: "Impact Analysis" },
-            ],
-          },
+          // Impact analysis isn't a separate page — it's the "impact spider"
+          // modal inside Trace Matrix (click any requirement ID chip).
+          { href: "/tracelinks",   label: "Trace Matrix" },
+          { href: "/traceability", label: "V-Model Tree" },
+          { href: "/validation",   label: "Validation Records" },
         ],
       },
     ],
@@ -146,13 +162,40 @@ const SECTIONS: Section[] = [
     icon: <IconDocuments />,
     groups: [
       {
-        group: "Change Control",
+        // IEC 62304 planning documents — all share the same versioned,
+        // signed-off workflow. Each is a direct link; no nesting needed.
+        group: "IEC 62304 Plans",
+        items: [
+          { href: "/sdp",                         label: "Dev Plan (§5.1)" },
+          { href: "/plans/maintenance",            label: "Maintenance Plan (§6.1)" },
+          { href: "/plans/risk-mgmt",              label: "Risk Mgmt Plan (§7)" },
+          { href: "/plans/config-mgmt",            label: "Config Mgmt Plan (§8.1)" },
+          { href: "/plans/problem-resolution",     label: "Problem Resolution Plan (§9)" },
+          { href: "/plans",                         label: "Custom Plans" },
+        ],
+      },
+      {
+        // IEC 62304 §6.2 change control + §8 configuration management — the two
+        // processes that govern how the software baseline evolves.
+        group: "Change & Configuration",
         items: [
           { href: "/change-control", label: "Change Requests" },
-          { href: "/release",        label: "Releases" },
-          { href: "/dhf",            label: "Design History File" },
           { href: "/config-mgmt",    label: "Config Management" },
-          { href: "/capa",           label: "Problem Resolution" },
+        ],
+      },
+      {
+        // IEC 62304 §9 — software problem resolution / CAPA.
+        group: "Problem Resolution",
+        items: [
+          { href: "/capa", label: "Problem Resolution" },
+        ],
+      },
+      {
+        // §5.8 release + the cross-cutting Design History File compliance record.
+        group: "Release & DHF",
+        items: [
+          { href: "/release", label: "Releases" },
+          { href: "/dhf",     label: "Design History File" },
         ],
       },
       {

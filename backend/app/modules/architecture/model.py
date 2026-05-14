@@ -44,6 +44,7 @@ class SWComponent(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")
     version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0")
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    diagram_source: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -93,10 +94,12 @@ class SWInterface(Base, TimestampMixin):
     safety_relevant: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     source: Mapped["SWComponent"] = relationship(
-        "SWComponent", foreign_keys=[source_component_id], back_populates="outgoing_interfaces"
+        "SWComponent", foreign_keys=[source_component_id],
+        back_populates="outgoing_interfaces", lazy="selectin"
     )
     target: Mapped["SWComponent"] = relationship(
-        "SWComponent", foreign_keys=[target_component_id], back_populates="incoming_interfaces"
+        "SWComponent", foreign_keys=[target_component_id],
+        back_populates="incoming_interfaces", lazy="selectin"
     )
     data_flows: Mapped[list["SWDataFlow"]] = relationship(
         "SWDataFlow", back_populates="interface", cascade="all, delete-orphan", lazy="selectin"

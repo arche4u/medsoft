@@ -1,17 +1,23 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
+from app.modules.audit.service import audit
+from app.modules.audit.model import AuditAction
+from app.modules.auth.deps import require_permission
+from app.modules.auth.schema import TokenData
 from .lock import assert_architecture_unlocked
+from .constants import COMPONENT_TYPES, VALID_PARENTS, ROOT_COMPONENT_TYPES
 from .model import (
     SWComponent, SWInterface, SWDataFlow,
     SWComponentReqLink, SWComponentRiskLink, SWComponentTCLink,
 )
 from .schema import (
     ComponentCreate, ComponentRead, ComponentUpdate, ComponentStatusTransition,
-    ComponentTreeNode, SetLinksPayload,
+    ComponentTreeNode, ComponentTypeInfo, SetLinksPayload,
     InterfaceCreate, InterfaceRead, InterfaceUpdate,
     DataFlowCreate, DataFlowRead, DataFlowUpdate,
     ArchComplianceCheck, ArchComplianceStatus,
@@ -19,13 +25,8 @@ from .schema import (
 
 router = APIRouter(prefix="/architecture", tags=["architecture"])
 
-# ── Valid parent types per component type ─────────────────────────────────────
-VALID_PARENTS: dict[str, set[str]] = {
-    "SYSTEM":    set(),                          # no parent allowed
-    "SUBSYSTEM": {"SYSTEM"},
-    "ITEM":      {"SUBSYSTEM"},
-    "UNIT":      {"ITEM", "SUBSYSTEM"},
-}
+# Component-type taxonomy (VALID_PARENTS, ROOT_COMPONENT_TYPES) is defined once
+# in constants.py — see that module to change the SYSTEM→SUBSYSTEM→ITEM→UNIT chain.
 
 VALID_TRANSITIONS: dict[str, set[str]] = {
     "DRAFT":  {"REVIEW"},
@@ -47,6 +48,7 @@ def _to_read(c: SWComponent, iface_count: int = 0) -> ComponentRead:
         name=c.name, description=c.description,
         component_type=c.component_type, safety_class=c.safety_class,
         status=c.status, version=c.version, rationale=c.rationale,
+        diagram_source=c.diagram_source,
         approved_by=c.approved_by, approved_at=c.approved_at,
         requirement_ids=[lnk.requirement_id for lnk in c.req_links],
         risk_ids=[lnk.risk_id for lnk in c.risk_links],
@@ -82,41 +84,117 @@ async def _interface_count(db: AsyncSession, component_id: uuid.UUID) -> int:
     return n
 
 
+@dataclass
+class _ComplianceCtx:
+    """Everything a compliance rule needs, precomputed once per component."""
+    component: SWComponent
+    req_count: int
+    risk_count: int
+    tc_count: int
+    iface_count: int
+    undescribed_iface_count: int
+    safety_iface_count: int
+
+
+# Declarative compliance rules (IEC 62304 §5.3.6 architecture verification).
+# Each rule states which safety classes it applies to, whether it's required,
+# whether failing it blocks RELEASE (every required failure blocks APPROVAL),
+# whether it only applies once interfaces exist, and a pure check over the
+# precomputed context. Retargeting/adding a rule = editing this list — no
+# scattered `if safety_class in (...)` branches.
+COMPLIANCE_RULES: list[dict] = [
+    {
+        "rule": "has_description", "label": "Component has description",
+        "applies_to": {"A", "B", "C"}, "required": True, "blocks_release": False,
+        "check": lambda x: (
+            bool(x.component.description and x.component.description.strip()),
+            "Description provided" if x.component.description
+            else "Add a description to this component",
+        ),
+    },
+    {
+        "rule": "has_safety_class", "label": "Safety class assigned",
+        "applies_to": {"A", "B", "C"}, "required": True, "blocks_release": False,
+        "check": lambda x: (True, f"Safety Class {x.component.safety_class} assigned"),
+    },
+    {
+        "rule": "has_interfaces", "label": "At least one interface defined",
+        "applies_to": {"B", "C"}, "required": True, "blocks_release": True,
+        "check": lambda x: (
+            x.iface_count > 0,
+            f"{x.iface_count} interface(s) defined" if x.iface_count > 0
+            else "No interfaces — define at least one in the Interface Map",
+        ),
+    },
+    {
+        "rule": "interfaces_described", "label": "All interfaces have descriptions",
+        "applies_to": {"B", "C"}, "required": True, "blocks_release": True,
+        "requires_interfaces": True,
+        "check": lambda x: (
+            x.undescribed_iface_count == 0,
+            "All interfaces described" if x.undescribed_iface_count == 0
+            else f"{x.undescribed_iface_count} interface(s) missing description",
+        ),
+    },
+    {
+        "rule": "has_requirements", "label": "Requirements linked",
+        "applies_to": {"B", "C"}, "required": True, "blocks_release": True,
+        "check": lambda x: (
+            x.req_count > 0,
+            f"{x.req_count} requirement(s) linked" if x.req_count
+            else "No requirements linked — trace this component to SOFTWARE requirements",
+        ),
+    },
+    {
+        "rule": "has_risks", "label": "Risks linked (ISO 14971)",
+        "applies_to": {"B", "C"}, "required": True, "blocks_release": True,
+        "check": lambda x: (
+            x.risk_count > 0,
+            f"{x.risk_count} risk(s) linked" if x.risk_count
+            else "No risks linked — associate relevant hazards from the Risk Register",
+        ),
+    },
+    {
+        "rule": "has_testcases", "label": "Test cases linked",
+        "applies_to": {"B", "C"}, "required": True, "blocks_release": True,
+        "check": lambda x: (
+            x.tc_count > 0,
+            f"{x.tc_count} test case(s) linked" if x.tc_count
+            else "No test cases linked — link integration/system tests",
+        ),
+    },
+    {
+        "rule": "safety_ifaces_flagged", "label": "Safety-relevant interfaces flagged",
+        "applies_to": {"C"}, "required": True, "blocks_release": True,
+        "requires_interfaces": True,
+        "check": lambda x: (
+            x.safety_iface_count > 0,
+            f"{x.safety_iface_count} safety-relevant interface(s) flagged" if x.safety_iface_count > 0
+            else "No interfaces marked safety-relevant — review and flag where applicable",
+        ),
+    },
+    {
+        "rule": "has_rationale", "label": "Classification rationale provided",
+        "applies_to": {"C"}, "required": True, "blocks_release": False,
+        "check": lambda x: (
+            bool(x.component.rationale and x.component.rationale.strip()),
+            "Rationale provided" if x.component.rationale
+            else "Add a rationale explaining why Class C was assigned",
+        ),
+    },
+]
+
+_RELEASE_BLOCKING_RULES: set[str] = {r["rule"] for r in COMPLIANCE_RULES if r["blocks_release"]}
+
+
 async def _run_compliance(
     db: AsyncSession, c: SWComponent
 ) -> ArchComplianceStatus:
-    safety_class = c.safety_class
-    checks: list[ArchComplianceCheck] = []
-    req_ids = [lnk.requirement_id for lnk in c.req_links]
-    risk_ids = [lnk.risk_id for lnk in c.risk_links]
-    tc_ids = [lnk.testcase_id for lnk in c.tc_links]
     iface_count = await _interface_count(db, c.id)
 
-    # ── Rule 1: Must have description ────────────────────────────
-    checks.append(ArchComplianceCheck(
-        rule="has_description", label="Component has description",
-        required=True, satisfied=bool(c.description and c.description.strip()),
-        detail="Description provided" if c.description else "Add a description to this component",
-    ))
-
-    # ── Rule 2: Must have safety class explicitly set ─────────────
-    checks.append(ArchComplianceCheck(
-        rule="has_safety_class", label="Safety class assigned",
-        required=True, satisfied=True,
-        detail=f"Safety Class {safety_class} assigned",
-    ))
-
-    # ── Rule 3: Class B & C — must have at least one interface ────
-    if safety_class in ("B", "C"):
-        checks.append(ArchComplianceCheck(
-            rule="has_interfaces", label="At least one interface defined",
-            required=True, satisfied=iface_count > 0,
-            detail=f"{iface_count} interface(s) defined" if iface_count > 0
-                   else "No interfaces — define at least one in the Interface Map",
-        ))
-
-    # ── Rule 4: Class B & C — interfaces must have descriptions ───
-    if safety_class in ("B", "C") and iface_count > 0:
+    # Interface-derived counts — only queried when interfaces exist.
+    undescribed = safety_ifaces = 0
+    if iface_count > 0:
         undescribed = (await db.execute(
             select(func.count(SWInterface.id)).where(
                 (SWInterface.source_component_id == c.id) |
@@ -124,42 +202,6 @@ async def _run_compliance(
                 SWInterface.description == None,
             )
         )).scalar_one()
-        checks.append(ArchComplianceCheck(
-            rule="interfaces_described", label="All interfaces have descriptions",
-            required=True, satisfied=undescribed == 0,
-            detail="All interfaces described" if undescribed == 0
-                   else f"{undescribed} interface(s) missing description",
-        ))
-
-    # ── Rule 5: Class B & C — must link requirements ──────────────
-    if safety_class in ("B", "C"):
-        checks.append(ArchComplianceCheck(
-            rule="has_requirements", label="Requirements linked",
-            required=True, satisfied=len(req_ids) > 0,
-            detail=f"{len(req_ids)} requirement(s) linked" if req_ids
-                   else "No requirements linked — trace this component to SOFTWARE requirements",
-        ))
-
-    # ── Rule 6: Class B & C — must link risks ─────────────────────
-    if safety_class in ("B", "C"):
-        checks.append(ArchComplianceCheck(
-            rule="has_risks", label="Risks linked (ISO 14971)",
-            required=True, satisfied=len(risk_ids) > 0,
-            detail=f"{len(risk_ids)} risk(s) linked" if risk_ids
-                   else "No risks linked — associate relevant hazards from the Risk Register",
-        ))
-
-    # ── Rule 7: Class B & C — must link test cases ────────────────
-    if safety_class in ("B", "C"):
-        checks.append(ArchComplianceCheck(
-            rule="has_testcases", label="Test cases linked",
-            required=True, satisfied=len(tc_ids) > 0,
-            detail=f"{len(tc_ids)} test case(s) linked" if tc_ids
-                   else "No test cases linked — link integration/system tests",
-        ))
-
-    # ── Rule 8: Class C — safety-critical interfaces must be flagged
-    if safety_class == "C" and iface_count > 0:
         safety_ifaces = (await db.execute(
             select(func.count(SWInterface.id)).where(
                 (SWInterface.source_component_id == c.id) |
@@ -167,37 +209,42 @@ async def _run_compliance(
                 SWInterface.safety_relevant == True,
             )
         )).scalar_one()
-        checks.append(ArchComplianceCheck(
-            rule="safety_ifaces_flagged",
-            label="Safety-relevant interfaces flagged",
-            required=True, satisfied=safety_ifaces > 0,
-            detail=f"{safety_ifaces} safety-relevant interface(s) flagged" if safety_ifaces > 0
-                   else "No interfaces marked safety-relevant — review and flag where applicable",
-        ))
 
-    # ── Rule 9: Class C — rationale for classification ────────────
-    if safety_class == "C":
+    ctx = _ComplianceCtx(
+        component=c,
+        req_count=len(c.req_links),
+        risk_count=len(c.risk_links),
+        tc_count=len(c.tc_links),
+        iface_count=iface_count,
+        undescribed_iface_count=undescribed,
+        safety_iface_count=safety_ifaces,
+    )
+
+    checks: list[ArchComplianceCheck] = []
+    for rule in COMPLIANCE_RULES:
+        if c.safety_class not in rule["applies_to"]:
+            continue
+        if rule.get("requires_interfaces") and iface_count == 0:
+            continue
+        satisfied, detail = rule["check"](ctx)
         checks.append(ArchComplianceCheck(
-            rule="has_rationale", label="Classification rationale provided",
-            required=True, satisfied=bool(c.rationale and c.rationale.strip()),
-            detail="Rationale provided" if c.rationale
-                   else "Add a rationale explaining why Class C was assigned",
+            rule=rule["rule"], label=rule["label"],
+            required=rule["required"], satisfied=satisfied, detail=detail,
         ))
 
     failed = {ch.rule for ch in checks if ch.required and not ch.satisfied}
     blocks: list[str] = []
     if failed:
         blocks.append("APPROVAL")
-    if failed & {"has_interfaces", "has_requirements", "has_risks", "has_testcases",
-                 "safety_ifaces_flagged", "interfaces_described"}:
+    if failed & _RELEASE_BLOCKING_RULES:
         blocks.append("RELEASE")
 
     return ArchComplianceStatus(
         component_id=c.id,
-        safety_class=safety_class,
+        safety_class=c.safety_class,
         is_compliant=len(failed) == 0,
         checks=checks,
-        blocks=list(set(blocks)),
+        blocks=blocks,
     )
 
 
@@ -217,12 +264,27 @@ async def list_components(project_id: uuid.UUID, db: AsyncSession = Depends(get_
     return result
 
 
+@router.get("/component-types", response_model=list[ComponentTypeInfo])
+async def list_component_types():
+    """The IEC 62304 §5.3 component-type taxonomy (single source: constants.py).
+
+    Defined before the `/{component_id}` route so the literal path isn't
+    swallowed by the UUID path param.
+    """
+    return [ComponentTypeInfo(**t) for t in COMPONENT_TYPES]
+
+
 @router.post("/", response_model=ComponentRead, status_code=201)
-async def create_component(payload: ComponentCreate, db: AsyncSession = Depends(get_db)):
+async def create_component(
+    payload: ComponentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_ARCHITECTURE")),
+):
     await assert_architecture_unlocked(db, payload.project_id)
-    # Hierarchy enforcement
-    if payload.component_type == "SYSTEM" and payload.parent_id:
-        raise HTTPException(400, "SYSTEM components cannot have a parent")
+    # Hierarchy enforcement — taxonomy rules come from constants.py.
+    is_root_type = payload.component_type in ROOT_COMPONENT_TYPES
+    if is_root_type and payload.parent_id:
+        raise HTTPException(400, f"{payload.component_type} is a root-level type and cannot have a parent")
     if payload.parent_id:
         parent = await db.get(SWComponent, payload.parent_id)
         if not parent:
@@ -234,14 +296,14 @@ async def create_component(payload: ComponentCreate, db: AsyncSession = Depends(
             raise HTTPException(
                 400,
                 f"{payload.component_type} must have a parent of type "
-                f"{' or '.join(allowed)} (got {parent.component_type})"
+                f"{' or '.join(sorted(allowed))} (got {parent.component_type})"
             )
-    elif payload.component_type != "SYSTEM":
-        # Non-SYSTEM without parent is allowed (orphan subsystem etc.) but warn-worthy
-        pass
 
     comp = SWComponent(**payload.model_dump())
     db.add(comp)
+    await db.flush()
+    await audit(db, "sw_component", comp.id, AuditAction.CREATE, current_user.user_id,
+                f"{comp.name} [{comp.component_type}, Class {comp.safety_class}]")
     await db.commit()
     await db.refresh(comp)
     return _to_read(comp, 0)
@@ -303,7 +365,9 @@ async def get_component(component_id: uuid.UUID, db: AsyncSession = Depends(get_
 
 @router.put("/{component_id}", response_model=ComponentRead)
 async def update_component(
-    component_id: uuid.UUID, payload: ComponentUpdate, db: AsyncSession = Depends(get_db)
+    component_id: uuid.UUID, payload: ComponentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_ARCHITECTURE")),
 ):
     c = await db.get(SWComponent, component_id)
     if not c:
@@ -312,19 +376,25 @@ async def update_component(
     _assert_editable(c)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(c, k, v)
+    await audit(db, "sw_component", c.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
     await db.refresh(c)
     return _to_read(c, await _interface_count(db, c.id))
 
 
 @router.delete("/{component_id}", status_code=204)
-async def delete_component(component_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_component(
+    component_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("DELETE_ARCHITECTURE")),
+):
     c = await db.get(SWComponent, component_id)
     if not c:
         raise HTTPException(404, "Component not found")
     await assert_architecture_unlocked(db, c.project_id)
     if c.status == "APPROVED":
         raise HTTPException(400, "Approved components cannot be deleted")
+    await audit(db, "sw_component", c.id, AuditAction.DELETE, current_user.user_id, c.name)
     await db.delete(c)
     await db.commit()
 
@@ -333,7 +403,9 @@ async def delete_component(component_id: uuid.UUID, db: AsyncSession = Depends(g
 
 @router.put("/{component_id}/status", response_model=ComponentRead)
 async def transition_status(
-    component_id: uuid.UUID, payload: ComponentStatusTransition, db: AsyncSession = Depends(get_db)
+    component_id: uuid.UUID, payload: ComponentStatusTransition,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_ARCHITECTURE")),
 ):
     c = await db.get(SWComponent, component_id)
     if not c:
@@ -350,7 +422,10 @@ async def transition_status(
         c.approved_by = payload.approved_by
         c.approved_at = datetime.now(timezone.utc)
 
+    prev_status = c.status
     c.status = payload.status
+    await audit(db, "sw_component", c.id, AuditAction.UPDATE, current_user.user_id,
+                f"Status: {prev_status} → {payload.status}")
     await db.commit()
     await db.refresh(c)
     return _to_read(c, await _interface_count(db, c.id))
@@ -360,7 +435,9 @@ async def transition_status(
 
 @router.put("/{component_id}/requirements", response_model=ComponentRead)
 async def set_requirements(
-    component_id: uuid.UUID, payload: SetLinksPayload, db: AsyncSession = Depends(get_db)
+    component_id: uuid.UUID, payload: SetLinksPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_ARCHITECTURE")),
 ):
     c = await db.get(SWComponent, component_id)
     if not c:
@@ -369,8 +446,12 @@ async def set_requirements(
     for lnk in list(c.req_links):
         await db.delete(lnk)
     await db.flush()
-    for rid in payload.ids:
+    # Dedup defensively — payloads from rapid clicks / racey UIs could
+    # otherwise trip the uq_swcomp_req unique constraint.
+    for rid in dict.fromkeys(payload.ids):
         db.add(SWComponentReqLink(component_id=component_id, requirement_id=rid))
+    await audit(db, "sw_component", c.id, AuditAction.UPDATE, current_user.user_id,
+                f"Linked {len(set(payload.ids))} requirement(s)")
     await db.commit()
     await db.refresh(c)
     return _to_read(c, await _interface_count(db, c.id))
@@ -378,7 +459,9 @@ async def set_requirements(
 
 @router.put("/{component_id}/risks", response_model=ComponentRead)
 async def set_risks(
-    component_id: uuid.UUID, payload: SetLinksPayload, db: AsyncSession = Depends(get_db)
+    component_id: uuid.UUID, payload: SetLinksPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_ARCHITECTURE")),
 ):
     c = await db.get(SWComponent, component_id)
     if not c:
@@ -387,8 +470,10 @@ async def set_risks(
     for lnk in list(c.risk_links):
         await db.delete(lnk)
     await db.flush()
-    for rid in payload.ids:
+    for rid in dict.fromkeys(payload.ids):
         db.add(SWComponentRiskLink(component_id=component_id, risk_id=rid))
+    await audit(db, "sw_component", c.id, AuditAction.UPDATE, current_user.user_id,
+                f"Linked {len(set(payload.ids))} risk(s)")
     await db.commit()
     await db.refresh(c)
     return _to_read(c, await _interface_count(db, c.id))
@@ -396,7 +481,9 @@ async def set_risks(
 
 @router.put("/{component_id}/testcases", response_model=ComponentRead)
 async def set_testcases(
-    component_id: uuid.UUID, payload: SetLinksPayload, db: AsyncSession = Depends(get_db)
+    component_id: uuid.UUID, payload: SetLinksPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_ARCHITECTURE")),
 ):
     c = await db.get(SWComponent, component_id)
     if not c:
@@ -405,8 +492,10 @@ async def set_testcases(
     for lnk in list(c.tc_links):
         await db.delete(lnk)
     await db.flush()
-    for tcid in payload.ids:
+    for tcid in dict.fromkeys(payload.ids):
         db.add(SWComponentTCLink(component_id=component_id, testcase_id=tcid))
+    await audit(db, "sw_component", c.id, AuditAction.UPDATE, current_user.user_id,
+                f"Linked {len(set(payload.ids))} test case(s)")
     await db.commit()
     await db.refresh(c)
     return _to_read(c, await _interface_count(db, c.id))
@@ -434,7 +523,11 @@ async def list_interfaces(project_id: uuid.UUID, db: AsyncSession = Depends(get_
 
 
 @router.post("/interfaces", response_model=InterfaceRead, status_code=201)
-async def create_interface(payload: InterfaceCreate, db: AsyncSession = Depends(get_db)):
+async def create_interface(
+    payload: InterfaceCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_ARCHITECTURE")),
+):
     await assert_architecture_unlocked(db, payload.project_id)
     if payload.source_component_id == payload.target_component_id:
         raise HTTPException(400, "Source and target components must be different")
@@ -447,6 +540,8 @@ async def create_interface(payload: InterfaceCreate, db: AsyncSession = Depends(
 
     iface = SWInterface(**payload.model_dump())
     db.add(iface)
+    await db.flush()
+    await audit(db, "sw_interface", iface.id, AuditAction.CREATE, current_user.user_id, iface.name)
     await db.commit()
     await db.refresh(iface)
     return _iface_to_read(iface)
@@ -454,7 +549,9 @@ async def create_interface(payload: InterfaceCreate, db: AsyncSession = Depends(
 
 @router.put("/interfaces/{interface_id}", response_model=InterfaceRead)
 async def update_interface(
-    interface_id: uuid.UUID, payload: InterfaceUpdate, db: AsyncSession = Depends(get_db)
+    interface_id: uuid.UUID, payload: InterfaceUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_ARCHITECTURE")),
 ):
     iface = await db.get(SWInterface, interface_id)
     if not iface:
@@ -462,17 +559,23 @@ async def update_interface(
     await assert_architecture_unlocked(db, iface.project_id)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(iface, k, v)
+    await audit(db, "sw_interface", iface.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
     await db.refresh(iface)
     return _iface_to_read(iface)
 
 
 @router.delete("/interfaces/{interface_id}", status_code=204)
-async def delete_interface(interface_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_interface(
+    interface_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("DELETE_ARCHITECTURE")),
+):
     iface = await db.get(SWInterface, interface_id)
     if not iface:
         raise HTTPException(404, "Interface not found")
     await assert_architecture_unlocked(db, iface.project_id)
+    await audit(db, "sw_interface", iface.id, AuditAction.DELETE, current_user.user_id, iface.name)
     await db.delete(iface)
     await db.commit()
 
@@ -481,7 +584,9 @@ async def delete_interface(interface_id: uuid.UUID, db: AsyncSession = Depends(g
 
 @router.post("/interfaces/{interface_id}/dataflows", response_model=DataFlowRead, status_code=201)
 async def add_dataflow(
-    interface_id: uuid.UUID, payload: DataFlowCreate, db: AsyncSession = Depends(get_db)
+    interface_id: uuid.UUID, payload: DataFlowCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_ARCHITECTURE")),
 ):
     iface = await db.get(SWInterface, interface_id)
     if not iface:
@@ -489,6 +594,9 @@ async def add_dataflow(
     await assert_architecture_unlocked(db, iface.project_id)
     df = SWDataFlow(interface_id=interface_id, **payload.model_dump())
     db.add(df)
+    await db.flush()
+    await audit(db, "sw_dataflow", df.id, AuditAction.CREATE, current_user.user_id,
+                f"{df.data_name} on interface {iface.name}")
     await db.commit()
     await db.refresh(df)
     return df
@@ -496,7 +604,9 @@ async def add_dataflow(
 
 @router.put("/dataflows/{dataflow_id}", response_model=DataFlowRead)
 async def update_dataflow(
-    dataflow_id: uuid.UUID, payload: DataFlowUpdate, db: AsyncSession = Depends(get_db)
+    dataflow_id: uuid.UUID, payload: DataFlowUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_ARCHITECTURE")),
 ):
     df = await db.get(SWDataFlow, dataflow_id)
     if not df:
@@ -506,18 +616,24 @@ async def update_dataflow(
         await assert_architecture_unlocked(db, iface.project_id)
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(df, k, v)
+    await audit(db, "sw_dataflow", df.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
     await db.refresh(df)
     return df
 
 
 @router.delete("/dataflows/{dataflow_id}", status_code=204)
-async def delete_dataflow(dataflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_dataflow(
+    dataflow_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_ARCHITECTURE")),
+):
     df = await db.get(SWDataFlow, dataflow_id)
     if not df:
         raise HTTPException(404, "Data flow not found")
     iface = await db.get(SWInterface, df.interface_id)
     if iface:
         await assert_architecture_unlocked(db, iface.project_id)
+    await audit(db, "sw_dataflow", df.id, AuditAction.DELETE, current_user.user_id, df.data_name)
     await db.delete(df)
     await db.commit()

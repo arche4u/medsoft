@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.audit.service import audit
 from app.modules.audit.model import AuditAction
-from app.modules.auth.deps import get_current_user
+from app.modules.auth.deps import require_permission
 from app.modules.auth.schema import TokenData
 
 from .lock import assert_category_unlocked, assert_unlocked_for_requirement
@@ -158,7 +158,7 @@ async def list_categories(
 async def create_category(
     body: RequirementCategoryCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("CREATE_REQUIREMENT")),
 ):
     # Note: categories are project-level schema (type taxonomy), not per-category
     # data — no lock check. Mutating category metadata while a baseline is
@@ -188,6 +188,9 @@ async def create_category(
         if not parent_cat:
             raise HTTPException(400, "Parent category not found in this project")
 
+    # Append after the project's current highest sort_order. `is None` check
+    # (not `or`) so an existing top category at sort_order 0 isn't mistaken
+    # for "no categories" — a new category then correctly lands at 1, not 3.
     max_order = (
         await db.execute(
             select(RequirementCategory.sort_order)
@@ -195,7 +198,8 @@ async def create_category(
             .order_by(RequirementCategory.sort_order.desc())
             .limit(1)
         )
-    ).scalar_one_or_none() or 2
+    ).scalar_one_or_none()
+    next_order = (max_order if max_order is not None else -1) + 1
 
     cat = RequirementCategory(
         project_id=body.project_id,
@@ -203,7 +207,7 @@ async def create_category(
         label=body.label,
         color=body.color,
         is_builtin=False,
-        sort_order=max_order + 1,
+        sort_order=next_order,
         # Pick the user-supplied prefix, falling back to the first 3 letters
         # of the (normalised) name so every category has a usable prefix.
         readable_id_prefix=body.readable_id_prefix or _prefix_fallback(body.name),
@@ -222,7 +226,7 @@ async def update_category(
     category_id: uuid.UUID,
     body: RequirementCategoryUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_REQUIREMENT")),
 ):
     cat = (
         await db.execute(select(RequirementCategory).where(RequirementCategory.id == category_id))
@@ -241,7 +245,7 @@ async def update_category(
 async def delete_category(
     category_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("DELETE_REQUIREMENT")),
 ):
     cat = (
         await db.execute(select(RequirementCategory).where(RequirementCategory.id == category_id))
@@ -292,7 +296,7 @@ async def list_requirements(
 async def create_requirement(
     payload: RequirementCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("CREATE_REQUIREMENT")),
 ):
     await assert_unlocked_for_requirement(db, payload.project_id, payload.type)
 
@@ -332,7 +336,7 @@ async def update_requirement(
     req_id: uuid.UUID,
     payload: RequirementUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_REQUIREMENT")),
 ):
     req = await db.get(Requirement, req_id)
     if not req:
@@ -424,7 +428,7 @@ async def _collect_descendants(db: AsyncSession, parent_id: uuid.UUID) -> list[R
 async def delete_requirement(
     req_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("DELETE_REQUIREMENT")),
 ):
     req = await db.get(Requirement, req_id)
     if not req:
@@ -475,7 +479,7 @@ async def preview_change_impact(req_id: uuid.UUID, db: AsyncSession = Depends(ge
 async def acknowledge_review(
     req_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_REQUIREMENT")),
 ):
     """Clear the needs_review flag on a requirement. Records an audit entry
     so QA can see who acknowledged each impacted item."""
@@ -505,7 +509,7 @@ async def upload_requirements(
     project_id: uuid.UUID = Query(...),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("CREATE_REQUIREMENT")),
 ):
     if not file.filename or not file.filename.endswith(".xlsx"):
         raise HTTPException(400, detail="Only .xlsx files are accepted")

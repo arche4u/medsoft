@@ -43,11 +43,14 @@ SECTIONS: list[SectionDef] = [
     {
         "section_number": "2",
         "section_name": "Software Development Lifecycle Model",
+        # The leading model-specific sentence is injected by build_sections()
+        # from the SDP's actual `lifecycle_model` — this template content is
+        # deliberately model-agnostic so it never contradicts the data.
         "content": (
-            "The project adopts the V-Model software development lifecycle, which provides explicit "
-            "traceability between development phases and their corresponding verification/validation activities. "
-            "Each development phase has defined entry criteria, exit criteria, and required deliverables. "
-            "The lifecycle model is selected based on the safety classification of the software system."
+            "The selected lifecycle model provides explicit traceability between development "
+            "phases and their corresponding verification/validation activities. Each development "
+            "phase has defined entry criteria, exit criteria, and required deliverables. The "
+            "lifecycle model is selected based on the safety classification of the software system."
         ),
         "sort_order": 2,
     },
@@ -315,3 +318,29 @@ ROLES: list[RoleDef] = [
         "sort_order": 6,
     },
 ]
+
+
+# ── Lifecycle-model-aware section content ────────────────────────────────────
+# `lifecycle_model` is a real per-SDP field (V_MODEL / AGILE / HYBRID). The
+# §2 section content must reflect the SDP's actual model, not a hardcoded one.
+
+LIFECYCLE_LABELS: dict[str, str] = {
+    "V_MODEL": "V-Model",
+    "AGILE": "Agile",
+    "HYBRID": "Hybrid (V-Model with Agile iterations)",
+}
+
+
+def build_sections(lifecycle_model: str = "V_MODEL") -> list[SectionDef]:
+    """Return the default SDP sections with §2 (Lifecycle Model) worded for the
+    SDP's actual `lifecycle_model` — so the seeded content never contradicts
+    the field. All other sections are returned unchanged."""
+    label = LIFECYCLE_LABELS.get(lifecycle_model, lifecycle_model)
+    lead = f"The project adopts the {label} software development lifecycle. "
+    out: list[SectionDef] = []
+    for s in SECTIONS:
+        if s["section_number"] == "2":
+            out.append({**s, "content": lead + s["content"]})
+        else:
+            out.append(dict(s))  # type: ignore[arg-type]
+    return out

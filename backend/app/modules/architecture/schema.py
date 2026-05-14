@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
+from .constants import COMPONENT_TYPE_PATTERN
+
 
 # ── Data Flow ─────────────────────────────────────────────────────────────────
 
@@ -79,17 +81,19 @@ class ComponentCreate(BaseModel):
     parent_id: uuid.UUID | None = None
     name: str
     description: str | None = None
-    component_type: str = Field(default="SUBSYSTEM", pattern="^(SYSTEM|SUBSYSTEM|ITEM|UNIT)$")
+    component_type: str = Field(default="SUBSYSTEM", pattern=COMPONENT_TYPE_PATTERN)
     safety_class: str = Field(default="A", pattern="^[ABC]$")
     rationale: str | None = None
+    diagram_source: str | None = None
 
 class ComponentUpdate(BaseModel):
     parent_id: uuid.UUID | None = None
     name: str | None = None
     description: str | None = None
-    component_type: str | None = Field(default=None, pattern="^(SYSTEM|SUBSYSTEM|ITEM|UNIT)$")
+    component_type: str | None = Field(default=None, pattern=COMPONENT_TYPE_PATTERN)
     safety_class: str | None = Field(default=None, pattern="^[ABC]$")
     rationale: str | None = None
+    diagram_source: str | None = None
 
 class ComponentStatusTransition(BaseModel):
     status: str = Field(pattern="^(DRAFT|REVIEW|APPROVED)$")
@@ -106,6 +110,7 @@ class ComponentRead(BaseModel):
     status: str
     version: str
     rationale: str | None
+    diagram_source: str | None
     approved_by: str | None
     approved_at: datetime | None
     requirement_ids: list[uuid.UUID] = []
@@ -136,6 +141,19 @@ class ComponentTreeNode(BaseModel):
 
 
 ComponentTreeNode.model_rebuild()
+
+
+# ── Component-type taxonomy (single source: constants.py) ─────────────────────
+
+class ComponentTypeInfo(BaseModel):
+    """One entry of the IEC 62304 §5.3 component-type taxonomy. Served by
+    GET /architecture/component-types so the frontend never hardcodes the
+    SYSTEM→SUBSYSTEM→ITEM→UNIT chain, parent rules, ordering, or chip colours."""
+    name: str
+    order: int
+    parents: list[str]
+    color: str
+    bg: str
 
 
 # ── Link payloads ─────────────────────────────────────────────────────────────
