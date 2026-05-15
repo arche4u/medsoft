@@ -34,11 +34,13 @@ A flat table auditors can use to navigate the codebase by clause.
 | §7.2 | Risk control measures | `risks/` (`RiskControl` + `component_id`) | `/risks` (Controls tab) | INHERENT_SAFETY / PROTECTIVE_MEASURE / INFORMATION_FOR_SAFETY + §5.3 component link |
 | §7.3 | Verification of risk control measures | `risks/` (`VerificationEvidence` closed-loop) | `/risks` (Evidence sub-list per control) | Multi-evidence; PASS auto-flips control to VERIFIED |
 | §7.4 | Risk management of software changes (auto-trigger) | `change_control/router.transition_change_request` calls `risks/router.trigger_risk_reevaluation` | `/risks` (Re-evaluation Inbox) | CR APPROVED + modifies_released_software → flag all linked risks |
-| §8 | Software configuration management process | `compliance/config/config_mgmt/` | `/config-mgmt` | Items + baselines |
+| §8 | Software configuration management process | `compliance/config/config_mgmt/` (RBAC+audit on all writes) | `/config-mgmt` | Items + baselines + SOUP filter |
+| §8.2.2 SOUP identification | `compliance/config/config_mgmt/` (`item_type=SOUP`) | `/config-mgmt` (SOUP §8.2.2 type filter chip + chip on cards) | First-class SOUP register surface |
 | §8.1 | Configuration management planning | `compliance/plans/` (`plan_type=CONFIG_MGMT`) | `/plans/config-mgmt` | Plan template |
 | §8.2 | Configuration identification | `config_mgmt/` (`CMConfigItem`) | `/config-mgmt` | Items with version + hash |
 | §8.3 | Configuration change control | `change_control/` + `config_mgmt/` | `/change-control`, `/config-mgmt` | Linked workflows |
-| §9 | Software problem resolution process | `compliance/problems/capa/` | `/capa` | ProblemReport → RootCause → CAPA → Verification |
+| §9 | Software problem resolution process | `compliance/problems/capa/` (RBAC+audit on all writes) | `/capa` | ProblemReport → RootCause → CAPA → Verification |
+| §9.6 Analyse problems for trends | `compliance/problems/capa/` (in-memory aggregation in `TrendAnalysisPanel`) | `/capa` (top of page) | By severity / by status / top root causes · MTTR · ≥3 OPEN problems sharing a root-cause type triggers a trend alert |
 | §9.* | Plan + workflow | `compliance/plans/` (`plan_type=PROBLEM_RESOLUTION`) | `/plans/problem-resolution` | Plan template |
 
 ## Adjacent standards

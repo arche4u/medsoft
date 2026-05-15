@@ -88,6 +88,22 @@ ALL_PERMISSIONS = [
     ("READ_DOCUMENT",            "View documents"),
     ("UPDATE_DOCUMENT",          "Edit document status and notes"),
     ("GENERATE_DHF",             "Generate Design History File"),
+    # Configuration Management (IEC 62304 §8)
+    ("CREATE_CONFIG_ITEM",       "Create configuration items"),
+    ("UPDATE_CONFIG_ITEM",       "Update configuration items"),
+    ("DELETE_CONFIG_ITEM",       "Delete configuration items"),
+    ("CREATE_BASELINE",          "Create CM baselines"),
+    ("UPDATE_BASELINE",          "Update CM baselines + add/remove items"),
+    ("DELETE_BASELINE",          "Delete CM baselines"),
+    ("RELEASE_BASELINE",         "Lock a CM baseline for release"),
+    # CAPA / Problem Resolution (IEC 62304 §9)
+    ("CREATE_PROBLEM_REPORT",    "Create problem reports"),
+    ("UPDATE_PROBLEM_REPORT",    "Update problem reports + root causes"),
+    ("DELETE_PROBLEM_REPORT",    "Delete problem reports"),
+    ("CREATE_CAPA",              "Create corrective/preventive actions"),
+    ("UPDATE_CAPA",              "Update CAPAs"),
+    ("DELETE_CAPA",              "Delete CAPAs"),
+    ("VERIFY_CAPA",              "Verify CAPAs"),
     # Admin
     ("MANAGE_USERS",             "Create and manage users"),
     ("VIEW_AUDIT",               "View activity log"),
@@ -102,6 +118,10 @@ ROLE_PERMISSIONS = {
         "APPROVE_CHANGE_REQUEST", "APPROVE_RELEASE", "PUBLISH_RELEASE",
         "CREATE_RELEASE", "GENERATE_DHF", "VIEW_AUDIT", "UPDATE_DOCUMENT",
         "READ_FEEDBACK", "CREATE_FEEDBACK", "UPDATE_FEEDBACK", "EVALUATE_FEEDBACK",
+        "CREATE_CONFIG_ITEM", "UPDATE_CONFIG_ITEM", "DELETE_CONFIG_ITEM",
+        "CREATE_BASELINE", "UPDATE_BASELINE", "DELETE_BASELINE", "RELEASE_BASELINE",
+        "CREATE_PROBLEM_REPORT", "UPDATE_PROBLEM_REPORT", "DELETE_PROBLEM_REPORT",
+        "CREATE_CAPA", "UPDATE_CAPA", "DELETE_CAPA", "VERIFY_CAPA",
     ],
     "QARA": [
         "READ_REQUIREMENT", "CREATE_REQUIREMENT", "UPDATE_REQUIREMENT",
@@ -116,6 +136,10 @@ ROLE_PERMISSIONS = {
         "APPROVE_CHANGE_REQUEST", "APPROVE_RELEASE", "PUBLISH_RELEASE",
         "CREATE_RELEASE", "GENERATE_DHF", "VIEW_AUDIT", "UPDATE_DOCUMENT",
         "READ_FEEDBACK", "CREATE_FEEDBACK", "UPDATE_FEEDBACK", "EVALUATE_FEEDBACK", "DELETE_FEEDBACK",
+        "CREATE_CONFIG_ITEM", "UPDATE_CONFIG_ITEM", "DELETE_CONFIG_ITEM",
+        "CREATE_BASELINE", "UPDATE_BASELINE", "DELETE_BASELINE", "RELEASE_BASELINE",
+        "CREATE_PROBLEM_REPORT", "UPDATE_PROBLEM_REPORT", "DELETE_PROBLEM_REPORT",
+        "CREATE_CAPA", "UPDATE_CAPA", "DELETE_CAPA", "VERIFY_CAPA",
     ],
     "DEVELOPER": [
         "READ_REQUIREMENT", "CREATE_REQUIREMENT", "UPDATE_REQUIREMENT", "DELETE_REQUIREMENT",
@@ -130,6 +154,10 @@ ROLE_PERMISSIONS = {
         "CREATE_CHANGE_REQUEST", "IMPLEMENT_CHANGE", "CREATE_RELEASE",
         "READ_DOCUMENT",
         "READ_FEEDBACK", "CREATE_FEEDBACK", "UPDATE_FEEDBACK",
+        "CREATE_CONFIG_ITEM", "UPDATE_CONFIG_ITEM",
+        "CREATE_BASELINE", "UPDATE_BASELINE",
+        "CREATE_PROBLEM_REPORT", "UPDATE_PROBLEM_REPORT",
+        "CREATE_CAPA", "UPDATE_CAPA",
     ],
     "TESTER": [
         "READ_REQUIREMENT", "READ_RISK", "READ_DESIGN",
@@ -138,6 +166,7 @@ ROLE_PERMISSIONS = {
         "CREATE_VALIDATION", "UPDATE_VALIDATION",
         "READ_DOCUMENT", "VIEW_AUDIT",
         "READ_FEEDBACK",
+        "VERIFY_CAPA",
     ],
     "REVIEWER": [
         "READ_REQUIREMENT", "READ_RISK", "READ_DESIGN", "READ_TESTCASE", "READ_DOCUMENT",

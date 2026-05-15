@@ -75,6 +75,116 @@ function SummaryCards({ problems, maintenance }: { problems: ProblemReport[]; ma
   );
 }
 
+// ── IEC 62304 §9.6 — Problem trend analysis ─────────────────────────────────
+//
+// "The manufacturer shall analyse problem reports for trends." Surfaced here
+// as a compact panel showing:
+//   • Severity distribution (CRITICAL / HIGH / MEDIUM / LOW)
+//   • Status distribution (OPEN / INVESTIGATING / RESOLVED / CLOSED)
+//   • Top root-cause types (DESIGN / CODE / PROCESS / ENVIRONMENT / etc.)
+//   • Mean Time To Resolution (MTTR) — closed problems only
+//   • Trend alert: ≥3 OPEN/INVESTIGATING problems share a root-cause type
+//
+// Auditors look for the manufacturer's active trend analysis under §9.6;
+// this panel is the user-facing evidence.
+function TrendAnalysisPanel({ problems }: { problems: ProblemReport[] }) {
+  const SEV_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
+  const SEV_COLOR: Record<string, string> = { CRITICAL: "#b71c1c", HIGH: "#e65100", MEDIUM: "#f9a825", LOW: "#558b2f" };
+  const STATUS_COLOR: Record<string, string> = { OPEN: "#1565c0", INVESTIGATING: "#e65100", RESOLVED: "#558b2f", CLOSED: "#546e7a" };
+
+  const bySeverity = SEV_ORDER.map(s => ({ key: s, n: problems.filter(p => p.severity === s).length }));
+  const byStatus = (["OPEN", "INVESTIGATING", "RESOLVED", "CLOSED"] as const).map(s => ({ key: s, n: problems.filter(p => p.status === s).length }));
+
+  // Root-cause types across all root_causes — top 5
+  const rcCounts: Record<string, number> = {};
+  for (const p of problems) for (const rc of p.root_causes) rcCounts[rc.root_cause_type] = (rcCounts[rc.root_cause_type] ?? 0) + 1;
+  const topRC = Object.entries(rcCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  // Trend alert: ≥3 OPEN/INVESTIGATING problems share a root-cause type.
+  const openProblems = problems.filter(p => p.status === "OPEN" || p.status === "INVESTIGATING");
+  const openRcCounts: Record<string, number> = {};
+  for (const p of openProblems) for (const rc of p.root_causes) openRcCounts[rc.root_cause_type] = (openRcCounts[rc.root_cause_type] ?? 0) + 1;
+  const trendAlerts = Object.entries(openRcCounts).filter(([, n]) => n >= 3);
+
+  // MTTR — average days between created_at and updated_at for CLOSED problems.
+  const closed = problems.filter(p => p.status === "CLOSED");
+  const mttr = closed.length === 0 ? null
+    : (closed.reduce((s, p) => s + (new Date(p.updated_at).getTime() - new Date(p.created_at).getTime()), 0) / closed.length) / 86_400_000;
+
+  const totalProblems = problems.length;
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 18px", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <strong style={{ fontSize: 13, color: "#37474f" }}>§9.6 Problem trend analysis</strong>
+        {mttr !== null && (
+          <span style={{ fontSize: 12, color: "#64748b" }}>
+            MTTR (closed): <strong style={{ color: "#37474f" }}>{mttr.toFixed(1)}</strong> days
+          </span>
+        )}
+      </div>
+
+      {trendAlerts.length > 0 && (
+        <div style={{ background: "#fff3e0", border: "1px solid #ffcc80", borderRadius: 6, padding: "8px 12px", marginBottom: 10 }}>
+          <strong style={{ color: "#e65100", fontSize: 12 }}>
+            Trend alert — {trendAlerts.length} root-cause cluster{trendAlerts.length === 1 ? "" : "s"} with ≥3 open problems:
+          </strong>
+          <div style={{ marginTop: 4 }}>
+            {trendAlerts.map(([type, n]) => (
+              <span key={type} style={{ fontSize: 11, color: "#5d4037", marginRight: 12 }}>
+                <strong>{type}</strong>: {n} open
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+        {/* Severity distribution */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>By severity</div>
+          {bySeverity.map(({ key, n }) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{ width: 70, fontSize: 11, color: SEV_COLOR[key], fontWeight: 600 }}>{key}</span>
+              <div style={{ flex: 1, height: 8, background: "#eceff1", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ width: totalProblems ? `${(n / totalProblems) * 100}%` : "0%", height: "100%", background: SEV_COLOR[key] }} />
+              </div>
+              <span style={{ width: 24, textAlign: "right", fontSize: 11, color: "#37474f" }}>{n}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Status distribution */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>By status</div>
+          {byStatus.map(({ key, n }) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{ width: 90, fontSize: 11, color: STATUS_COLOR[key], fontWeight: 600 }}>{key}</span>
+              <div style={{ flex: 1, height: 8, background: "#eceff1", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ width: totalProblems ? `${(n / totalProblems) * 100}%` : "0%", height: "100%", background: STATUS_COLOR[key] }} />
+              </div>
+              <span style={{ width: 24, textAlign: "right", fontSize: 11, color: "#37474f" }}>{n}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Top root-cause types */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Top root causes</div>
+          {topRC.length === 0
+            ? <span style={{ fontSize: 11, color: "#9e9e9e" }}>No root causes recorded yet.</span>
+            : topRC.map(([type, n]) => (
+                <div key={type} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{ flex: 1, fontSize: 11, color: "#37474f", fontWeight: 600 }}>{type}</span>
+                  <span style={{ fontSize: 11, color: "#64748b" }}>{n}</span>
+                </div>
+              ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── CAPA panel ────────────────────────────────────────────────────────────────
 function CAPAPanel({ problem, onRefresh }: { problem: ProblemReport; onRefresh: () => void }) {
   const [showAdd, setShowAdd] = useState(false);
@@ -453,6 +563,7 @@ export default function CAPAPage() {
 
       <ReleaseBanner projectId={projectId} />
       <SummaryCards problems={problems} maintenance={maintenance} />
+      <TrendAnalysisPanel problems={problems} />
 
       <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "2px solid #e2e8f0" }}>
         {(["problems", "maintenance"] as const).map(t => (

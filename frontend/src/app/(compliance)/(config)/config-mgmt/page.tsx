@@ -74,6 +74,9 @@ function ConfigItemsTab({ projectId }: { projectId: string }) {
   const [form, setForm] = useState({ name: "", item_type: "REQUIREMENT", reference_id: "", version: "1.0", description: "" });
   const [newVersionForm, setNVForm] = useState({ version: "", change_summary: "", changed_by: "" });
   const [nvTarget, setNVTarget] = useState<string | null>(null);
+  // IEC 62304 §8.2.2 — filter by item type (typically used to pull up the
+  // SOUP register independently of other CM items). Defaults to "ALL".
+  const [typeFilter, setTypeFilter] = useState<string>("ALL");
 
   const load = useCallback(() => api.configMgmt.items.list(projectId).then(setItems).catch(() => {}), [projectId]);
   useEffect(() => { load(); }, [load]);
@@ -103,14 +106,48 @@ function ConfigItemsTab({ projectId }: { projectId: string }) {
     load();
   }
 
-  const itemTypes = ["REQUIREMENT", "DESIGN_ELEMENT", "TEST_CASE", "RISK", "DOCUMENT", "SOFTWARE_UNIT", "COMPONENT", "OTHER"];
+  // SOUP is the IEC 62304 §8.2.2 first-class item type ("Software of Unknown
+  // Provenance" — third-party libs / drivers / OS components the manufacturer
+  // didn't write). Surfaced as a distinct type so projects can pull the SOUP
+  // register independently of the rest of the CM items.
+  const itemTypes = ["REQUIREMENT", "DESIGN_ELEMENT", "TEST_CASE", "RISK", "DOCUMENT", "SOFTWARE_UNIT", "COMPONENT", "SOUP", "OTHER"];
   const statuses: CMItemStatus[] = ["DRAFT", "APPROVED", "RELEASED", "OBSOLETE"];
+
+  const filteredItems = typeFilter === "ALL" ? items : items.filter(i => i.item_type === typeFilter);
+  const soupCount = items.filter(i => i.item_type === "SOUP").length;
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>Configuration Items ({items.length})</h3>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Configuration Items ({filteredItems.length}{typeFilter !== "ALL" ? ` of ${items.length}` : ""})</h3>
         <button onClick={() => setShowAdd(!showAdd)} style={styles.btn}>+ Add Item</button>
+      </div>
+
+      {/* §8.2.2 type filter — SOUP is highlighted as a first-class IEC 62304 concept */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12, alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>Filter:</span>
+        {["ALL", ...itemTypes].map(t => {
+          const isActive = typeFilter === t;
+          const isSoup = t === "SOUP";
+          const label = t === "ALL"
+            ? `All (${items.length})`
+            : `${t}${isSoup ? ` (§8.2.2) · ${soupCount}` : ""}`;
+          return (
+            <button
+              key={t}
+              onClick={() => setTypeFilter(t)}
+              style={{
+                fontSize: 11, padding: "3px 9px", borderRadius: 12, cursor: "pointer",
+                border: `1px solid ${isActive ? (isSoup ? "#5d4037" : "#1565c0") : "#cfd8dc"}`,
+                background: isActive ? (isSoup ? "#efebe9" : "#e3f2fd") : "#fff",
+                color: isActive ? (isSoup ? "#5d4037" : "#1565c0") : "#546e7a",
+                fontWeight: isActive ? 700 : 400,
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       {showAdd && (
@@ -132,11 +169,20 @@ function ConfigItemsTab({ projectId }: { projectId: string }) {
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {items.map(item => (
+        {filteredItems.map(item => (
           <div key={item.id} style={styles.card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}>
-                <span style={{ fontSize: 12, color: "#64748b" }}>{item.item_type}</span>
+                {item.item_type === "SOUP" ? (
+                  <span title="IEC 62304 §8.2.2 — Software of Unknown Provenance"
+                        style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3,
+                                 background: "#efebe9", color: "#5d4037", border: "1px solid #d7ccc8",
+                                 fontWeight: 700, letterSpacing: "0.05em" }}>
+                    SOUP §8.2.2
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 12, color: "#64748b" }}>{item.item_type}</span>
+                )}
                 <span style={{ fontWeight: 600 }}>{item.name}</span>
                 {item.reference_id && <span style={{ fontSize: 12, color: "#8b5cf6" }}>[{item.reference_id}]</span>}
                 <span style={{ fontSize: 12, color: "#64748b" }}>v{item.version}</span>

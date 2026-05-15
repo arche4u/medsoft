@@ -288,8 +288,10 @@ All routes are prefixed with `/api/v1`. Interactive Swagger at `http://localhost
 | §7.4 auto-trigger on CR APPROVED + modifies_released_software | `compliance/change_control/router → risks/router.trigger_risk_reevaluation` | `/risks` (Re-evaluation Inbox) |
 | Cyber-ready risk register (IEC 81001-5-1 / AAMI TIR57) | `compliance/risk/risks/Risk.risk_class` | `/risks` (class filter) |
 | §7 / ISO 14971 (overall) | `compliance/risk/risks` | `/risks` |
-| §8 | `compliance/config/config_mgmt` | `/config-mgmt` |
-| §9 | `compliance/problems/capa` | `/capa` |
+| §8 | `compliance/config/config_mgmt` (RBAC + audit on all writes) | `/config-mgmt` |
+| §8.2.2 SOUP identification | `compliance/config/config_mgmt` (`item_type=SOUP` first-class) | `/config-mgmt` (SOUP §8.2.2 filter chip + per-card badge) |
+| §9 | `compliance/problems/capa` (RBAC + audit on all writes) | `/capa` |
+| §9.6 Problem trend analysis | `compliance/problems/capa` (in-memory aggregation `TrendAnalysisPanel`) | `/capa` (top-of-page panel: severity / status / top root causes · MTTR · trend alert) |
 | DHF | `compliance/dhf` | `/dhf` |
 
 ---
