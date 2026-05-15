@@ -48,24 +48,46 @@ function ReleaseBanner({ projectId }: { projectId: string }) {
 }
 
 // ── Summary cards ─────────────────────────────────────────────────────────────
+// MTTR resolution timestamp uses updated_at because status transitions are not
+// individually timestamped on ProblemReport. Calendar-day basis is the
+// regulator-expected metric for 24/7 medical-device operations.
+const MTTR_TOOLTIP =
+  "Mean time to resolve, in calendar days from created_at to the most recent RESOLVED/CLOSED update. " +
+  "Calendar-day basis (not business days) is appropriate for 24/7 medical-device operations.";
+
+function mttrCalendarDays(problems: ProblemReport[]): number | null {
+  const resolved = problems.filter(p => p.status === "RESOLVED" || p.status === "CLOSED");
+  if (resolved.length === 0) return null;
+  const totalMs = resolved.reduce((acc, p) => {
+    const start = new Date(p.created_at).getTime();
+    const end = new Date(p.updated_at).getTime();
+    return acc + Math.max(0, end - start);
+  }, 0);
+  return totalMs / resolved.length / 86_400_000;
+}
+
+type SummaryCard = { label: string; value: number | string; sub: string; color: string; title?: string };
+
 function SummaryCards({ problems, maintenance }: { problems: ProblemReport[]; maintenance: MaintenanceRecord[] }) {
   const open = problems.filter(p => p.status === "OPEN").length;
   const critical = problems.filter(p => p.severity === "CRITICAL" && p.status !== "CLOSED").length;
   const allCapas = problems.flatMap(p => p.capas);
   const openCapas = allCapas.filter(c => ["OPEN", "IN_PROGRESS"].includes(c.status)).length;
   const verifiedCapas = allCapas.filter(c => c.status === "VERIFIED").length;
+  const mttr = mttrCalendarDays(problems);
 
-  const cards = [
+  const cards: SummaryCard[] = [
     { label: "Open Problems", value: open, sub: `${critical} CRITICAL`, color: open > 0 ? "#dc2626" : "#16a34a" },
     { label: "Total Problems", value: problems.length, sub: `${problems.filter(p => p.status === "CLOSED").length} closed`, color: "#2563eb" },
     { label: "Open CAPAs", value: openCapas, sub: `${verifiedCapas} verified`, color: openCapas > 0 ? "#f97316" : "#16a34a" },
+    { label: "MTTR (calendar days)", value: mttr === null ? "—" : mttr.toFixed(1), sub: "§9.6", color: "#0d9488", title: MTTR_TOOLTIP },
     { label: "Maintenance", value: maintenance.length, sub: `${maintenance.filter(m => m.update_type === "HOTFIX" || m.update_type === "EMERGENCY").length} hotfix/emergency`, color: "#7c3aed" },
   ];
 
   return (
     <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
       {cards.map(c => (
-        <div key={c.label} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 18px", flex: 1, borderLeft: `4px solid ${c.color}` }}>
+        <div key={c.label} title={c.title} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "14px 18px", flex: 1, borderLeft: `4px solid ${c.color}` }}>
           <div style={{ fontSize: 22, fontWeight: 700, color: c.color }}>{c.value}</div>
           <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{c.label}</div>
           <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{c.sub}</div>
@@ -230,7 +252,10 @@ function ProblemCard({ problem, onRefresh }: { problem: ProblemReport; onRefresh
           <div style={{ fontSize: 12, color: "#64748b" }}>
             {problem.capas.length} CAPA(s) · {problem.root_causes.length} RCA(s) · {problem.links.length} link(s)
             {problem.reported_by && ` · Reported by ${problem.reported_by}`}
-            {" · "}{new Date(problem.created_at).toLocaleDateString()}
+            {" · "}
+            {problem.detection_date
+              ? `Detected: ${problem.detection_date}`
+              : `Logged: ${new Date(problem.created_at).toLocaleDateString()}`}
           </div>
         </div>
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const, justifyContent: "flex-end", maxWidth: 260 }}>
@@ -303,7 +328,8 @@ function ProblemsTab({ projectId, onProblemsChange }: { projectId: string; onPro
   const [problems, setProblems] = useState<ProblemReport[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [filter, setFilter] = useState<string>("ALL");
-  const [form, setForm] = useState({ title: "", description: "", source: "TESTING", severity: "MEDIUM" as ProblemSeverity, reported_by: "" });
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState({ title: "", description: "", source: "TESTING", severity: "MEDIUM" as ProblemSeverity, reported_by: "", detection_date: "" });
 
   const load = useCallback(() => {
     api.capa.problems.list(projectId).then(p => { setProblems(p); onProblemsChange(p); }).catch(() => {});
@@ -312,8 +338,13 @@ function ProblemsTab({ projectId, onProblemsChange }: { projectId: string; onPro
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    await api.capa.problems.create({ project_id: projectId, ...form, description: form.description || null, reported_by: form.reported_by || null });
-    setShowAdd(false); setForm({ title: "", description: "", source: "TESTING", severity: "MEDIUM", reported_by: "" });
+    await api.capa.problems.create({
+      project_id: projectId, ...form,
+      description: form.description || null,
+      reported_by: form.reported_by || null,
+      detection_date: form.detection_date || null,
+    });
+    setShowAdd(false); setForm({ title: "", description: "", source: "TESTING", severity: "MEDIUM", reported_by: "", detection_date: "" });
     load();
   }
 
@@ -344,6 +375,20 @@ function ProblemsTab({ projectId, onProblemsChange }: { projectId: string; onPro
               {severities.map(s => <option key={s}>{s}</option>)}
             </select>
             <input placeholder="Reported By" value={form.reported_by} onChange={e => setForm(p => ({ ...p, reported_by: e.target.value }))} style={styles.input} />
+          </div>
+          <div style={styles.row}>
+            <label style={{ fontSize: 12, color: "#475569", display: "flex", flexDirection: "column" as const, gap: 2 }}>
+              <span>Detection date (§9)</span>
+              <input
+                type="date"
+                value={form.detection_date}
+                placeholder={todayISO}
+                max={todayISO}
+                onChange={e => setForm(p => ({ ...p, detection_date: e.target.value }))}
+                title="When the problem was discovered in the field / during testing (vs when it was logged)."
+                style={{ ...styles.input, width: 160 }}
+              />
+            </label>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <button type="submit" style={styles.btn}>Create</button>

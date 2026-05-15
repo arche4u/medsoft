@@ -12,7 +12,8 @@ actual product rather than a one-size-fits-all skeleton.
 """
 import asyncio
 import json
-from datetime import datetime, timezone
+import random
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -1041,11 +1042,19 @@ _CAPA_SPECS = [
 
 async def _seed_capa(db: AsyncSession, proj: Project) -> int:
     """Seed §9 problem reports + root causes + verified CAPAs for one project.
-    Idempotent — skips if the project already has problem reports."""
-    existing = (await db.execute(
-        select(ProblemReport).where(ProblemReport.project_id == proj.id).limit(1)
-    )).scalar_one_or_none()
-    if existing:
+    Idempotent — skips fresh seeding if the project already has problem reports,
+    but always backfills missing detection_date values on existing rows."""
+    existing_rows = (await db.execute(
+        select(ProblemReport).where(ProblemReport.project_id == proj.id)
+    )).scalars().all()
+    if existing_rows:
+        # Backfill rows that pre-date the detection_date column.
+        rng = random.Random(str(proj.id))
+        for pr in existing_rows:
+            if pr.detection_date is None:
+                lag = rng.randint(1, 14)
+                base = pr.created_at or datetime.now(timezone.utc)
+                pr.detection_date = (base - timedelta(days=lag)).date()
         return 0
 
     risks = (await db.execute(
@@ -1053,13 +1062,19 @@ async def _seed_capa(db: AsyncSession, proj: Project) -> int:
         .where(Requirement.project_id == proj.id)
     )).scalars().all()
 
+    # Deterministic per-project lag so re-runs and tests produce stable dates.
+    rng = random.Random(str(proj.id))
+    now = datetime.now(timezone.utc)
+
     for i, s in enumerate(_CAPA_SPECS):
+        detection = (now - timedelta(days=rng.randint(1, 14))).date()
         pr = ProblemReport(
             project_id=proj.id, title=s["title"],
             description=f"{s['title']} — reported via the {s['source'].lower()} channel; "
                         "investigated, root cause identified, corrective action verified effective.",
             source=s["source"], severity=s["severity"], status="CLOSED",
             reported_by="QA Engineer (seeded)",
+            detection_date=detection,
         )
         db.add(pr)
         await db.flush()

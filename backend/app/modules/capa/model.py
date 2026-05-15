@@ -19,6 +19,8 @@ class ProblemReport(Base):
     status = Column(String(30), nullable=False, default="OPEN")      # OPEN / INVESTIGATING / RESOLVED / CLOSED
     related_release_id = Column(UUID(as_uuid=True), ForeignKey("releases.id", ondelete="SET NULL"), nullable=True)
     reported_by = Column(String(200), nullable=True)
+    # §9 — explicit field-discovery date (vs system-logged created_at)
+    detection_date = Column(Date, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

@@ -801,6 +801,7 @@ export type ProblemReport = {
   source: string | null; severity: ProblemSeverity;
   status: ProblemStatus; related_release_id: string | null;
   reported_by: string | null;
+  detection_date: string | null;
   links: ProblemLink[]; root_causes: RootCause[]; capas: CAPARecord[];
   created_at: string; updated_at: string;
 };
@@ -1450,9 +1451,9 @@ export const api = {
         return req<ProblemReport[]>(`/capa/problems?${p}`);
       },
       get: (id: string) => req<ProblemReport>(`/capa/problems/${id}`),
-      create: (d: { project_id: string; title: string; description?: string | null; source?: string | null; severity?: ProblemSeverity; related_release_id?: string | null; reported_by?: string | null }) =>
+      create: (d: { project_id: string; title: string; description?: string | null; source?: string | null; severity?: ProblemSeverity; related_release_id?: string | null; reported_by?: string | null; detection_date?: string | null }) =>
         req<ProblemReport>("/capa/problems", { method: "POST", body: JSON.stringify(d) }),
-      update: (id: string, d: { title?: string; description?: string | null; source?: string | null; severity?: ProblemSeverity; reported_by?: string | null }) =>
+      update: (id: string, d: { title?: string; description?: string | null; source?: string | null; severity?: ProblemSeverity; reported_by?: string | null; detection_date?: string | null }) =>
         req<ProblemReport>(`/capa/problems/${id}`, { method: "PUT", body: JSON.stringify(d) }),
       transition: (id: string, status: ProblemStatus) =>
         req<ProblemReport>(`/capa/problems/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),

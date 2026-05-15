@@ -98,6 +98,7 @@ class ProblemReportRead(BaseModel):
     status: str
     related_release_id: Optional[uuid.UUID]
     reported_by: Optional[str]
+    detection_date: Optional[date]
     links: List[ProblemLinkRead]
     root_causes: List[RootCauseRead]
     capas: List[CAPARead]
@@ -114,6 +115,7 @@ class ProblemReportCreate(BaseModel):
     severity: str = "MEDIUM"
     related_release_id: Optional[uuid.UUID] = None
     reported_by: Optional[str] = None
+    detection_date: Optional[date] = None
 
 
 class ProblemReportUpdate(BaseModel):
@@ -122,6 +124,7 @@ class ProblemReportUpdate(BaseModel):
     source: Optional[str] = None
     severity: Optional[str] = None
     reported_by: Optional[str] = None
+    detection_date: Optional[date] = None
 
 
 class ProblemStatusTransition(BaseModel):
