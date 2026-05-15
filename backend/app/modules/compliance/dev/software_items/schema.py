@@ -14,6 +14,9 @@ class SoftwareItemCreate(BaseModel):
     # Optional: when omitted the item inherits its parent's class (IEC 62304 §4.3).
     safety_class: str | None = Field(default=None, pattern="^[ABC]$")
     classification_justification: str | None = None
+    # IEC 62304 §4.4 — legacy software flag + assessment narrative
+    is_legacy: bool = False
+    legacy_assessment: str | None = None
 
 
 class SoftwareItemUpdate(BaseModel):
@@ -24,6 +27,8 @@ class SoftwareItemUpdate(BaseModel):
     safety_class: str | None = Field(default=None, pattern="^[ABC]$")
     classification_justification: str | None = None
     status: str | None = Field(default=None, pattern="^(DRAFT|REVIEWED|APPROVED)$")
+    is_legacy: bool | None = None
+    legacy_assessment: str | None = None
 
 
 class SoftwareItemRead(BaseModel):
@@ -36,6 +41,8 @@ class SoftwareItemRead(BaseModel):
     safety_class: str
     classification_justification: str | None
     status: str
+    is_legacy: bool
+    legacy_assessment: str | None
     risk_ids: list[uuid.UUID] = []
     requirement_ids: list[uuid.UUID] = []
     created_at: datetime

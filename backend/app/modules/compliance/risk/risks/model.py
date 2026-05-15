@@ -85,8 +85,6 @@ class Risk(Base):
     severity: Mapped[int] = mapped_column(Integer, nullable=False)
     probability: Mapped[int] = mapped_column(Integer, nullable=False)
     risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
-    # Legacy mitigation text (kept for backward compat)
-    mitigation: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     # Lifecycle management
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="OPEN")
     evaluation_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -138,7 +136,6 @@ class RiskControl(Base, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("sw_components.id", ondelete="SET NULL"), nullable=True
     )
     implementation_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PROPOSED")
-    verification_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     risk: Mapped["Risk"] = relationship("Risk", back_populates="controls")
     evidence: Mapped[list["VerificationEvidence"]] = relationship(
@@ -239,6 +236,14 @@ class ResidualRisk(Base, TimestampMixin):
     risk: Mapped["Risk"] = relationship("Risk", back_populates="residual_risk")
 
 
+# ── IEC 62304 §4.4 — project-level legacy-software declaration ──────────────
+# Lives on SoftwareSafetyProfile (already one-per-project) so auditors get
+# a single explicit statement: "this project has no legacy software" OR
+# "this project has legacy software — here's the manufacturer's stance."
+# Default False means N/A; the per-item `SoftwareItem.is_legacy` flag is
+# only meaningful when this project-level flag is True.
+
+
 class SoftwareSafetyProfile(Base, TimestampMixin):
     """Per-project IEC 62304 safety classification and RPN methodology declaration."""
     __tablename__ = "software_safety_profiles"
@@ -257,4 +262,7 @@ class SoftwareSafetyProfile(Base, TimestampMixin):
     software_failure_assumption: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sdp_section_reference: Mapped[str | None] = mapped_column(String(300), nullable=True)
     approved_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # IEC 62304 §4.4 — project-level legacy-software declaration.
+    has_legacy_software: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    legacy_software_statement: Mapped[str | None] = mapped_column(Text, nullable=True)
     review_date: Mapped[str | None] = mapped_column(String(20), nullable=True)

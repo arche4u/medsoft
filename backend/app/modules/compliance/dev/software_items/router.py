@@ -449,6 +449,8 @@ def _to_read(item: SoftwareItem) -> SoftwareItemRead:
         safety_class=item.safety_class,
         classification_justification=item.classification_justification,
         status=item.status,
+        is_legacy=item.is_legacy,
+        legacy_assessment=item.legacy_assessment,
         risk_ids=[lnk.risk_id for lnk in item.risk_links],
         requirement_ids=[lnk.requirement_id for lnk in item.requirement_links],
         created_at=item.created_at,

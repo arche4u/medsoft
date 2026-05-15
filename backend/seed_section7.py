@@ -139,75 +139,190 @@ async def _seed_for_project(db: AsyncSession, project: Project) -> dict:
                 counts["contributions"] += 1
     await db.flush()
 
-    # ── §7.2 controls — add one per risk if missing ────────────────────────
-    # Existing seeds focus on hazard analysis (§7.1) and accept residual risk
-    # but don't seed the §7.2 risk-control measures themselves. Add a
-    # PROTECTIVE_MEASURE control per risk so the evidence loop below has
-    # something to attach to. Real projects fill these out manually based
-    # on their actual design decisions; this is just demo data.
+    # ── §7.2 controls + §7.3 evidence — rich fixtures for testing ──────────
+    # We seed *varied* control + evidence combinations so QA / RA can
+    # exercise every §7 feature in the UI without manual setup:
+    #
+    #   risk[0]  SECURITY        → 2 controls (PROTECTIVE + INFORMATION),
+    #                              first VERIFIED, second still PROPOSED.
+    #                              Demonstrates "not all controls verified."
+    #   risk[1]  SAFETY_SECURITY → 3 controls covering all 3 ISO 14971 §6.2
+    #                              types (INHERENT + PROTECTIVE + INFO),
+    #                              with multi-evidence per control
+    #                              (SYSTEM_TEST PASS + REVIEW PASS).
+    #                              Demonstrates ISO 14971 hierarchy.
+    #   risk[2]  SAFETY (HIGH)   → 2 controls, one with FAIL evidence first
+    #                              (so it sits at IMPLEMENTED) plus a later
+    #                              PASS (VERIFIED). Demonstrates the audit
+    #                              trail of a failed-then-passing verification.
+    #   risk[3..6]                → 1 control each, VERIFIED via SYSTEM_TEST.
+    #   risk[7] (if exists)      → no controls — pure OPEN state, lets the
+    #                              user see what a fresh risk looks like.
+
     all_risk_ids = [r.id for r in risks]
     existing_controls = (await db.execute(
         select(RiskControl).where(RiskControl.risk_id.in_(all_risk_ids))
     )).scalars().all()
-    risks_with_controls = {c.risk_id for c in existing_controls}
-    counts["controls"] = 0
-    for r in risks:
-        if r.id in risks_with_controls:
-            continue
-        # Vary the control type to demonstrate the ISO 14971 §6.2 hierarchy.
-        if r.risk_class == "SECURITY":
-            ctype, desc = "PROTECTIVE_MEASURE", \
-                "Authentication + authorization layer (PROTECTIVE_MEASURE per ISO 14971 §6.2). " \
-                "Mitigates the security risk by restricting access to authorized roles."
-        elif r.risk_class == "SAFETY_SECURITY":
-            ctype, desc = "INHERENT_SAFETY", \
-                "Defence-in-depth design: independent safety interlock that cannot be defeated " \
-                "by a security compromise (INHERENT_SAFETY per ISO 14971 §6.2)."
-        else:
-            ctype, desc = "PROTECTIVE_MEASURE", \
-                "Runtime guard with alarm (PROTECTIVE_MEASURE per ISO 14971 §6.2). " \
-                "Detects the hazardous condition and triggers a safe-state transition."
-        ctrl = RiskControl(
+    if existing_controls:
+        # Re-runs: leave existing controls / evidence in place (idempotent).
+        # Just record counts of what's there so the report is accurate.
+        counts["controls"] = 0
+        counts["evidence"] = 0
+        for c in existing_controls:
+            counts["controls"] += 0  # already counted on first run; skip
+        return counts
+
+    # Fetch supporting refs for realistic linkage
+    sys_tests = (await db.execute(
+        select(SystemTestCase).where(SystemTestCase.project_id == project.id)
+    )).scalars().all()
+    components_in_proj = components  # already fetched above
+
+    def _ctrl(r: Risk, ctype: str, desc: str,
+              status: str = "IMPLEMENTED",
+              component=None, req_id=None, st=None) -> RiskControl:
+        return RiskControl(
             risk_id=r.id,
             control_type=ctype,
             description=desc,
-            implementation_status="IMPLEMENTED",  # bumped to VERIFIED below when evidence lands
-            verification_notes=None,
+            component_id=component.id if component else None,
+            requirement_id=req_id,
+            system_test_id=st.id if st else None,
+            implementation_status=status,
         )
-        db.add(ctrl)
-        counts["controls"] += 1
-    await db.flush()
 
-    # ── §7.3 verification evidence ─────────────────────────────────────────
-    # For each RiskControl, add a SYSTEM_TEST evidence row with PASS →
-    # flips control to VERIFIED. Skips if evidence already exists (idempotent).
-    controls = (await db.execute(
-        select(RiskControl).where(RiskControl.risk_id.in_(all_risk_ids))
-    )).scalars().all()
-    sys_tests = (await db.execute(
-        select(SystemTestCase).where(SystemTestCase.project_id == project.id).limit(1)
-    )).scalars().all()
+    def _ev(control: RiskControl, evidence_type: str,
+            result: str = "PASS",
+            st: SystemTestCase | None = None,
+            external_ref: str | None = None,
+            days_ago: int = 5,
+            notes: str | None = None,
+            verified_by: str = "QA Engineer (seeded)") -> VerificationEvidence:
+        return VerificationEvidence(
+            control_id=control.id,
+            evidence_type=evidence_type,
+            system_test_id=st.id if st else None,
+            external_reference=external_ref,
+            result=result,
+            notes=notes or f"§7.3 evidence recorded {days_ago}d ago.",
+            verified_by=verified_by,
+            verified_at=NOW - timedelta(days=days_ago),
+        )
+
     a_test = sys_tests[0] if sys_tests else None
+    b_test = sys_tests[1] if len(sys_tests) > 1 else a_test
+    a_comp = components_in_proj[0] if components_in_proj else None
+    b_comp = components_in_proj[1] if len(components_in_proj) > 1 else a_comp
 
-    for c in controls:
-        existing = (await db.execute(
-            select(VerificationEvidence).where(VerificationEvidence.control_id == c.id).limit(1)
-        )).scalar_one_or_none()
-        if existing:
-            continue
-        ev = VerificationEvidence(
-            control_id=c.id,
-            evidence_type="SYSTEM_TEST" if a_test else "REVIEW",
-            system_test_id=a_test.id if a_test else None,
-            external_reference=None if a_test else "Internal design review minutes 2026-03-12 — verified by 2 reviewers",
-            result="PASS",
-            notes="§7.3 verification recorded; control demonstrated effective via the linked test.",
-            verified_by="QA Engineer (seeded)",
-            verified_at=NOW - timedelta(days=5),
-        )
-        db.add(ev)
-        counts["evidence"] += 1
-        c.implementation_status = "VERIFIED"
+    counts["controls"] = 0
+    counts["evidence"] = 0
+
+    # ── risk[0] SECURITY: 2 controls, first VERIFIED, second still PROPOSED ─
+    if len(risks) > 0:
+        r0 = risks[0]  # SECURITY
+        c0a = _ctrl(r0, "PROTECTIVE_MEASURE",
+                    "Role-based access control + session timeout. Mitigates unauthorized access "
+                    "to safety-relevant configuration via the service interface.",
+                    status="IMPLEMENTED", component=a_comp,
+                    req_id=r0.requirement_id, st=a_test)
+        c0b = _ctrl(r0, "INFORMATION_FOR_SAFETY",
+                    "IFU section §7.2 — operators must log out after each session; service-mode "
+                    "credentials are rotated quarterly.",
+                    status="PROPOSED")  # deliberately unverified — for testing
+        db.add(c0a); db.add(c0b)
+        counts["controls"] += 2
+        await db.flush()
+        ev = _ev(c0a, "SYSTEM_TEST" if a_test else "REVIEW",
+                 st=a_test, days_ago=10,
+                 notes="Verified via penetration test scenario 'unauthorized service-mode access' — denied as expected.")
+        db.add(ev); counts["evidence"] += 1
+        c0a.implementation_status = "VERIFIED"
+
+    # ── risk[1] SAFETY_SECURITY: 3 controls covering the §6.2 hierarchy ───
+    if len(risks) > 1:
+        r1 = risks[1]  # SAFETY_SECURITY
+        c1a = _ctrl(r1, "INHERENT_SAFETY",
+                    "Independent hardware safety interlock — cannot be defeated by any software "
+                    "compromise (defence-in-depth per AAMI TIR57).",
+                    status="IMPLEMENTED", component=a_comp,
+                    req_id=r1.requirement_id, st=a_test)
+        c1b = _ctrl(r1, "PROTECTIVE_MEASURE",
+                    "Cryptographic integrity check on configuration tables at boot. If the "
+                    "signature fails, the device enters safe-state and alerts the operator.",
+                    status="IMPLEMENTED", component=b_comp,
+                    st=b_test)
+        c1c = _ctrl(r1, "INFORMATION_FOR_SAFETY",
+                    "User-facing alert ribbon when integrity check fails. Operator IFU explains "
+                    "the response procedure.",
+                    status="IMPLEMENTED")
+        db.add(c1a); db.add(c1b); db.add(c1c)
+        counts["controls"] += 3
+        await db.flush()
+        # Multiple evidence per control — demonstrates the multi-evidence list
+        db.add(_ev(c1a, "SYSTEM_TEST" if a_test else "REVIEW", st=a_test,
+                   days_ago=14, notes="Independent interlock validated under fault injection."))
+        db.add(_ev(c1a, "REVIEW",
+                   external_ref="Design review record DR-2026-031, signed by 3 reviewers",
+                   days_ago=20))
+        db.add(_ev(c1b, "SYSTEM_TEST" if b_test else "REVIEW", st=b_test,
+                   days_ago=12, notes="Integrity check verified with intentionally-corrupted config."))
+        db.add(_ev(c1c, "INSPECTION",
+                   external_ref="Usability inspection report 2026-04-02",
+                   days_ago=8, notes="Alert ribbon visible from typical operator distance, in expected lighting."))
+        counts["evidence"] += 4
+        c1a.implementation_status = "VERIFIED"
+        c1b.implementation_status = "VERIFIED"
+        c1c.implementation_status = "VERIFIED"
+
+    # ── risk[2] SAFETY HIGH: 2 controls, one with FAIL-then-PASS history ──
+    if len(risks) > 2:
+        r2 = risks[2]
+        c2a = _ctrl(r2, "PROTECTIVE_MEASURE",
+                    "Runtime range check on critical parameter — triggers safe-state and alarms "
+                    "if out of bounds. Reviewed against expected operational envelope.",
+                    status="IMPLEMENTED", component=a_comp,
+                    req_id=r2.requirement_id, st=a_test)
+        c2b = _ctrl(r2, "PROTECTIVE_MEASURE",
+                    "Watchdog timer with safe-state on missed heartbeat.",
+                    status="IMPLEMENTED", component=b_comp,
+                    st=b_test)
+        db.add(c2a); db.add(c2b)
+        counts["controls"] += 2
+        await db.flush()
+        # FAIL evidence first (control stayed IMPLEMENTED via the failed run)
+        db.add(_ev(c2a, "SYSTEM_TEST" if a_test else "REVIEW", result="FAIL", st=a_test,
+                   days_ago=20,
+                   notes="Initial verification: range check missed a corner case (negative-zero "
+                         "boundary). Reported as PR-2026-004; fix verified by re-test below.",
+                   verified_by="Tester Engineer (seeded)"))
+        # …then PASS (flips control to VERIFIED)
+        db.add(_ev(c2a, "SYSTEM_TEST" if a_test else "REVIEW", result="PASS", st=a_test,
+                   days_ago=4,
+                   notes="Re-test after PR-2026-004 fix: range check correctly rejects the corner case."))
+        db.add(_ev(c2b, "SYSTEM_TEST" if b_test else "REVIEW", st=b_test, days_ago=6))
+        counts["evidence"] += 3
+        c2a.implementation_status = "VERIFIED"
+        c2b.implementation_status = "VERIFIED"
+
+    # ── risk[3..6] SAFETY: single control, simple VERIFIED via SYSTEM_TEST ─
+    for idx, r in enumerate(risks[3:7] if len(risks) > 3 else [], start=3):
+        ctype = "PROTECTIVE_MEASURE"
+        ctrl = _ctrl(r, ctype,
+                     f"Runtime guard for {r.hazard.lower()[:60]}. Detects the hazardous condition "
+                     "and triggers a safe-state transition with operator alert.",
+                     status="IMPLEMENTED", component=a_comp,
+                     req_id=r.requirement_id, st=a_test)
+        db.add(ctrl); counts["controls"] += 1
+        await db.flush()
+        ev = _ev(ctrl, "SYSTEM_TEST" if a_test else "REVIEW",
+                 st=a_test, days_ago=5 + idx)
+        db.add(ev); counts["evidence"] += 1
+        ctrl.implementation_status = "VERIFIED"
+
+    # ── risk[7+] SAFETY: NO controls at all → demo of OPEN state ──────────
+    # (Intentionally leaving these without controls so the user can see what
+    # a fresh, untouched risk looks like.)
+
     await db.flush()
 
     # ── §7.4 re-evaluation flag (two risks per project) ───────────────────

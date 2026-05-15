@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.base import Base, TimestampMixin
@@ -36,6 +36,17 @@ class SoftwareItem(Base, TimestampMixin):
     safety_class: Mapped[str] = mapped_column(String(1), nullable=False, default="A")
     classification_justification: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")
+    # ── IEC 62304 §4.4 — Legacy software ─────────────────────────────────────
+    # Software that wasn't developed under IEC 62304. §4.4 (a)-(d) require:
+    #   (a) continuous monitoring for incidents arising from use
+    #   (b) use this standard to assess the impact of changes
+    #   (c) make a risk-based decision regarding application of the standard
+    #   (d) document the rationale
+    # `is_legacy` flags it; `legacy_assessment` carries the documented rationale
+    # required by §4.4(d). The companion §4.4 plan template (plans/defaults.py
+    # LEGACY_SOFTWARE) gives the manufacturer's process for handling legacy SW.
+    is_legacy: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    legacy_assessment: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     risk_links: Mapped[list["SoftwareItemRiskLink"]] = relationship(
         "SoftwareItemRiskLink", back_populates="item", cascade="all, delete-orphan", lazy="selectin"

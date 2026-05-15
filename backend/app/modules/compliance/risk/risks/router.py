@@ -5,6 +5,10 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.compliance.dev.requirements.model import Requirement
+from app.modules.platform.audit.service import audit
+from app.modules.platform.audit.model import AuditAction
+from app.modules.platform.auth.deps import get_current_user, require_permission
+from app.modules.platform.auth.schema import TokenData
 from .model import (
     Risk, RiskCategory, RiskControl, ResidualRisk, SoftwareSafetyProfile,
     RiskContribution, VerificationEvidence, _compute_level,
@@ -27,7 +31,11 @@ router = APIRouter(prefix="/risks", tags=["risks"])
 # ── Risk Categories ───────────────────────────────────────────────────────────
 
 @router.get("/categories", response_model=list[RiskCategoryRead])
-async def list_risk_categories(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def list_risk_categories(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
     cats = (await db.execute(
         select(RiskCategory)
         .where(RiskCategory.project_id == project_id)
@@ -37,7 +45,11 @@ async def list_risk_categories(project_id: uuid.UUID, db: AsyncSession = Depends
 
 
 @router.post("/categories", response_model=RiskCategoryRead, status_code=201)
-async def create_risk_category(body: RiskCategoryCreate, db: AsyncSession = Depends(get_db)):
+async def create_risk_category(
+    body: RiskCategoryCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_RISK")),
+):
     existing = (await db.execute(
         select(RiskCategory).where(
             RiskCategory.project_id == body.project_id,
@@ -54,6 +66,8 @@ async def create_risk_category(body: RiskCategoryCreate, db: AsyncSession = Depe
     cat = RiskCategory(project_id=body.project_id, name=body.name, label=body.label,
                        color=body.color, is_builtin=False, sort_order=max_order + 1)
     db.add(cat)
+    await db.flush()
+    await audit(db, "RiskCategory", cat.id, AuditAction.CREATE, current_user.user_id, cat.name)
     await db.commit()
     await db.refresh(cat)
     return cat
@@ -61,7 +75,10 @@ async def create_risk_category(body: RiskCategoryCreate, db: AsyncSession = Depe
 
 @router.put("/categories/{category_id}", response_model=RiskCategoryRead)
 async def update_risk_category(
-    category_id: uuid.UUID, body: RiskCategoryUpdate, db: AsyncSession = Depends(get_db)
+    category_id: uuid.UUID,
+    body: RiskCategoryUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
 ):
     cat = (await db.execute(
         select(RiskCategory).where(RiskCategory.id == category_id)
@@ -70,13 +87,18 @@ async def update_risk_category(
         raise HTTPException(404, "Category not found")
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(cat, k, v)
+    await audit(db, "RiskCategory", cat.id, AuditAction.UPDATE, current_user.user_id, cat.name)
     await db.commit()
     await db.refresh(cat)
     return cat
 
 
 @router.delete("/categories/{category_id}", status_code=204)
-async def delete_risk_category(category_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_risk_category(
+    category_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("DELETE_RISK")),
+):
     cat = (await db.execute(
         select(RiskCategory).where(RiskCategory.id == category_id)
     )).scalar_one_or_none()
@@ -84,14 +106,21 @@ async def delete_risk_category(category_id: uuid.UUID, db: AsyncSession = Depend
         raise HTTPException(404, "Category not found")
     if cat.is_builtin:
         raise HTTPException(400, "Built-in risk categories cannot be deleted")
+    cat_name = cat.name
+    cat_id = cat.id
     await db.delete(cat)
+    await audit(db, "RiskCategory", cat_id, AuditAction.DELETE, current_user.user_id, cat_name)
     await db.commit()
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @router.get("/dashboard/{project_id}", response_model=RiskDashboard)
-async def get_risk_dashboard(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_risk_dashboard(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
     req_ids = (await db.execute(
         select(Requirement.id).where(Requirement.project_id == project_id)
     )).scalars().all()
@@ -150,7 +179,11 @@ async def get_risk_dashboard(project_id: uuid.UUID, db: AsyncSession = Depends(g
 # ── Safety Profile ─────────────────────────────────────────────────────────────
 
 @router.get("/safety-profile/{project_id}", response_model=SafetyProfileRead | None)
-async def get_safety_profile(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_safety_profile(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
     result = await db.execute(
         select(SoftwareSafetyProfile).where(SoftwareSafetyProfile.project_id == project_id)
     )
@@ -158,7 +191,11 @@ async def get_safety_profile(project_id: uuid.UUID, db: AsyncSession = Depends(g
 
 
 @router.post("/safety-profile", response_model=SafetyProfileRead, status_code=201)
-async def create_safety_profile(payload: SafetyProfileCreate, db: AsyncSession = Depends(get_db)):
+async def create_safety_profile(
+    payload: SafetyProfileCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
+):
     existing = await db.execute(
         select(SoftwareSafetyProfile).where(SoftwareSafetyProfile.project_id == payload.project_id)
     )
@@ -166,6 +203,11 @@ async def create_safety_profile(payload: SafetyProfileCreate, db: AsyncSession =
         raise HTTPException(409, detail="Safety profile already exists for this project. Use PUT to update.")
     profile = SoftwareSafetyProfile(**payload.model_dump())
     db.add(profile)
+    await db.flush()
+    await audit(
+        db, "SoftwareSafetyProfile", profile.id, AuditAction.CREATE,
+        current_user.user_id, f"class={profile.iec62304_class}",
+    )
     await db.commit()
     await db.refresh(profile)
     return profile
@@ -173,7 +215,10 @@ async def create_safety_profile(payload: SafetyProfileCreate, db: AsyncSession =
 
 @router.put("/safety-profile/{project_id}", response_model=SafetyProfileRead)
 async def update_safety_profile(
-    project_id: uuid.UUID, payload: SafetyProfileUpdate, db: AsyncSession = Depends(get_db)
+    project_id: uuid.UUID,
+    payload: SafetyProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
 ):
     result = await db.execute(
         select(SoftwareSafetyProfile).where(SoftwareSafetyProfile.project_id == project_id)
@@ -183,6 +228,10 @@ async def update_safety_profile(
         raise HTTPException(404, detail="Safety profile not found. Use POST to create.")
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(profile, k, v)
+    await audit(
+        db, "SoftwareSafetyProfile", profile.id, AuditAction.UPDATE,
+        current_user.user_id, f"class={profile.iec62304_class}",
+    )
     await db.commit()
     await db.refresh(profile)
     return profile
@@ -197,6 +246,7 @@ async def list_risks(
     risk_class: str | None = None,
     needs_reevaluation: bool | None = None,
     db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
 ):
     q = select(Risk)
     if requirement_id:
@@ -215,20 +265,33 @@ async def list_risks(
 
 
 @router.post("/", response_model=RiskRead, status_code=201)
-async def create_risk(payload: RiskCreate, db: AsyncSession = Depends(get_db)):
+async def create_risk(
+    payload: RiskCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("CREATE_RISK")),
+):
     risk = Risk(
         **payload.model_dump(),
         risk_level=_compute_level(payload.severity, payload.probability),
         status="OPEN",
     )
     db.add(risk)
+    await db.flush()
+    await audit(
+        db, "Risk", risk.id, AuditAction.CREATE, current_user.user_id,
+        f"{risk.risk_class} / S{risk.severity}xP{risk.probability}={risk.risk_level}",
+    )
     await db.commit()
     await db.refresh(risk)
     return risk
 
 
 @router.get("/{risk_id}", response_model=RiskRead)
-async def get_risk(risk_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_risk(
+    risk_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
     risk = await db.get(Risk, risk_id)
     if not risk:
         raise HTTPException(404, detail="Risk not found")
@@ -236,13 +299,22 @@ async def get_risk(risk_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/{risk_id}", response_model=RiskRead)
-async def update_risk(risk_id: uuid.UUID, payload: RiskUpdate, db: AsyncSession = Depends(get_db)):
+async def update_risk(
+    risk_id: uuid.UUID,
+    payload: RiskUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
+):
     risk = await db.get(Risk, risk_id)
     if not risk:
         raise HTTPException(404, detail="Risk not found")
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(risk, k, v)
     risk.risk_level = _compute_level(risk.severity, risk.probability)
+    await audit(
+        db, "Risk", risk.id, AuditAction.UPDATE, current_user.user_id,
+        f"S{risk.severity}xP{risk.probability}={risk.risk_level}",
+    )
     await db.commit()
     await db.refresh(risk)
     return risk
@@ -250,7 +322,10 @@ async def update_risk(risk_id: uuid.UUID, payload: RiskUpdate, db: AsyncSession 
 
 @router.put("/{risk_id}/status", response_model=RiskRead)
 async def update_risk_status(
-    risk_id: uuid.UUID, payload: RiskStatusUpdate, db: AsyncSession = Depends(get_db)
+    risk_id: uuid.UUID,
+    payload: RiskStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
 ):
     risk = await db.get(Risk, risk_id)
     if not risk:
@@ -280,24 +355,38 @@ async def update_risk_status(
         risk.re_evaluation_required = False
 
     risk.status = new_status
+    await audit(
+        db, "Risk", risk.id, AuditAction.UPDATE, current_user.user_id,
+        f"status -> {new_status}",
+    )
     await db.commit()
     await db.refresh(risk)
     return risk
 
 
 @router.delete("/{risk_id}", status_code=204)
-async def delete_risk(risk_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_risk(
+    risk_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("DELETE_RISK")),
+):
     risk = await db.get(Risk, risk_id)
     if not risk:
         raise HTTPException(404, detail="Risk not found")
+    risk_id_val = risk.id
     await db.delete(risk)
+    await audit(db, "Risk", risk_id_val, AuditAction.DELETE, current_user.user_id, None)
     await db.commit()
 
 
 # ── Risk Controls ─────────────────────────────────────────────────────────────
 
 @router.get("/{risk_id}/controls", response_model=list[RiskControlRead])
-async def list_controls(risk_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def list_controls(
+    risk_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
     controls = (await db.execute(
         select(RiskControl).where(RiskControl.risk_id == risk_id)
         .order_by(RiskControl.created_at)
@@ -307,7 +396,10 @@ async def list_controls(risk_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{risk_id}/controls", response_model=RiskControlRead, status_code=201)
 async def create_control(
-    risk_id: uuid.UUID, payload: RiskControlCreate, db: AsyncSession = Depends(get_db)
+    risk_id: uuid.UUID,
+    payload: RiskControlCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
 ):
     risk = await db.get(Risk, risk_id)
     if not risk:
@@ -320,6 +412,11 @@ async def create_control(
     if risk.status == "OPEN":
         risk.status = "IN_CONTROL"
 
+    await db.flush()
+    await audit(
+        db, "RiskControl", control.id, AuditAction.CREATE, current_user.user_id,
+        f"risk={risk_id} type={control.control_type}",
+    )
     await db.commit()
     await db.refresh(control)
     return control
@@ -327,24 +424,36 @@ async def create_control(
 
 @router.put("/controls/{control_id}", response_model=RiskControlRead)
 async def update_control(
-    control_id: uuid.UUID, payload: RiskControlUpdate, db: AsyncSession = Depends(get_db)
+    control_id: uuid.UUID,
+    payload: RiskControlUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
 ):
     control = await db.get(RiskControl, control_id)
     if not control:
         raise HTTPException(404, "Risk control not found")
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(control, k, v)
+    await audit(
+        db, "RiskControl", control.id, AuditAction.UPDATE, current_user.user_id,
+        f"status={control.implementation_status}",
+    )
     await db.commit()
     await db.refresh(control)
     return control
 
 
 @router.delete("/controls/{control_id}", status_code=204)
-async def delete_control(control_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_control(
+    control_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
+):
     control = await db.get(RiskControl, control_id)
     if not control:
         raise HTTPException(404, "Risk control not found")
     risk_id = control.risk_id
+    ctrl_id_val = control.id
     await db.delete(control)
     await db.flush()
 
@@ -357,13 +466,21 @@ async def delete_control(control_id: uuid.UUID, db: AsyncSession = Depends(get_d
         if risk and risk.status == "IN_CONTROL":
             risk.status = "OPEN"
 
+    await audit(
+        db, "RiskControl", ctrl_id_val, AuditAction.DELETE, current_user.user_id,
+        f"risk={risk_id}",
+    )
     await db.commit()
 
 
 # ── Residual Risk ─────────────────────────────────────────────────────────────
 
 @router.get("/{risk_id}/residual", response_model=ResidualRiskRead | None)
-async def get_residual(risk_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_residual(
+    risk_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
     result = await db.execute(
         select(ResidualRisk).where(ResidualRisk.risk_id == risk_id)
     )
@@ -372,7 +489,10 @@ async def get_residual(risk_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 
 @router.put("/{risk_id}/residual", response_model=ResidualRiskRead)
 async def upsert_residual(
-    risk_id: uuid.UUID, payload: ResidualRiskUpsert, db: AsyncSession = Depends(get_db)
+    risk_id: uuid.UUID,
+    payload: ResidualRiskUpsert,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
 ):
     risk = await db.get(Risk, risk_id)
     if not risk:
@@ -394,6 +514,7 @@ async def upsert_residual(
         existing.accepted_by = payload.accepted_by if payload.is_accepted else None
         existing.accepted_at = accepted_at
         residual = existing
+        action = AuditAction.UPDATE
     else:
         residual = ResidualRisk(
             risk_id=risk_id,
@@ -406,12 +527,18 @@ async def upsert_residual(
             accepted_at=accepted_at,
         )
         db.add(residual)
+        action = AuditAction.CREATE
 
     # Auto-advance risk status to ACCEPTED when residual risk is accepted
     if payload.is_accepted and risk.status not in ("ACCEPTED", "CLOSED"):
         risk.status = "ACCEPTED"
         risk.re_evaluation_required = False
 
+    await db.flush()
+    await audit(
+        db, "ResidualRisk", residual.id, action, current_user.user_id,
+        f"risk={risk_id} accepted={payload.is_accepted} level={level}",
+    )
     await db.commit()
     await db.refresh(residual)
     return residual
@@ -422,7 +549,11 @@ async def upsert_residual(
 # ============================================================================
 
 @router.get("/{risk_id}/contributions", response_model=list[RiskContributionRead])
-async def list_contributions(risk_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def list_contributions(
+    risk_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
     return (await db.execute(
         select(RiskContribution).where(RiskContribution.risk_id == risk_id)
     )).scalars().all()
@@ -430,7 +561,10 @@ async def list_contributions(risk_id: uuid.UUID, db: AsyncSession = Depends(get_
 
 @router.post("/{risk_id}/contributions", response_model=RiskContributionRead, status_code=201)
 async def add_contribution(
-    risk_id: uuid.UUID, body: RiskContributionCreate, db: AsyncSession = Depends(get_db),
+    risk_id: uuid.UUID,
+    body: RiskContributionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
 ):
     if not await db.get(Risk, risk_id):
         raise HTTPException(404, "Risk not found")
@@ -439,6 +573,11 @@ async def add_contribution(
     contrib = RiskContribution(risk_id=risk_id, **body.model_dump())
     db.add(contrib)
     try:
+        await db.flush()
+        await audit(
+            db, "RiskContribution", contrib.id, AuditAction.CREATE, current_user.user_id,
+            f"risk={risk_id}",
+        )
         await db.commit()
     except Exception as e:
         await db.rollback()
@@ -448,11 +587,21 @@ async def add_contribution(
 
 
 @router.delete("/contributions/{contribution_id}", status_code=204)
-async def delete_contribution(contribution_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_contribution(
+    contribution_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
+):
     c = await db.get(RiskContribution, contribution_id)
     if not c:
         raise HTTPException(404, "Contribution not found")
+    risk_id = c.risk_id
+    contrib_id_val = c.id
     await db.delete(c)
+    await audit(
+        db, "RiskContribution", contrib_id_val, AuditAction.DELETE, current_user.user_id,
+        f"risk={risk_id}",
+    )
     await db.commit()
 
 
@@ -461,7 +610,11 @@ async def delete_contribution(contribution_id: uuid.UUID, db: AsyncSession = Dep
 # ============================================================================
 
 @router.get("/controls/{control_id}/evidence", response_model=list[VerificationEvidenceRead])
-async def list_evidence(control_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def list_evidence(
+    control_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
     return (await db.execute(
         select(VerificationEvidence)
         .where(VerificationEvidence.control_id == control_id)
@@ -471,7 +624,10 @@ async def list_evidence(control_id: uuid.UUID, db: AsyncSession = Depends(get_db
 
 @router.post("/controls/{control_id}/evidence", response_model=VerificationEvidenceRead, status_code=201)
 async def add_evidence(
-    control_id: uuid.UUID, body: VerificationEvidenceCreate, db: AsyncSession = Depends(get_db),
+    control_id: uuid.UUID,
+    body: VerificationEvidenceCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
 ):
     control = await db.get(RiskControl, control_id)
     if not control:
@@ -502,17 +658,26 @@ async def add_evidence(
     elif body.result == "FAIL" and control.implementation_status == "VERIFIED":
         control.implementation_status = "IMPLEMENTED"
 
+    await audit(
+        db, "VerificationEvidence", ev.id, AuditAction.CREATE, current_user.user_id,
+        f"control={control_id} {body.evidence_type} {body.result}",
+    )
     await db.commit()
     await db.refresh(ev)
     return ev
 
 
 @router.delete("/evidence/{evidence_id}", status_code=204)
-async def delete_evidence(evidence_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_evidence(
+    evidence_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
+):
     ev = await db.get(VerificationEvidence, evidence_id)
     if not ev:
         raise HTTPException(404, "Evidence not found")
     control_id = ev.control_id
+    ev_id_val = ev.id
     await db.delete(ev)
     await db.flush()
     # Recompute control status: still VERIFIED only if ≥1 PASS evidence
@@ -526,6 +691,10 @@ async def delete_evidence(evidence_id: uuid.UUID, db: AsyncSession = Depends(get
     control = await db.get(RiskControl, control_id)
     if control and control.implementation_status == "VERIFIED" and has_pass == 0:
         control.implementation_status = "IMPLEMENTED"
+    await audit(
+        db, "VerificationEvidence", ev_id_val, AuditAction.DELETE, current_user.user_id,
+        f"control={control_id}",
+    )
     await db.commit()
 
 
@@ -534,7 +703,11 @@ async def delete_evidence(evidence_id: uuid.UUID, db: AsyncSession = Depends(get
 # ============================================================================
 
 @router.get("/needs-reevaluation/{project_id}", response_model=list[RiskRead])
-async def list_needs_reevaluation(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def list_needs_reevaluation(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
     """Inbox of risks flagged for §7.4 re-evaluation (typically by a CR
     against released software, a feedback safety assessment, or a linked
     requirement edit)."""
@@ -553,7 +726,10 @@ async def list_needs_reevaluation(project_id: uuid.UUID, db: AsyncSession = Depe
 
 @router.post("/{risk_id}/re-evaluate", response_model=RiskRead)
 async def record_reevaluation(
-    risk_id: uuid.UUID, body: RiskReEvaluate, db: AsyncSession = Depends(get_db),
+    risk_id: uuid.UUID,
+    body: RiskReEvaluate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
 ):
     """Record the outcome of a §7.4 re-evaluation. Clears the re_evaluation_
     required flag, captures the audit fields, and (optionally) updates the
@@ -579,6 +755,10 @@ async def record_reevaluation(
         risk.risk_level = _compute_level(sev, prob)
     if body.new_status:
         risk.status = body.new_status
+    await audit(
+        db, "Risk", risk.id, AuditAction.UPDATE, current_user.user_id,
+        f"re-evaluated -> S{risk.severity}xP{risk.probability}={risk.risk_level} status={risk.status}",
+    )
     await db.commit()
     await db.refresh(risk)
     return risk

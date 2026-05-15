@@ -139,6 +139,49 @@ PLAN_TYPES: dict[str, PlanTypeDef] = {
              "configuration status."),
         ),
     },
+    "LEGACY_SOFTWARE": {
+        "key": "LEGACY_SOFTWARE",
+        "label": "Legacy Software §4.4 Plan",
+        "iec_clause": "4.4",
+        "description": "IEC 62304 §4.4 — handling of software systems that were not developed under this standard.",
+        "sections": _sections(
+            ("1", "Purpose and Scope",
+             "Identify the legacy software system(s) covered by this plan. State that the items "
+             "flagged as `is_legacy=true` on the Software Items page are governed by this plan rather "
+             "than the full §5 development lifecycle, per IEC 62304 §4.4."),
+            ("2", "Continuous Monitoring (§4.4(a))",
+             "Procedures for continuously monitoring incidents arising from the use of the legacy "
+             "software. Links to the Feedback Intake module (§6.2.1) which is the operational tool: "
+             "every legacy item's `affected_version` should map to a feedback-channel watch list. "
+             "Frequency of trend review and the threshold for declaring a problem are defined here."),
+            ("3", "Change Impact Assessment (§4.4(b))",
+             "When a change is proposed against a legacy software item, the manufacturer uses this "
+             "standard to assess the impact: §6.2.3 post-release impact analysis is mandatory on the "
+             "change request (organization · released software · interfacing systems). The §7.4 "
+             "auto-trigger flags every linked risk for re-evaluation."),
+            ("4", "Risk-based Decision (§4.4(c))",
+             "Criteria for deciding whether the standard (or which subset) applies to the legacy "
+             "software. Typical criteria: safety classification (Class A/B/C), patient harm potential, "
+             "remaining service life, post-market incident history, regulatory commitments. The "
+             "decision is recorded on the SoftwareItem.legacy_assessment field."),
+            ("5", "Rationale Documentation (§4.4(d))",
+             "Where the risk-based decision rationale is stored. Each legacy SoftwareItem carries its "
+             "rationale in `legacy_assessment`. The rationale is reviewed at least annually and on "
+             "any change request that modifies the legacy item."),
+            ("6", "Gap Analysis (optional but recommended)",
+             "For each §5 sub-clause not applied to the legacy software, the manufacturer documents "
+             "the rationale (typically risk-based) and any compensating controls. The gap analysis "
+             "becomes a permanent attachment under the SoftwareItem and is reviewed at the same "
+             "frequency as the legacy_assessment field."),
+            ("7", "Re-classification of Legacy Items",
+             "If a legacy software item is materially modified, it may exit legacy status and "
+             "re-enter the full §5 lifecycle. Procedure for re-classification (criteria, approval, "
+             "documentation update) is defined here."),
+            ("8", "Roles and Responsibilities",
+             "Who owns legacy assessment · who monitors PMS for legacy items · who approves change "
+             "impact assessments for legacy software · who approves re-classification."),
+        ),
+    },
     "PROBLEM_RESOLUTION": {
         "key": "PROBLEM_RESOLUTION",
         "label": "Software Problem Resolution Plan",

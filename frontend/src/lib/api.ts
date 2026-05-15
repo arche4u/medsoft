@@ -72,7 +72,7 @@ export type Risk = {
   id: string; requirement_id: string; category_id: string | null;
   risk_class: RiskClass;
   title: string | null; hazard: string; hazardous_situation: string; harm: string;
-  severity: number; probability: number; risk_level: string; mitigation: string | null;
+  severity: number; probability: number; risk_level: string;
   status: string; evaluation_notes: string | null;
   re_evaluation_required: boolean;
   re_evaluation_reason: string | null;
@@ -87,7 +87,7 @@ export type RiskControl = {
   id: string; risk_id: string; control_type: string; description: string;
   requirement_id: string | null; system_test_id: string | null;
   component_id: string | null;
-  implementation_status: string; verification_notes: string | null;
+  implementation_status: string;
   evidence: VerificationEvidence[];
   created_at: string; updated_at: string;
 };
@@ -137,6 +137,9 @@ export type SafetyProfile = {
   sdp_section_reference: string | null;
   approved_by: string | null;
   review_date: string | null;
+  // IEC 62304 §4.4 — project-level legacy-software declaration
+  has_legacy_software: boolean;
+  legacy_software_statement: string | null;
   created_at: string; updated_at: string;
 };
 
@@ -747,6 +750,9 @@ export type SoftwareItem = {
   safety_class: SoftwareSafetyClass;
   classification_justification: string | null;
   status: SoftwareItemStatus;
+  // IEC 62304 §4.4 — legacy-software handling.
+  is_legacy: boolean;
+  legacy_assessment: string | null;
   risk_ids: string[];
   requirement_ids: string[];
   created_at: string;
@@ -1014,9 +1020,9 @@ export const api = {
     },
     needsReevaluation: (project_id: string) =>
       req<Risk[]>(`/risks/needs-reevaluation/${project_id}`),
-    create: (d: { requirement_id: string; category_id?: string; title?: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; mitigation?: string; evaluation_notes?: string; risk_class?: RiskClass }) =>
+    create: (d: { requirement_id: string; category_id?: string; title?: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; evaluation_notes?: string; risk_class?: RiskClass }) =>
       req<Risk>("/risks/", { method: "POST", body: JSON.stringify(d) }),
-    update: (id: string, d: { category_id?: string | null; title?: string | null; hazard?: string; hazardous_situation?: string; harm?: string; severity?: number; probability?: number; mitigation?: string | null; evaluation_notes?: string | null; risk_class?: RiskClass | null }) =>
+    update: (id: string, d: { category_id?: string | null; title?: string | null; hazard?: string; hazardous_situation?: string; harm?: string; severity?: number; probability?: number; evaluation_notes?: string | null; risk_class?: RiskClass | null }) =>
       req<Risk>(`/risks/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     updateStatus: (id: string, status: string) =>
       req<Risk>(`/risks/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
@@ -1027,9 +1033,9 @@ export const api = {
     dashboard: (project_id: string) => req<RiskDashboard>(`/risks/dashboard/${project_id}`),
     controls: {
       list: (risk_id: string) => req<RiskControl[]>(`/risks/${risk_id}/controls`),
-      create: (risk_id: string, d: { control_type: string; description: string; requirement_id?: string | null; system_test_id?: string | null; component_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
+      create: (risk_id: string, d: { control_type: string; description: string; requirement_id?: string | null; system_test_id?: string | null; component_id?: string | null; implementation_status?: string }) =>
         req<RiskControl>(`/risks/${risk_id}/controls`, { method: "POST", body: JSON.stringify(d) }),
-      update: (control_id: string, d: { control_type?: string; description?: string; requirement_id?: string | null; system_test_id?: string | null; component_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
+      update: (control_id: string, d: { control_type?: string; description?: string; requirement_id?: string | null; system_test_id?: string | null; component_id?: string | null; implementation_status?: string }) =>
         req<RiskControl>(`/risks/controls/${control_id}`, { method: "PUT", body: JSON.stringify(d) }),
       delete: (control_id: string) => req<void>(`/risks/controls/${control_id}`, { method: "DELETE" }),
     },
@@ -1594,9 +1600,9 @@ export const api = {
     list: (project_id: string) =>
       req<SoftwareItem[]>(`/software-items/?project_id=${project_id}`),
     get: (id: string) => req<SoftwareItem>(`/software-items/${id}`),
-    create: (d: { project_id: string; parent_id?: string | null; name: string; description?: string | null; item_type?: SoftwareItemType; safety_class?: SoftwareSafetyClass; classification_justification?: string | null }) =>
+    create: (d: { project_id: string; parent_id?: string | null; name: string; description?: string | null; item_type?: SoftwareItemType; safety_class?: SoftwareSafetyClass; classification_justification?: string | null; is_legacy?: boolean; legacy_assessment?: string | null }) =>
       req<SoftwareItem>("/software-items/", { method: "POST", body: JSON.stringify(d) }),
-    update: (id: string, d: { parent_id?: string | null; name?: string; description?: string | null; item_type?: SoftwareItemType; safety_class?: SoftwareSafetyClass; classification_justification?: string | null; status?: SoftwareItemStatus }) =>
+    update: (id: string, d: { parent_id?: string | null; name?: string; description?: string | null; item_type?: SoftwareItemType; safety_class?: SoftwareSafetyClass; classification_justification?: string | null; status?: SoftwareItemStatus; is_legacy?: boolean; legacy_assessment?: string | null }) =>
       req<SoftwareItem>(`/software-items/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     delete: (id: string) => req<void>(`/software-items/${id}`, { method: "DELETE" }),
     transitionStatus: (id: string, status: SoftwareItemStatus) =>

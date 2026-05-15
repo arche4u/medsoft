@@ -341,7 +341,7 @@ export default function ProjectDashboardPage() {
 
   const swReqs     = requirements.filter(r => r.type === "SOFTWARE");
   const highRisks  = risks.filter(r => r.risk_level === "HIGH").length;
-  const openRisks  = risks.filter(r => !r.mitigation).length;
+  const openRisks  = risks.filter(r => r.status === "OPEN" || r.status === "IN_CONTROL" || r.status === "RE_EVALUATION_REQUIRED").length;
   const userReqs   = requirements.filter(r => r.type === "USER").length;
   const systemReqs = requirements.filter(r => r.type === "SYSTEM").length;
   const reqByCat = Object.fromEntries(cats.map(c => [c.name, requirements.filter(r => r.type === c.name).length]));

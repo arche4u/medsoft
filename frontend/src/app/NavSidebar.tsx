@@ -126,18 +126,14 @@ const SECTIONS: Section[] = [
         ],
       },
       {
-        // §7 Software risk management — last clause-numbered group.
-        group: "Risk",
+        // §7 Software risk management. Class + level filters live in the
+        // page itself (chip-bars at the top of /risks). Only the §7.4
+        // inbox gets a sidebar shortcut because it's a distinct workflow,
+        // not just a filter.
+        group: "Risk (§7)",
         items: [
-          {
-            href: "/risks",
-            label: "Risk Register",
-            subItems: [
-              { href: "/risks?level=HIGH",   label: "High Risk" },
-              { href: "/risks?level=MEDIUM", label: "Medium Risk" },
-              { href: "/risks?level=LOW",    label: "Low Risk" },
-            ],
-          },
+          { href: "/risks",                              label: "Risk Register" },
+          { href: "/risks?needs_reevaluation=true",      label: "Re-eval Inbox (§7.4)" },
         ],
       },
       {
@@ -170,6 +166,7 @@ const SECTIONS: Section[] = [
         group: "IEC 62304 Plans",
         items: [
           { href: "/sdp",                         label: "Dev Plan (§5.1)" },
+          { href: "/plans/legacy-software",         label: "Legacy Software (§4.4)" },
           { href: "/plans/maintenance",            label: "Maintenance Plan (§6.1)" },
           { href: "/plans/risk-mgmt",              label: "Risk Mgmt Plan (§7)" },
           { href: "/plans/config-mgmt",            label: "Config Mgmt Plan (§8.1)" },

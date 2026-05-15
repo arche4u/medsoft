@@ -440,7 +440,6 @@ function ControlsPanel({ risk, reqs, systemTests, integrationTests, units, compo
   const [cTcId, setCTcId]       = useState("");
   const [cCompId, setCCompId]   = useState("");
   const [cStatus, setCStatus]   = useState("PROPOSED");
-  const [cNotes, setCNotes]     = useState("");
   const [saving, setSaving]     = useState(false);
   const [error, setError]       = useState("");
 
@@ -462,9 +461,9 @@ function ControlsPanel({ risk, reqs, systemTests, integrationTests, units, compo
         control_type: cType, description: cDesc,
         requirement_id: cReqId || null, system_test_id: cTcId || null,
         component_id: cCompId || null,
-        implementation_status: cStatus, verification_notes: cNotes || null,
+        implementation_status: cStatus,
       });
-      setCDesc(""); setCReqId(""); setCTcId(""); setCCompId(""); setCNotes(""); setShowAdd(false);
+      setCDesc(""); setCReqId(""); setCTcId(""); setCCompId(""); setShowAdd(false);
       onReload();
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
@@ -685,11 +684,6 @@ function ControlsPanel({ risk, reqs, systemTests, integrationTests, units, compo
                 ))}
               </select>
             </div>
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <label style={labelStyle}>Verification Notes (optional)</label>
-            <input value={cNotes} onChange={e => setCNotes(e.target.value)}
-              placeholder="Notes on how this was verified…" style={inputStyle} />
           </div>
           {error && <p style={{ color: "red", fontSize: 12, margin: "0 0 6px" }}>{error}</p>}
           <button type="button" onClick={handleAdd} disabled={saving} style={{ ...btnStyle, fontSize: 12, padding: "5px 14px" }}>
@@ -1094,7 +1088,6 @@ function RiskRow({ risk, req, reqs, systemTests, integrationTests, units, compon
   const [harm,      setHarm]     = useState(risk.harm);
   const [sev,       setSev]      = useState(risk.severity);
   const [prob,      setProb]     = useState(risk.probability);
-  const [mit,       setMit]      = useState(risk.mitigation ?? "");
   const [notes,     setNotes]    = useState(risk.evaluation_notes ?? "");
   const [riskClass, setRiskClass] = useState<RiskClass>(risk.risk_class);
   const [saving,    setSaving]   = useState(false);
@@ -1112,7 +1105,6 @@ function RiskRow({ risk, req, reqs, systemTests, integrationTests, units, compon
       const updated = await api.risks.update(risk.id, {
         hazard, hazardous_situation: hazSit, harm,
         severity: sev, probability: prob,
-        mitigation: mit.trim() || null,
         evaluation_notes: notes.trim() || null,
         risk_class: riskClass,
       });
@@ -1271,11 +1263,6 @@ function RiskRow({ risk, req, reqs, systemTests, integrationTests, units, compon
             </span>
           </div>
           <div style={{ marginBottom: 8 }}>
-            <label style={labelStyle}>Mitigation / Notes</label>
-            <textarea value={mit} onChange={e => setMit(e.target.value)} rows={2}
-              style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
-          </div>
-          <div style={{ marginBottom: 8 }}>
             <label style={labelStyle}>Evaluation Notes</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
               style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
@@ -1426,6 +1413,9 @@ function SafetyClassificationTab({ projectId }: { projectId: string }) {
   const [sdpRef, setSdpRef]       = useState("");
   const [approvedBy, setApprovedBy] = useState("");
   const [reviewDate, setReviewDate] = useState("");
+  // §4.4 — project-level legacy-software declaration
+  const [hasLegacy, setHasLegacy] = useState(false);
+  const [legacyStmt, setLegacyStmt] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -1438,6 +1428,7 @@ function SafetyClassificationTab({ projectId }: { projectId: string }) {
     setProbDefs(p.probability_definitions ?? DEFAULT_PROB_5);
     setIso(p.iso14971_aligned); setSfAssume(p.software_failure_assumption);
     setSdpRef(p.sdp_section_reference ?? ""); setApprovedBy(p.approved_by ?? ""); setReviewDate(p.review_date ?? "");
+    setHasLegacy(p.has_legacy_software); setLegacyStmt(p.legacy_software_statement ?? "");
   }
 
   async function handleSave() {
@@ -1445,7 +1436,8 @@ function SafetyClassificationTab({ projectId }: { projectId: string }) {
     const payload = { project_id: projectId, iec62304_class: cls, classification_rationale: rationale || null,
       rpn_scale: scale, severity_definitions: sevDefs || null, probability_definitions: probDefs || null,
       iso14971_aligned: iso, software_failure_assumption: sfAssume, sdp_section_reference: sdpRef || null,
-      approved_by: approvedBy || null, review_date: reviewDate || null };
+      approved_by: approvedBy || null, review_date: reviewDate || null,
+      has_legacy_software: hasLegacy, legacy_software_statement: legacyStmt || null };
     try {
       const saved = profile ? await api.risks.safetyProfile.update(projectId, payload) : await api.risks.safetyProfile.create(payload);
       setProfile(saved); setEditing(false);
@@ -1516,6 +1508,30 @@ function SafetyClassificationTab({ projectId }: { projectId: string }) {
             <input type="checkbox" checked={sfAssume} onChange={e => setSfAssume(e.target.checked)} style={{ marginTop: 2, width: 16, height: 16 }} />
             <span style={{ fontSize: 13 }}><b>100% Software Failure Assumption</b> — per IEC 62304 §7.4.2</span>
           </label>
+        </div>
+        {/* IEC 62304 §4.4 — project-level legacy-software declaration */}
+        <div style={{ ...sectionCard, marginBottom: 16 }}>
+          <div style={sectionTitle}>§4.4 Legacy Software</div>
+          <p style={{ margin: "0 0 10px", color: "#546e7a", fontSize: 12 }}>
+            IEC 62304 §4.4 covers software systems that were not developed under this standard.
+            Declare whether this project contains any legacy software; the statement is required
+            for the manufacturer's audit record per §4.4(d).
+          </p>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12, cursor: "pointer" }}>
+            <input type="checkbox" checked={hasLegacy} onChange={e => setHasLegacy(e.target.checked)}
+                   style={{ marginTop: 2, width: 16, height: 16 }} />
+            <span style={{ fontSize: 13 }}>
+              <b>This project contains legacy software</b> — when checked, individual Software Items can be flagged as legacy and the Legacy Software Plan (§4.4) applies.
+            </span>
+          </label>
+          <label style={labelStyle}>
+            §4.4(d) Statement <span style={{ color: "#888", fontWeight: 400 }}>— required either way</span>
+          </label>
+          <textarea value={legacyStmt} onChange={e => setLegacyStmt(e.target.value)}
+                    placeholder={hasLegacy
+                      ? "Describe the scope of legacy software in this project, the rationale for handling it under §4.4 vs. the full §5 lifecycle, and the compensating controls."
+                      : "e.g. 'No legacy software in this project — all software items were developed under this IEC 62304 lifecycle starting 2024-Q1. §4.4 is N/A.'"}
+                    style={{ ...inputStyle, width: "100%", height: 80, resize: "vertical", fontFamily: "inherit" }} />
         </div>
         <div style={{ ...sectionCard, marginBottom: 20 }}>
           <div style={sectionTitle}>Document References</div>
@@ -1612,7 +1628,6 @@ function RisksPageInner() {
   const [harm,            setHarm]       = useState("");
   const [severity,        setSeverity]   = useState(1);
   const [prob,            setProb]       = useState(1);
-  const [mitigation,      setMitigation] = useState("");
   const [newRiskClass,    setNewRiskClass] = useState<RiskClass>("SAFETY");
   const [formError,       setFormError]  = useState("");
   const [saving,          setSaving]     = useState(false);
@@ -1655,10 +1670,10 @@ function RisksPageInner() {
     try {
       await api.risks.create({
         requirement_id: reqId, hazard, hazardous_situation: hazSit, harm,
-        severity, probability: prob, mitigation: mitigation.trim() || undefined,
+        severity, probability: prob,
         risk_class: newRiskClass,
       });
-      setHazard(""); setHazSit(""); setHarm(""); setSeverity(1); setProb(1); setMitigation(""); setReqId("");
+      setHazard(""); setHazSit(""); setHarm(""); setSeverity(1); setProb(1); setReqId("");
       setNewRiskClass("SAFETY");
       await reload();
     } catch (e: any) { setFormError(e.message); }
@@ -1797,9 +1812,6 @@ function RisksPageInner() {
                     <span style={{ color: "#888", marginLeft: 4 }}>(score: {severity * prob})</span>
                   </span>
                 </div>
-                <textarea value={mitigation} onChange={e => setMitigation(e.target.value)} rows={2}
-                  placeholder="Initial mitigation notes (optional)"
-                  style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
                 {formError && <p style={{ color: "red", margin: 0, fontSize: 13 }}>{formError}</p>}
                 <button type="submit" disabled={saving || !reqId} style={btnStyle}>{saving ? "Saving…" : "Add Risk"}</button>
               </form>

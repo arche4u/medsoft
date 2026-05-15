@@ -7,6 +7,7 @@ A flat table auditors can use to navigate the codebase by clause.
 | Clause | Title | Backend module | Frontend page | Notes |
 |---|---|---|---|---|
 | §4.3 | Software safety classification | `compliance/dev/software_items/` | `/software-items` | Tree with Class A/B/C |
+| §4.4 | Legacy software | `compliance/dev/software_items/` (`is_legacy`, `legacy_assessment`) + `compliance/plans/` (`plan_type=LEGACY_SOFTWARE`) | `/software-items` + `/plans/custom/legacy-software` | Flag + assessment text covers §4.4(a)-(d); plan template carries the manufacturer's process |
 | §5.1 | Software development planning | `compliance/dev/sdp/` + `compliance/plans/` | `/sdp`, `/plans/maintenance`, … | Versioned signed-off plan |
 | §5.2 | Software requirements analysis | `compliance/dev/requirements/` | `/requirements` | Two-tier versioning |
 | §5.2.6 | Verify software requirements | `compliance/dev/traceability/` | `/traceability` | V-model tree + matrix |

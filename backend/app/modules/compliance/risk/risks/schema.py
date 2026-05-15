@@ -39,7 +39,6 @@ class RiskControlCreate(BaseModel):
     system_test_id: uuid.UUID | None = None
     component_id: uuid.UUID | None = None
     implementation_status: str = Field(default="PROPOSED", pattern="^(PROPOSED|IMPLEMENTED|VERIFIED)$")
-    verification_notes: str | None = None
 
 class RiskControlUpdate(BaseModel):
     control_type: str | None = Field(default=None, pattern="^(INHERENT_SAFETY|PROTECTIVE_MEASURE|INFORMATION_FOR_SAFETY)$")
@@ -48,7 +47,6 @@ class RiskControlUpdate(BaseModel):
     system_test_id: uuid.UUID | None = None
     component_id: uuid.UUID | None = None
     implementation_status: str | None = Field(default=None, pattern="^(PROPOSED|IMPLEMENTED|VERIFIED)$")
-    verification_notes: str | None = None
 
 
 # ── §7.3 — Verification Evidence ─────────────────────────────────────────────
@@ -88,7 +86,6 @@ class RiskControlRead(BaseModel):
     system_test_id: uuid.UUID | None
     component_id: uuid.UUID | None
     implementation_status: str
-    verification_notes: str | None
     evidence: list[VerificationEvidenceRead] = []
     created_at: datetime
     updated_at: datetime
@@ -162,7 +159,6 @@ class RiskCreate(BaseModel):
     harm: str
     severity: int = Field(ge=1, le=5)
     probability: int = Field(ge=1, le=5)
-    mitigation: str | None = None
     evaluation_notes: str | None = None
     # IEC 81001-5-1 + AAMI TIR57 discriminator.
     risk_class: str = Field(default="SAFETY", pattern="^(SAFETY|SECURITY|SAFETY_SECURITY)$")
@@ -176,7 +172,6 @@ class RiskUpdate(BaseModel):
     harm: str | None = None
     severity: int | None = Field(default=None, ge=1, le=5)
     probability: int | None = Field(default=None, ge=1, le=5)
-    mitigation: str | None = None
     evaluation_notes: str | None = None
     risk_class: str | None = Field(default=None, pattern="^(SAFETY|SECURITY|SAFETY_SECURITY)$")
 
@@ -197,7 +192,6 @@ class RiskRead(BaseModel):
     severity: int
     probability: int
     risk_level: str
-    mitigation: str | None
     status: str
     evaluation_notes: str | None
     re_evaluation_required: bool
@@ -243,6 +237,9 @@ class SafetyProfileCreate(BaseModel):
     sdp_section_reference: str | None = None
     approved_by: str | None = None
     review_date: str | None = None
+    # IEC 62304 §4.4 — project-level legacy-software declaration
+    has_legacy_software: bool = False
+    legacy_software_statement: str | None = None
 
 
 class SafetyProfileUpdate(BaseModel):
@@ -256,6 +253,8 @@ class SafetyProfileUpdate(BaseModel):
     sdp_section_reference: str | None = None
     approved_by: str | None = None
     review_date: str | None = None
+    has_legacy_software: bool | None = None
+    legacy_software_statement: str | None = None
 
 
 class SafetyProfileRead(BaseModel):
@@ -271,6 +270,8 @@ class SafetyProfileRead(BaseModel):
     sdp_section_reference: str | None
     approved_by: str | None
     review_date: str | None
+    has_legacy_software: bool
+    legacy_software_statement: str | None
     created_at: Any
     updated_at: Any
     model_config = ConfigDict(from_attributes=True)

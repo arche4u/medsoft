@@ -5,7 +5,7 @@ import {
   api,
   SoftwareItem, SoftwareItemType, SoftwareSafetyClass, SoftwareItemStatus,
   ComplianceStatus, ComplianceCheck,
-  Risk, Requirement,
+  Risk, Requirement, SafetyProfile,
 } from "@/lib/api";
 
 // ── Class metadata ─────────────────────────────────────────────────────────────
@@ -448,6 +448,14 @@ function ItemRow({
                 {TYPE_LABEL[item.item_type]}
               </span>
               <span style={{ fontWeight: 600, fontSize: 15 }}>{item.name}</span>
+              {item.is_legacy && (
+                <span title="IEC 62304 §4.4 — legacy software"
+                      style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3,
+                               background: "#efebe9", color: "#5d4037", border: "1px solid #d7ccc8",
+                               fontWeight: 700, letterSpacing: "0.05em" }}>
+                  LEGACY §4.4
+                </span>
+              )}
               {item.description && (
                 <span style={{ fontSize: 12, color: "#78909c", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 300 }}>
                   {item.description}
@@ -537,11 +545,12 @@ function ItemRow({
 // ── Add Item Form ─────────────────────────────────────────────────────────────
 
 function AddItemForm({
-  projectId, allItems,
+  projectId, allItems, hasLegacySoftware,
   onCreated,
 }: {
   projectId: string;
   allItems: SoftwareItem[];
+  hasLegacySoftware: boolean;   // §4.4 gate from SoftwareSafetyProfile
   onCreated: () => void;
 }) {
   const [name, setName] = useState("");
@@ -550,6 +559,9 @@ function AddItemForm({
   const [safetyClass, setSafetyClass] = useState<SoftwareSafetyClass>("C");
   const [parentId, setParentId] = useState("");
   const [just, setJust] = useState("");
+  // IEC 62304 §4.4 — legacy software flag + assessment narrative
+  const [isLegacy, setIsLegacy] = useState(false);
+  const [legacyAssessment, setLegacyAssessment] = useState("");
   const [saving, setSaving] = useState(false);
 
   // IEC 62304 §4.3 — selecting a parent inherits its class by default; a class
@@ -577,8 +589,11 @@ function AddItemForm({
         safety_class: safetyClass,
         parent_id: parentId || null,
         classification_justification: just.trim() || null,
+        is_legacy: isLegacy,
+        legacy_assessment: isLegacy ? (legacyAssessment.trim() || null) : null,
       });
       setName(""); setDesc(""); setParentId(""); setJust("");
+      setIsLegacy(false); setLegacyAssessment("");
       onCreated();
     } finally {
       setSaving(false);
@@ -616,6 +631,23 @@ function AddItemForm({
           {saving ? "Adding…" : "+ Add"}
         </button>
       </div>
+
+      {/* §4.4 — per-item legacy flag (only meaningful when project declared
+          has_legacy_software=true on its Safety Profile). */}
+      {hasLegacySoftware && (
+        <div style={{ marginTop: 10, padding: "8px 12px", background: "#efebe9", borderRadius: 4 }}>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer", fontSize: 13 }}>
+            <input type="checkbox" checked={isLegacy} onChange={e => setIsLegacy(e.target.checked)}
+                   style={{ marginTop: 2 }} />
+            <span><b>Legacy software (§4.4)</b> — this item was not developed under IEC 62304.</span>
+          </label>
+          {isLegacy && (
+            <textarea value={legacyAssessment} onChange={e => setLegacyAssessment(e.target.value)}
+                      rows={2} placeholder="§4.4(d) — document the manufacturer's risk-based decision regarding the application of IEC 62304 to this legacy item."
+                      style={{ ...sty.textarea, marginTop: 8 }} />
+          )}
+        </div>
+      )}
 
       {/* §4.3 — justification required when classifying below the parent */}
       {belowParent && (
@@ -694,6 +726,9 @@ function SoftwareItemsPageInner() {
   const [items, setItems] = useState<SoftwareItem[]>([]);
   const [risks, setRisks] = useState<Risk[]>([]);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
+  // IEC 62304 §4.4 — project-level legacy-software declaration on the
+  // SoftwareSafetyProfile gates whether per-item is_legacy is meaningful.
+  const [safetyProfile, setSafetyProfile] = useState<SafetyProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -701,14 +736,16 @@ function SoftwareItemsPageInner() {
     if (!projectId) { setLoading(false); return; }
     setLoading(true);
     try {
-      const [its, rks, reqs] = await Promise.all([
+      const [its, rks, reqs, prof] = await Promise.all([
         api.softwareItems.list(projectId),
         api.risks.list(undefined, projectId),
         api.requirements.list(projectId),
+        api.risks.safetyProfile.get(projectId),
       ]);
       setItems(its);
       setRisks(rks);
       setRequirements(reqs);
+      setSafetyProfile(prof);
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -773,9 +810,37 @@ function SoftwareItemsPageInner() {
         <div style={{ padding: 40, textAlign: "center", color: "#78909c" }}>Loading…</div>
       ) : (
         <>
+          {/* §4.4 — project-level legacy-software declaration banner. Read from
+              the SoftwareSafetyProfile so users see the project's stated §4.4
+              position without leaving this page. Edit on the /risks page. */}
+          <div style={{
+            marginBottom: 16, padding: "10px 14px", borderRadius: 6,
+            borderLeft: `4px solid ${safetyProfile?.has_legacy_software ? "#5d4037" : "#2e7d32"}`,
+            background: safetyProfile?.has_legacy_software ? "#efebe9" : "#e8f5e9",
+            color: "#37474f", fontSize: 13,
+          }}>
+            <strong>IEC 62304 §4.4 — Legacy software</strong>:&nbsp;
+            {!safetyProfile ? (
+              <>
+                no Safety Profile yet — <a href="/risks" style={{ color: "#1565c0" }}>configure on /risks</a> to declare the project's §4.4 position.
+              </>
+            ) : safetyProfile.has_legacy_software ? (
+              <>this project contains legacy software. Flag affected items below with the <em>Legacy</em> checkbox; document the manufacturer's process in the <a href="/plans/legacy-software" style={{ color: "#1565c0" }}>Legacy Software Plan</a>.</>
+            ) : (
+              <>declared <strong>N/A</strong> for this project — no legacy software. <a href="/risks" style={{ color: "#1565c0" }}>Change on /risks</a> if that's wrong.</>
+            )}
+            {safetyProfile?.legacy_software_statement && (
+              <div style={{ marginTop: 6, fontSize: 12, color: "#5d4037", fontStyle: "italic" }}>
+                “{safetyProfile.legacy_software_statement}”
+              </div>
+            )}
+          </div>
+
           <SummaryCards items={items} />
 
-          <AddItemForm projectId={projectId} allItems={items} onCreated={load} />
+          <AddItemForm projectId={projectId} allItems={items}
+                       hasLegacySoftware={safetyProfile?.has_legacy_software ?? false}
+                       onCreated={load} />
 
           <div style={{ marginTop: 20 }}>
             {roots.length === 0 ? (

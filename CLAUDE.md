@@ -265,6 +265,7 @@ All routes are prefixed with `/api/v1`. Interactive Swagger at `http://localhost
 | Clause | Backend module | Frontend page |
 |---|---|---|
 | §4.3 | `compliance/dev/software_items` | `/software-items` |
+| §4.4 Legacy software | `compliance/dev/software_items` (`is_legacy` + `legacy_assessment`) + `compliance/plans` (LEGACY_SOFTWARE) | `/software-items` + `/plans/custom/legacy-software` |
 | §5.1 | `compliance/dev/sdp` + `compliance/plans` | `/sdp`, `/plans/maintenance`, … |
 | §5.2 | `compliance/dev/requirements` | `/requirements` |
 | §5.3 | `compliance/dev/architecture` | `/architecture` |
