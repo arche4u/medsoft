@@ -7,7 +7,7 @@ from app.modules.platform.audit.service import audit
 from app.modules.platform.audit.model import AuditAction
 from app.modules.platform.auth.deps import require_permission
 from app.modules.platform.auth.schema import TokenData
-from app.modules.compliance.dev.requirements.model import Requirement
+from app.modules.compliance.dev.requirements.model import Requirement, RequirementCategory
 from app.modules.compliance.dev.architecture.model import SWComponent
 from .model import DesignElement, RequirementDesignLink
 from .schema import (
@@ -167,6 +167,23 @@ async def create_link(
     el = await db.get(DesignElement, payload.design_element_id)
     if not el:
         raise HTTPException(404, detail="Design element not found")
+    # §5.4 — design links are only allowed on leaf (SOFTWARE-tier) requirement
+    # categories. Reject USER/SYSTEM-tier links by checking the category has no
+    # children in the project's category tree.
+    cat_q = await db.execute(
+        select(RequirementCategory).where(
+            RequirementCategory.project_id == req.project_id,
+            RequirementCategory.name == req.type,
+        )
+    )
+    cat = cat_q.scalar_one_or_none()
+    if cat is None:
+        raise HTTPException(400, detail=f"§5.4: Requirement '{req.readable_id}' has type '{req.type}' with no matching category in project")
+    child = (await db.execute(
+        select(RequirementCategory.id).where(RequirementCategory.parent_id == cat.id).limit(1)
+    )).scalar_one_or_none()
+    if child is not None:
+        raise HTTPException(400, detail=f"§5.4: Requirement '{req.readable_id}' is in category '{cat.name}' which has child categories. Design links are only allowed on SOFTWARE (leaf-category) requirements.")
     link = RequirementDesignLink(**payload.model_dump())
     db.add(link)
     await db.flush()
