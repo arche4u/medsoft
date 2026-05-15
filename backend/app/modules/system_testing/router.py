@@ -410,16 +410,31 @@ async def _compute_readiness(release_id: str, project_id: str, db: AsyncSession)
          len(open_high) == 0,
          f"{len(open_high)} unresolved HIGH risk(s)" if open_high else "No unresolved HIGH risks")
 
-    # 7 — Release checklist complete
-    checklist = (await db.execute(
-        select(ReleaseChecklistItem).where(
-            ReleaseChecklistItem.release_id == uuid.UUID(release_id),
-            ReleaseChecklistItem.status == "PENDING",
-        )
-    )).scalars().all()
+    # 7 — Release items linked. Releasing an empty bundle has no audit value.
+    from sqlalchemy import func
+    from app.modules.release.model import ReleaseItem
+    rel_uuid = uuid.UUID(release_id)
+    item_count = (await db.execute(
+        select(func.count(ReleaseItem.id)).where(ReleaseItem.release_id == rel_uuid)
+    )).scalar_one()
+    gate("release_items", "Release items linked",
+         item_count > 0,
+         f"{item_count} item(s) linked")
+
+    # 8 — Release checklist complete. `status` is open-vocabulary, so we
+    # treat the default "PENDING" sentinel as incomplete and anything else
+    # (DONE, N/A, …) as complete.
+    total_checklist, pending_count = (await db.execute(
+        select(
+            func.count(ReleaseChecklistItem.id),
+            func.count(ReleaseChecklistItem.id).filter(ReleaseChecklistItem.status == "PENDING"),
+        ).where(ReleaseChecklistItem.release_id == rel_uuid)
+    )).one()
+    complete_count = total_checklist - pending_count
     gate("checklist", "Release checklist complete",
-         len(checklist) == 0,
-         f"{len(checklist)} checklist item(s) pending" if checklist else "Checklist complete", blocking=False)
+         total_checklist > 0 and pending_count == 0,
+         (f"{complete_count} of {total_checklist} checklist items complete"
+          if total_checklist else "Checklist not initialized"))
 
     blocking = [g.label for g in gates if g.blocking and not g.passed]
     return ReleaseReadiness(
