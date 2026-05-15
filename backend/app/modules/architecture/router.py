@@ -34,12 +34,30 @@ VALID_TRANSITIONS: dict[str, set[str]] = {
     "APPROVED": set(),
 }
 
+# IEC 62304 §4.3 — only A, B, C are recognised safety classifications.
+VALID_SAFETY_CLASSES: frozenset[str] = frozenset({"A", "B", "C"})
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _assert_editable(c: SWComponent) -> None:
     if c.status == "APPROVED":
         raise HTTPException(400, f"Component '{c.name}' is APPROVED and cannot be edited. Fork to create a new version.")
+
+
+# TODO(§4.3/§5.3 inheritance): once SWComponent.software_item_id exists, this
+# helper must also reject body.safety_class != software_item.safety_class — a
+# component inherits its parent SoftwareItem's classification. Blocked on the
+# FK column + migration, out of scope for this PR.
+def _assert_valid_safety_class(safety_class: str) -> None:
+    """Persistence-boundary guard for the IEC 62304 §4.3 A/B/C taxonomy
+    (Pydantic regex catches API callers; this catches seeds and internal services)."""
+    if safety_class not in VALID_SAFETY_CLASSES:
+        raise HTTPException(
+            400,
+            f"§4.3: Invalid safety_class '{safety_class}'. "
+            f"Must be one of {sorted(VALID_SAFETY_CLASSES)}.",
+        )
 
 
 def _to_read(c: SWComponent, iface_count: int = 0) -> ComponentRead:
@@ -281,6 +299,7 @@ async def create_component(
     current_user: TokenData = Depends(require_permission("CREATE_ARCHITECTURE")),
 ):
     await assert_architecture_unlocked(db, payload.project_id)
+    _assert_valid_safety_class(payload.safety_class)
     # Hierarchy enforcement — taxonomy rules come from constants.py.
     is_root_type = payload.component_type in ROOT_COMPONENT_TYPES
     if is_root_type and payload.parent_id:
@@ -374,7 +393,10 @@ async def update_component(
         raise HTTPException(404, "Component not found")
     await assert_architecture_unlocked(db, c.project_id)
     _assert_editable(c)
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    if "safety_class" in updates and updates["safety_class"] is not None:
+        _assert_valid_safety_class(updates["safety_class"])
+    for k, v in updates.items():
         setattr(c, k, v)
     await audit(db, "sw_component", c.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
