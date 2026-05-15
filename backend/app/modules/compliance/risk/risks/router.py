@@ -20,10 +20,16 @@ from .schema import (
     ResidualRiskUpsert, ResidualRiskRead,
     RiskDashboard, HeatmapCell,
     SafetyProfileCreate, SafetyProfileRead, SafetyProfileUpdate,
-    RiskContributionCreate, RiskContributionRead,
+    RiskContributionCreate, RiskContributionRead, RiskContributionUpdate,
     VerificationEvidenceCreate, VerificationEvidenceRead,
     RiskReEvaluate,
 )
+
+
+# §7.4 — closed set of re-evaluation outcomes (Pydantic also validates this
+# pattern, but we re-check defensively in the router so any caller bypassing
+# the schema still gets a clean 400).
+_REEVAL_OUTCOMES = {"MITIGATED", "ACCEPTED", "TRANSFERRED", "NEEDS_MORE_INFO"}
 
 router = APIRouter(prefix="/risks", tags=["risks"])
 
@@ -586,6 +592,29 @@ async def add_contribution(
     return contrib
 
 
+@router.put("/contributions/{contribution_id}", response_model=RiskContributionRead)
+async def update_contribution(
+    contribution_id: uuid.UUID,
+    body: RiskContributionUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: TokenData = Depends(require_permission("UPDATE_RISK")),
+):
+    """Update mutable fields (notes, probability_of_occurrence). The
+    risk / item / component anchors are immutable — delete + re-add."""
+    c = await db.get(RiskContribution, contribution_id)
+    if not c:
+        raise HTTPException(404, "Contribution not found")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(c, k, v)
+    await audit(
+        db, "RiskContribution", c.id, AuditAction.UPDATE, current_user.user_id,
+        f"risk={c.risk_id} prob={c.probability_of_occurrence}",
+    )
+    await db.commit()
+    await db.refresh(c)
+    return c
+
+
 @router.delete("/contributions/{contribution_id}", status_code=204)
 async def delete_contribution(
     contribution_id: uuid.UUID,
@@ -646,7 +675,11 @@ async def add_evidence(
             "(test FK or external_reference)",
         )
 
-    ev = VerificationEvidence(control_id=control_id, **body.model_dump())
+    ev = VerificationEvidence(
+        control_id=control_id,
+        verified_by_user_id=current_user.user_id,
+        **body.model_dump(),
+    )
     db.add(ev)
     await db.flush()
 
@@ -737,6 +770,14 @@ async def record_reevaluation(
     risk = await db.get(Risk, risk_id)
     if not risk:
         raise HTTPException(404, "Risk not found")
+    # Defensive outcome validation — Pydantic already enforces this, but
+    # protect against future schema regressions.
+    if body.outcome not in _REEVAL_OUTCOMES:
+        raise HTTPException(
+            400,
+            f"Invalid outcome '{body.outcome}'. Must be one of: "
+            f"{', '.join(sorted(_REEVAL_OUTCOMES))}",
+        )
     now = datetime.now(timezone.utc)
     risk.evaluation_notes = (
         (risk.evaluation_notes + "\n\n— " + now.strftime("%Y-%m-%d") + " —\n" + body.notes)
@@ -745,6 +786,7 @@ async def record_reevaluation(
     risk.last_re_evaluated_at = now
     risk.last_re_evaluated_by = body.re_evaluated_by
     risk.re_evaluation_required = False
+    risk.re_evaluation_outcome = body.outcome
     # Triggered_at + reason stay in place as the historical record of the
     # most recent trigger; cleared at next trigger.
     if body.severity is not None or body.probability is not None:
@@ -757,7 +799,8 @@ async def record_reevaluation(
         risk.status = body.new_status
     await audit(
         db, "Risk", risk.id, AuditAction.UPDATE, current_user.user_id,
-        f"re-evaluated -> S{risk.severity}xP{risk.probability}={risk.risk_level} status={risk.status}",
+        f"re-evaluated -> S{risk.severity}xP{risk.probability}={risk.risk_level} "
+        f"status={risk.status} outcome={body.outcome}",
     )
     await db.commit()
     await db.refresh(risk)

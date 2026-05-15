@@ -31,6 +31,16 @@ Steps executed (order matters):
                              (auto-flipping them to VERIFIED), and flags
                              two risks per project as §7.4 re-evaluation
                              required so the inbox view has data.
+  6. seed_section89.py     — §4.4 Legacy Software declaration (one demo
+                             project marked has_legacy_software=true with
+                             two flagged items + APPROVED Legacy Software
+                             Plan v1.0; others get the "no legacy" N/A
+                             statement). §8.2.2 SOUP register: 5 typical
+                             SOUP entries per project (openssl / libcurl /
+                             FreeRTOS / zlib / mbedTLS). §9.6 problem-
+                             trend variety: 4 extra ProblemReports per
+                             project with 1-2 RootCauses spread across
+                             types so the TrendAnalysisPanel renders.
 
 Not seeded — generated on demand: DHF documents (POST /dhf/generate/{project_id}).
 
@@ -62,6 +72,10 @@ STEPS = [
     {
         "script": "seed_section7.py",
         "label":  "§7 Software Risk Management: contributions (§7.1), evidence (§7.3), re-eval flags (§7.4)",
+    },
+    {
+        "script": "seed_section89.py",
+        "label":  "§4.4 Legacy + §8.2.2 SOUP register + §9.6 problem-trend variety",
     },
 ]
 

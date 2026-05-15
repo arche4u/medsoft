@@ -68,6 +68,9 @@ export type ChangeImpactPreview = {
 // SECURITY / SAFETY_SECURITY discriminator drives the UI tab / filter.
 export type RiskClass = "SAFETY" | "SECURITY" | "SAFETY_SECURITY";
 
+// §7.4 — disposition of the most recent re-evaluation pass.
+export type ReEvalOutcome = "MITIGATED" | "ACCEPTED" | "TRANSFERRED" | "NEEDS_MORE_INFO";
+
 export type Risk = {
   id: string; requirement_id: string; category_id: string | null;
   risk_class: RiskClass;
@@ -79,6 +82,7 @@ export type Risk = {
   re_evaluation_triggered_at: string | null;
   last_re_evaluated_at: string | null;
   last_re_evaluated_by: string | null;
+  re_evaluation_outcome: ReEvalOutcome | null;
   controls: RiskControl[];
   residual_risk: ResidualRisk | null;
   contributions: RiskContribution[];
@@ -103,6 +107,8 @@ export type VerificationEvidence = {
   result: "PASS" | "FAIL";
   notes: string | null;
   verified_by: string | null;
+  // §7.3 — Reviewer user id (server-set from current_user.id).
+  verified_by_user_id: string | null;
   verified_at: string;
 };
 // §7.1 — Risk contribution (which software item / component contributes
@@ -113,6 +119,8 @@ export type RiskContribution = {
   software_item_id: string | null;
   component_id: string | null;
   contribution_notes: string | null;
+  // §7.1 — Estimated probability (0.0–1.0) this contributor leads to the hazard.
+  probability_of_occurrence: number | null;
   created_at: string;
 };
 export type ResidualRisk = {
@@ -1026,8 +1034,9 @@ export const api = {
       req<Risk>(`/risks/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     updateStatus: (id: string, status: string) =>
       req<Risk>(`/risks/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
-    // §7.4 — record outcome of a re-evaluation (clears the flag).
-    recordReevaluation: (risk_id: string, d: { notes: string; re_evaluated_by?: string | null; severity?: number; probability?: number; new_status?: "OPEN" | "IN_CONTROL" | "ACCEPTED" | "CLOSED" }) =>
+    // §7.4 — record outcome of a re-evaluation (clears the flag). The
+    // `outcome` field is required and writes to risk.re_evaluation_outcome.
+    recordReevaluation: (risk_id: string, d: { notes: string; outcome: ReEvalOutcome; re_evaluated_by?: string | null; severity?: number; probability?: number; new_status?: "OPEN" | "IN_CONTROL" | "ACCEPTED" | "CLOSED" }) =>
       req<Risk>(`/risks/${risk_id}/re-evaluate`, { method: "POST", body: JSON.stringify(d) }),
     delete: (id: string) => req<void>(`/risks/${id}`, { method: "DELETE" }),
     dashboard: (project_id: string) => req<RiskDashboard>(`/risks/dashboard/${project_id}`),
@@ -1043,8 +1052,10 @@ export const api = {
     // contributes to this hazard).
     contributions: {
       list: (risk_id: string) => req<RiskContribution[]>(`/risks/${risk_id}/contributions`),
-      add: (risk_id: string, d: { software_item_id?: string; component_id?: string; contribution_notes?: string }) =>
+      add: (risk_id: string, d: { software_item_id?: string; component_id?: string; contribution_notes?: string; probability_of_occurrence?: number | null }) =>
         req<RiskContribution>(`/risks/${risk_id}/contributions`, { method: "POST", body: JSON.stringify(d) }),
+      update: (contribution_id: string, d: { contribution_notes?: string | null; probability_of_occurrence?: number | null }) =>
+        req<RiskContribution>(`/risks/contributions/${contribution_id}`, { method: "PUT", body: JSON.stringify(d) }),
       delete: (contribution_id: string) =>
         req<void>(`/risks/contributions/${contribution_id}`, { method: "DELETE" }),
     },

@@ -73,6 +73,8 @@ class VerificationEvidenceRead(BaseModel):
     result: str
     notes: str | None
     verified_by: str | None
+    # §7.3 — Reviewer user id (auto-set by the router from current_user).
+    verified_by_user_id: uuid.UUID | None = None
     verified_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -98,6 +100,16 @@ class RiskContributionCreate(BaseModel):
     software_item_id: uuid.UUID | None = None
     component_id: uuid.UUID | None = None
     contribution_notes: str | None = None
+    # §7.1 — Estimated probability (0.0–1.0) that this contributor leads
+    # to the hazardous situation. Optional; defaults to None (unknown).
+    probability_of_occurrence: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class RiskContributionUpdate(BaseModel):
+    """Update mutable fields of a RiskContribution. The risk / item /
+    component anchors are immutable — delete + re-add to change those."""
+    contribution_notes: str | None = None
+    probability_of_occurrence: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class RiskContributionRead(BaseModel):
@@ -106,6 +118,7 @@ class RiskContributionRead(BaseModel):
     software_item_id: uuid.UUID | None
     component_id: uuid.UUID | None
     contribution_notes: str | None
+    probability_of_occurrence: float | None = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -122,6 +135,12 @@ class RiskReEvaluate(BaseModel):
     severity: int | None = Field(default=None, ge=1, le=5)
     probability: int | None = Field(default=None, ge=1, le=5)
     new_status: str | None = Field(default=None, pattern="^(OPEN|IN_CONTROL|ACCEPTED|CLOSED)$")
+    # §7.4 — Required disposition for the re-evaluation:
+    # MITIGATED       → additional controls / design changes addressed it
+    # ACCEPTED        → residual risk acceptable, no further action
+    # TRANSFERRED     → moved to a different owner (system / process / 3rd party)
+    # NEEDS_MORE_INFO → insufficient data; loop stays open for further investigation
+    outcome: str = Field(pattern="^(MITIGATED|ACCEPTED|TRANSFERRED|NEEDS_MORE_INFO)$")
 
 
 # ── Residual Risk ─────────────────────────────────────────────────────────────
@@ -199,6 +218,7 @@ class RiskRead(BaseModel):
     re_evaluation_triggered_at: datetime | None = None
     last_re_evaluated_at: datetime | None = None
     last_re_evaluated_by: str | None = None
+    re_evaluation_outcome: str | None = None
     controls: list[RiskControlRead] = []
     residual_risk: ResidualRiskRead | None = None
     contributions: list[RiskContributionRead] = []

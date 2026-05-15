@@ -5,22 +5,7 @@ import {
   CMConfigItem, CMBaseline, CMChangeRequest, CMChangeImpact,
   CMItemStatus, CMChangeStatus, CMChangeType, CMPriority, CMReleaseCheck,
 } from "@/lib/api";
-
-// ── helpers ───────────────────────────────────────────────────────────────────
-function useProject() {
-  const [pid, setPid] = useState<string | null>(null);
-  useEffect(() => {
-    const stored = typeof window !== "undefined" ? localStorage.getItem("medsoft_active_project") : null;
-    if (stored) { try { setPid(JSON.parse(stored).id); } catch { /* noop */ } }
-    const handler = (e: Event) => {
-      const ce = e as CustomEvent<{ id: string }>;
-      setPid(ce.detail?.id ?? null);
-    };
-    window.addEventListener("medsoft:project_changed", handler);
-    return () => window.removeEventListener("medsoft:project_changed", handler);
-  }, []);
-  return pid;
-}
+import { useActiveProject } from "@/lib/useActiveProject";
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -554,7 +539,7 @@ function SummaryCards({ projectId }: { projectId: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ConfigMgmtPage() {
-  const projectId = useProject();
+  const [projectId] = useActiveProject();
   const [tab, setTab] = useState<"items" | "baselines" | "changes">("items");
 
   if (!projectId) {

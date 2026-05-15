@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from typing import Optional
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.base import Base, TimestampMixin
@@ -98,6 +99,12 @@ class Risk(Base):
     re_evaluation_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_re_evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_re_evaluated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # ── §7.4 re-evaluation disposition ───────────────────────────────────────
+    # Outcome of the most recent re-evaluation: MITIGATED / ACCEPTED /
+    # TRANSFERRED / NEEDS_MORE_INFO. None until the first re-evaluation is
+    # recorded. Distinct from `status` — captures the auditor-visible
+    # disposition of the loop, not the lifecycle state.
+    re_evaluation_outcome: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
 
     requirement: Mapped["Requirement"] = relationship(back_populates="risks")
     controls: Mapped[list["RiskControl"]] = relationship(
@@ -172,6 +179,10 @@ class RiskContribution(Base):
         UUID(as_uuid=True), ForeignKey("sw_components.id", ondelete="CASCADE"), nullable=True
     )
     contribution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # §7.1 — Estimated probability (0.0–1.0) that this software item /
+    # component contributes to the hazardous situation. Helps auditors see
+    # how heavily each contributor weighs against the hazard.
+    probability_of_occurrence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"
     )
@@ -210,6 +221,12 @@ class VerificationEvidence(Base):
     result: Mapped[str] = mapped_column(String(10), nullable=False, default="PASS")  # PASS / FAIL
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     verified_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # §7.3 — Reviewer audit: which user account recorded this evidence.
+    # Auto-set by the router from current_user.id. Distinct from
+    # `verified_by` (free-text name on the certificate / signoff).
+    verified_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     verified_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default="now()"
     )

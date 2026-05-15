@@ -5,8 +5,8 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   api, Project, Requirement, SystemTestCase, IntegrationTestCase, SoftwareUnit, SoftwareItem,
-  SWComponentTreeNode, Risk, RiskClass, RiskControl, RiskContribution, VerificationEvidence,
-  ResidualRisk, RiskDashboard, SafetyProfile,
+  SWComponentTreeNode, Risk, RiskClass, ReEvalOutcome, RiskControl, RiskContribution, VerificationEvidence,
+  ResidualRisk, RiskDashboard, SafetyProfile, UserRead,
 } from "@/lib/api";
 
 type RiskLevel = "HIGH" | "MEDIUM" | "LOW";
@@ -367,11 +367,12 @@ function EvidenceModal({ control, systemTests, integrationTests, units, onClose,
   );
 }
 
-function EvidenceTable({ control, systemTestById, integrationTestById, unitTestById, onReload }: {
+function EvidenceTable({ control, systemTestById, integrationTestById, unitTestById, userById, onReload }: {
   control: RiskControl;
   systemTestById: Record<string, SystemTestCase>;
   integrationTestById: Record<string, IntegrationTestCase>;
   unitTestById: Record<string, { label: string }>;
+  userById: Record<string, UserRead>;
   onReload: () => void;
 }) {
   async function handleDelete(ev: VerificationEvidence) {
@@ -405,6 +406,11 @@ function EvidenceTable({ control, systemTestById, integrationTestById, unitTestB
           else if (ev.notes)              refLabel = ev.notes.slice(0, 60);
           const date = ev.verified_at ? new Date(ev.verified_at).toLocaleDateString() : "—";
           const resultColor = ev.result === "PASS" ? "#2e7d32" : "#b71c1c";
+          // §7.3 — Reviewer display: prefer the resolved User account name,
+          // fall back to the free-text `verified_by` certificate / signoff.
+          const reviewerName = ev.verified_by_user_id
+            ? (userById[ev.verified_by_user_id]?.name ?? null)
+            : null;
           return (
             <tr key={ev.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
               <td style={{ ...tdStyle, padding: "4px 6px" }}>
@@ -412,7 +418,18 @@ function EvidenceTable({ control, systemTestById, integrationTestById, unitTestB
               </td>
               <td style={{ ...tdStyle, padding: "4px 6px" }}>{refLabel}</td>
               <td style={{ ...tdStyle, padding: "4px 6px", color: resultColor, fontWeight: 700 }}>{ev.result}</td>
-              <td style={{ ...tdStyle, padding: "4px 6px", color: "#555" }}>{ev.verified_by ?? "—"}</td>
+              <td style={{ ...tdStyle, padding: "4px 6px", color: "#555" }}>
+                {reviewerName ? (
+                  <span title="Reviewer user account (§7.3)">
+                    <span style={{ fontWeight: 600 }}>{reviewerName}</span>
+                    {ev.verified_by && ev.verified_by !== reviewerName && (
+                      <span style={{ color: "#888" }}> · {ev.verified_by}</span>
+                    )}
+                  </span>
+                ) : (
+                  ev.verified_by ?? "—"
+                )}
+              </td>
               <td style={{ ...tdStyle, padding: "4px 6px", color: "#888" }}>{date}</td>
               <td style={{ ...tdStyle, padding: "4px 6px", textAlign: "right" }}>
                 <button type="button" onClick={() => handleDelete(ev)}
@@ -427,10 +444,11 @@ function EvidenceTable({ control, systemTestById, integrationTestById, unitTestB
 }
 
 // ── Risk Controls Panel ───────────────────────────────────────────────────────
-function ControlsPanel({ risk, reqs, systemTests, integrationTests, units, componentMap, onReload }: {
+function ControlsPanel({ risk, reqs, systemTests, integrationTests, units, componentMap, userById, onReload }: {
   risk: Risk; reqs: Requirement[]; systemTests: SystemTestCase[];
   integrationTests: IntegrationTestCase[]; units: SoftwareUnit[];
   componentMap: Record<string, string>;
+  userById: Record<string, UserRead>;
   onReload: () => void;
 }) {
   const [showAdd, setShowAdd]   = useState(false);
@@ -614,6 +632,7 @@ function ControlsPanel({ risk, reqs, systemTests, integrationTests, units, compo
               </div>
               <EvidenceTable control={ctrl}
                 systemTestById={tcById} integrationTestById={itById} unitTestById={unitTestById}
+                userById={userById}
                 onReload={onReload} />
             </div>
           </div>
@@ -798,18 +817,33 @@ function ContributionsPanel({ risk, componentMap, softwareItemMap, onReload }: {
   const [kind, setKind]       = useState<"SW_ITEM" | "COMPONENT">("SW_ITEM");
   const [targetId, setTargetId] = useState("");
   const [notes, setNotes]     = useState("");
+  // §7.1 — Estimated probability (0.0–1.0). Empty string ⇒ unknown / null.
+  const [poo, setPoo]         = useState<string>("");
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState("");
 
+  function parsePoo(): number | null | "INVALID" {
+    if (poo.trim() === "") return null;
+    const n = Number(poo);
+    if (!Number.isFinite(n) || n < 0 || n > 1) return "INVALID";
+    return n;
+  }
+
   async function handleAdd() {
     if (!targetId) { setError("Select a target"); return; }
+    const parsed = parsePoo();
+    if (parsed === "INVALID") { setError("Probability must be between 0.0 and 1.0"); return; }
     setSaving(true); setError("");
     try {
+      const base: { contribution_notes?: string; probability_of_occurrence?: number | null } = {
+        contribution_notes: notes.trim() || undefined,
+        probability_of_occurrence: parsed,
+      };
       const payload = kind === "SW_ITEM"
-        ? { software_item_id: targetId, contribution_notes: notes.trim() || undefined }
-        : { component_id: targetId, contribution_notes: notes.trim() || undefined };
+        ? { software_item_id: targetId, ...base }
+        : { component_id: targetId, ...base };
       await api.risks.contributions.add(risk.id, payload);
-      setShowAdd(false); setTargetId(""); setNotes("");
+      setShowAdd(false); setTargetId(""); setNotes(""); setPoo("");
       onReload();
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
@@ -844,6 +878,9 @@ function ContributionsPanel({ risk, componentMap, softwareItemMap, onReload }: {
         const name = isItem
           ? (softwareItemMap[c.software_item_id!] ?? c.software_item_id)
           : (componentMap[c.component_id!] ?? c.component_id);
+        const pooLabel = c.probability_of_occurrence != null
+          ? `P=${c.probability_of_occurrence.toFixed(2)}`
+          : null;
         return (
           <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px",
             background: "#fff", border: "1px solid #c5e1a5", borderRadius: 4, marginBottom: 4 }}>
@@ -852,6 +889,13 @@ function ContributionsPanel({ risk, componentMap, softwareItemMap, onReload }: {
               {isItem ? "SW Item" : "§5.3"}
             </span>
             <span style={{ fontSize: 12, flex: 1 }}>{name}</span>
+            {pooLabel && (
+              <span title="§7.1 estimated probability of occurrence (0.0–1.0)"
+                style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 700, padding: "1px 6px",
+                  borderRadius: 3, background: "#fff8e1", color: "#ef6c00", border: "1px solid #ffe082" }}>
+                {pooLabel}
+              </span>
+            )}
             {c.contribution_notes && (
               <span style={{ fontSize: 11, color: "#666", fontStyle: "italic" }}>
                 {c.contribution_notes.length > 80 ? c.contribution_notes.slice(0, 80) + "…" : c.contribution_notes}
@@ -887,6 +931,16 @@ function ContributionsPanel({ risk, componentMap, softwareItemMap, onReload }: {
             </select>
           </div>
           <div style={{ marginBottom: 6 }}>
+            <label style={labelStyle}>Probability of Occurrence (0.0–1.0, optional)</label>
+            <input type="number" step={0.01} min={0} max={1}
+              value={poo} onChange={e => setPoo(e.target.value)}
+              placeholder="e.g. 0.25 — leave blank if unknown"
+              style={inputStyle} />
+            <div style={{ fontSize: 10, color: "#888", marginTop: 2 }}>
+              §7.1 — how heavily this contributor weighs against the hazard
+            </div>
+          </div>
+          <div style={{ marginBottom: 6 }}>
             <label style={labelStyle}>Contribution Notes (optional)</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
               placeholder="How does this item/component contribute to the hazard?"
@@ -904,21 +958,32 @@ function ContributionsPanel({ risk, componentMap, softwareItemMap, onReload }: {
 }
 
 // ── Re-evaluation modal (§7) ──────────────────────────────────────────────────
+const REEVAL_OUTCOME_OPTIONS: { value: ReEvalOutcome; label: string; help: string }[] = [
+  { value: "MITIGATED",       label: "Mitigated",       help: "Additional controls / design changes addressed the risk" },
+  { value: "ACCEPTED",        label: "Accepted",        help: "Residual risk acceptable; no further action required" },
+  { value: "TRANSFERRED",     label: "Transferred",     help: "Risk moved to a different owner (system / process / 3rd party)" },
+  { value: "NEEDS_MORE_INFO", label: "Needs More Info", help: "Insufficient data; investigation continues" },
+];
+
 function ReevaluateModal({ risk, onClose, onSaved }: { risk: Risk; onClose: () => void; onSaved: () => void }) {
   const [notes, setNotes]   = useState("");
   const [by, setBy]         = useState("");
   const [sev, setSev]       = useState<number | "">("");
   const [prob, setProb]     = useState<number | "">("");
   const [newStatus, setNS]  = useState<"" | "OPEN" | "IN_CONTROL" | "ACCEPTED" | "CLOSED">("");
+  // §7.4 — required disposition. Empty string until the user picks one.
+  const [outcome, setOutcome] = useState<"" | ReEvalOutcome>("");
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState("");
 
   async function handleSubmit() {
     if (!notes.trim()) { setError("Notes are required"); return; }
+    if (!outcome) { setError("Outcome is required"); return; }
     setSaving(true); setError("");
     try {
       await api.risks.recordReevaluation(risk.id, {
         notes: notes.trim(),
+        outcome,
         re_evaluated_by: by.trim() || null,
         ...(sev  !== "" ? { severity:  +sev } : {}),
         ...(prob !== "" ? { probability: +prob } : {}),
@@ -951,6 +1016,21 @@ function ReevaluateModal({ risk, onClose, onSaved }: { risk: Risk; onClose: () =
         <div style={{ marginBottom: 8 }}>
           <label style={labelStyle}>Re-evaluated By</label>
           <input value={by} onChange={e => setBy(e.target.value)} style={inputStyle} />
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <label style={labelStyle}>Outcome *</label>
+          <select value={outcome} onChange={e => setOutcome(e.target.value as "" | ReEvalOutcome)}
+            style={inputStyle} required>
+            <option value="">— select disposition —</option>
+            {REEVAL_OUTCOME_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          {outcome && (
+            <div style={{ fontSize: 11, color: "#666", marginTop: 3, fontStyle: "italic" }}>
+              {REEVAL_OUTCOME_OPTIONS.find(o => o.value === outcome)?.help}
+            </div>
+          )}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
           <div>
@@ -1068,10 +1148,11 @@ function ReevalInboxTab({ projectId, onChanged }: { projectId: string; onChanged
 }
 
 // ── Risk row ──────────────────────────────────────────────────────────────────
-function RiskRow({ risk, req, reqs, systemTests, integrationTests, units, componentMap, softwareItemMap, isLast, onDelete, onUpdate }: {
+function RiskRow({ risk, req, reqs, systemTests, integrationTests, units, componentMap, softwareItemMap, userById, isLast, onDelete, onUpdate }: {
   risk: Risk; req?: Requirement; reqs: Requirement[]; systemTests: SystemTestCase[];
   integrationTests: IntegrationTestCase[]; units: SoftwareUnit[];
   componentMap: Record<string, string>; softwareItemMap: Record<string, string>;
+  userById: Record<string, UserRead>;
   isLast: boolean; onDelete: (id: string) => void; onUpdate: (updated: Risk) => void;
 }) {
   const [editing,           setEditing]           = useState(false);
@@ -1289,6 +1370,7 @@ function RiskRow({ risk, req, reqs, systemTests, integrationTests, units, compon
         <ControlsPanel risk={risk} reqs={reqs} systemTests={systemTests}
           integrationTests={integrationTests} units={units}
           componentMap={componentMap}
+          userById={userById}
           onReload={() => onUpdate(risk)} />
       )}
 
@@ -1308,10 +1390,11 @@ function RiskRow({ risk, req, reqs, systemTests, integrationTests, units, compon
 }
 
 // ── Risk level group ──────────────────────────────────────────────────────────
-function RiskGroup({ level, risks, reqs, systemTests, integrationTests, units, componentMap, softwareItemMap, onDelete, onUpdate }: {
+function RiskGroup({ level, risks, reqs, systemTests, integrationTests, units, componentMap, softwareItemMap, userById, onDelete, onUpdate }: {
   level: RiskLevel; risks: Risk[]; reqs: Requirement[]; systemTests: SystemTestCase[];
   integrationTests: IntegrationTestCase[]; units: SoftwareUnit[];
   componentMap: Record<string, string>; softwareItemMap: Record<string, string>;
+  userById: Record<string, UserRead>;
   onDelete: (id: string) => void; onUpdate: (updated: Risk) => void;
 }) {
   const [open, setOpen] = useState(true);
@@ -1345,6 +1428,7 @@ function RiskGroup({ level, risks, reqs, systemTests, integrationTests, units, c
               reqs={reqs} systemTests={systemTests}
               integrationTests={integrationTests} units={units}
               componentMap={componentMap} softwareItemMap={softwareItemMap}
+              userById={userById}
               isLast={i === risks.length - 1}
               onDelete={onDelete} onUpdate={onUpdate} />
           ))}
@@ -1613,6 +1697,8 @@ function RisksPageInner() {
   const [components,       setComponents]       = useState<{ id: string; name: string }[]>([]);
   const [softwareItems,    setSoftwareItems]    = useState<SoftwareItem[]>([]);
   const [risks,            setRisks]            = useState<Risk[]>([]);
+  // §7.3 — resolved User accounts for verified_by_user_id lookup in evidence rows.
+  const [users,            setUsers]            = useState<UserRead[]>([]);
   const [projectId,        setProjectId]        = useActiveProject();
   const [filter,           setFilter]           = useState<string>(lvlParam);
   const initialClassFilter: "ALL" | RiskClass =
@@ -1633,6 +1719,10 @@ function RisksPageInner() {
   const [saving,          setSaving]     = useState(false);
 
   useEffect(() => { api.projects.list().then(setProjects); }, []);
+  // Users list is project-independent; load once and use to resolve
+  // verified_by_user_id on evidence rows. Tolerate failure (non-admins may
+  // not have permission) — we'll just fall back to free-text verified_by.
+  useEffect(() => { api.users.list().then(setUsers).catch(() => setUsers([])); }, []);
 
   const reload = async () => {
     if (!projectId) return;
@@ -1692,6 +1782,7 @@ function RisksPageInner() {
 
   const componentMap     = Object.fromEntries(components.map(c => [c.id, c.name])) as Record<string, string>;
   const softwareItemMap  = Object.fromEntries(softwareItems.map(s => [s.id, s.name])) as Record<string, string>;
+  const userById         = Object.fromEntries(users.map(u => [u.id, u])) as Record<string, UserRead>;
 
   const LEVELS: RiskLevel[] = ["HIGH", "MEDIUM", "LOW"];
   const classFiltered = classFilter === "ALL" ? risks : risks.filter(r => r.risk_class === classFilter);
@@ -1849,6 +1940,7 @@ function RisksPageInner() {
                 <RiskGroup key={l} level={l} risks={grouped[l]} reqs={reqs} systemTests={systemTests}
                   integrationTests={integrationTests} units={units}
                   componentMap={componentMap} softwareItemMap={softwareItemMap}
+                  userById={userById}
                   onDelete={handleDelete} onUpdate={handleUpdate} />
               ))}
             </div>

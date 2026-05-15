@@ -6,19 +6,7 @@ import {
   ProblemSeverity, ProblemStatus, CAPAStatus, RootCauseType, UpdateType,
   CAPAReleaseCheck,
 } from "@/lib/api";
-
-// ── project hook ──────────────────────────────────────────────────────────────
-function useProject() {
-  const [pid, setPid] = useState<string | null>(null);
-  useEffect(() => {
-    const stored = typeof window !== "undefined" ? localStorage.getItem("medsoft_active_project") : null;
-    if (stored) { try { setPid(JSON.parse(stored).id); } catch { /* noop */ } }
-    const h = (e: Event) => { const ce = e as CustomEvent<{ id: string }>; setPid(ce.detail?.id ?? null); };
-    window.addEventListener("medsoft:project_changed", h);
-    return () => window.removeEventListener("medsoft:project_changed", h);
-  }, []);
-  return pid;
-}
+import { useActiveProject } from "@/lib/useActiveProject";
 
 // ── Badges ────────────────────────────────────────────────────────────────────
 function SevBadge({ s }: { s: string }) {
@@ -541,7 +529,7 @@ function MaintenanceTab({ projectId }: { projectId: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function CAPAPage() {
-  const projectId = useProject();
+  const [projectId] = useActiveProject();
   const [tab, setTab] = useState<"problems" | "maintenance">("problems");
   const [problems, setProblems] = useState<ProblemReport[]>([]);
   const [maintenance, setMaintenance] = useState<MaintenanceRecord[]>([]);
