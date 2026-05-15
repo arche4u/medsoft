@@ -47,9 +47,11 @@ class ReleaseRead(BaseModel):
     user_notification_sent: bool
     user_notification_summary: str | None
     user_notified_at: datetime | None
+    user_notified_by_id: uuid.UUID | None = None
     regulator_notification_sent: bool
     regulator_notification_summary: str | None
     regulator_notified_at: datetime | None
+    regulator_notified_by_id: uuid.UUID | None = None
     # §6.3.2 lineage
     parent_release_id: uuid.UUID | None
     created_at: datetime

@@ -309,9 +309,11 @@ export type Release = {
   user_notification_sent: boolean;
   user_notification_summary: string | null;
   user_notified_at: string | null;
+  user_notified_by_id: string | null;
   regulator_notification_sent: boolean;
   regulator_notification_summary: string | null;
   regulator_notified_at: string | null;
+  regulator_notified_by_id: string | null;
   // IEC 62304 §6.3.2 — link to predecessor RELEASED version.
   parent_release_id: string | null;
   created_at: string;

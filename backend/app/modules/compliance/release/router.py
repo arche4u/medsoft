@@ -344,10 +344,12 @@ async def record_notification(
         rel.user_notification_sent = True
         rel.user_notification_summary = body.summary
         rel.user_notified_at = now
+        rel.user_notified_by_id = current_user.user_id
     elif audience == "REGULATOR":
         rel.regulator_notification_sent = True
         rel.regulator_notification_summary = body.summary
         rel.regulator_notified_at = now
+        rel.regulator_notified_by_id = current_user.user_id
     else:
         raise HTTPException(400, "audience must be 'USER' or 'REGULATOR'")
     await audit(db, "Release", rel.id, AuditAction.UPDATE, current_user.user_id,

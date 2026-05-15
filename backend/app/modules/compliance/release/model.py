@@ -43,9 +43,15 @@ class Release(Base, TimestampMixin):
     user_notification_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     user_notification_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     user_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    user_notified_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     regulator_notification_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     regulator_notification_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     regulator_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    regulator_notified_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     # ── IEC 62304 §6.3.2 — maintenance-release lineage ──────────────────────
     # Link to the prior RELEASED version that this release supersedes. Lets

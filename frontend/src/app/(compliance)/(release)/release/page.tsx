@@ -1,7 +1,7 @@
 "use client";
 import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useState } from "react";
-import { api, Project, Release, ReleaseDetail, ReleaseStatus, SystemTestCase, Requirement, DesignElement, ReadinessCheck, Approval } from "@/lib/api";
+import { api, Project, Release, ReleaseDetail, ReleaseStatus, SystemTestCase, Requirement, DesignElement, ReadinessCheck, Approval, UserRead } from "@/lib/api";
 
 const STATUS_COLORS: Record<ReleaseStatus, string> = {
   DRAFT: "#546e7a",
@@ -35,6 +35,17 @@ export default function ReleasePage() {
   const [notifAudience, setNotifAudience] = useState<"USER" | "REGULATOR">("USER");
   const [notifSummary,  setNotifSummary]  = useState("");
   const [notifBusy,     setNotifBusy]     = useState(false);
+
+  // §6.2.5 — resolve notified_by user IDs to display names. Loaded once on
+  // mount; tolerates failure (non-admins may not have MANAGE_USERS).
+  const [userById, setUserById] = useState<Record<string, UserRead>>({});
+  useEffect(() => {
+    api.users.list().then(users => {
+      const map: Record<string, UserRead> = {};
+      for (const u of users) map[u.id] = u;
+      setUserById(map);
+    }).catch(() => {});
+  }, []);
 
   // Suggest the next release version automatically — minor-bump from the
   // latest existing release (v1.2.0 → v1.3.0); v1.0.0 for the first release.
@@ -334,6 +345,8 @@ export default function ReleasePage() {
                       const sent      = aud === "USER" ? selected.user_notification_sent      : selected.regulator_notification_sent;
                       const summary   = aud === "USER" ? selected.user_notification_summary   : selected.regulator_notification_summary;
                       const sentAt    = aud === "USER" ? selected.user_notified_at            : selected.regulator_notified_at;
+                      const sentById  = aud === "USER" ? selected.user_notified_by_id         : selected.regulator_notified_by_id;
+                      const sentByName = sentById ? (userById[sentById]?.name ?? sentById) : null;
                       return (
                         <div key={aud} style={{
                           border: `1px solid ${sent ? "#a5d6a7" : "#e0e0e0"}`,
@@ -353,6 +366,7 @@ export default function ReleasePage() {
                               <div style={{ fontSize: "0.75rem", color: "#546e7a", whiteSpace: "pre-wrap" }}>{summary}</div>
                               <div style={{ fontSize: "0.7rem", color: "#888", marginTop: 4 }}>
                                 {sentAt ? new Date(sentAt).toLocaleString() : ""}
+                                {sentByName && <> · by <strong style={{ color: "#37474f" }}>{sentByName}</strong></>}
                               </div>
                             </>
                           )}
