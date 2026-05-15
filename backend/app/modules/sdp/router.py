@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.audit.service import audit
 from app.modules.audit.model import AuditAction
-from app.modules.auth.deps import get_current_user
+from app.modules.auth.deps import require_permission
 from app.modules.auth.schema import TokenData
 
 from .model import SoftwareDevelopmentPlan, SDPSection, SDPLifecyclePhase, SDPProjectRole
@@ -83,7 +83,7 @@ async def list_sdps(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
 async def create_sdp(
     payload: SDPCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("CREATE_SDP")),
 ):
     """Create a new SDP version and seed default content."""
     sdp = SoftwareDevelopmentPlan(**payload.model_dump())
@@ -121,7 +121,7 @@ async def update_sdp(
     sdp_id: uuid.UUID,
     payload: SDPUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_SDP")),
 ):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
@@ -139,7 +139,7 @@ async def update_sdp(
 async def delete_sdp(
     sdp_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("DELETE_SDP")),
 ):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
@@ -157,7 +157,7 @@ async def delete_sdp(
 async def fork_sdp(
     sdp_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("CREATE_SDP")),
 ):
     """
     Create a new DRAFT version based on an existing SDP.
@@ -238,7 +238,7 @@ async def transition_status(
     sdp_id: uuid.UUID,
     payload: SDPStatusTransition,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("APPROVE_SDP")),
 ):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
@@ -375,7 +375,7 @@ async def add_section(
     sdp_id: uuid.UUID,
     payload: SDPSectionCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_SDP")),
 ):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
@@ -395,7 +395,7 @@ async def update_section(
     section_id: uuid.UUID,
     payload: SDPSectionUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_SDP")),
 ):
     section = await db.get(SDPSection, section_id)
     if not section:
@@ -415,7 +415,7 @@ async def update_section(
 async def delete_section(
     section_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_SDP")),
 ):
     section = await db.get(SDPSection, section_id)
     if not section:
@@ -435,7 +435,7 @@ async def add_phase(
     sdp_id: uuid.UUID,
     payload: SDPPhaseCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_SDP")),
 ):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
@@ -455,7 +455,7 @@ async def update_phase(
     phase_id: uuid.UUID,
     payload: SDPPhaseUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_SDP")),
 ):
     phase = await db.get(SDPLifecyclePhase, phase_id)
     if not phase:
@@ -475,7 +475,7 @@ async def update_phase(
 async def delete_phase(
     phase_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_SDP")),
 ):
     phase = await db.get(SDPLifecyclePhase, phase_id)
     if not phase:
@@ -495,7 +495,7 @@ async def add_role(
     sdp_id: uuid.UUID,
     payload: SDPRoleCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_SDP")),
 ):
     sdp = await db.get(SoftwareDevelopmentPlan, sdp_id)
     if not sdp:
@@ -515,7 +515,7 @@ async def update_role(
     role_id: uuid.UUID,
     payload: SDPRoleUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_SDP")),
 ):
     role = await db.get(SDPProjectRole, role_id)
     if not role:
@@ -535,7 +535,7 @@ async def update_role(
 async def delete_role(
     role_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("UPDATE_SDP")),
 ):
     role = await db.get(SDPProjectRole, role_id)
     if not role:

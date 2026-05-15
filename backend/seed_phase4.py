@@ -38,6 +38,11 @@ ALL_PERMISSIONS = [
     ("CREATE_SOFTWARE_ITEM",     "Create software items"),
     ("UPDATE_SOFTWARE_ITEM",     "Update software items"),
     ("DELETE_SOFTWARE_ITEM",     "Delete software items"),
+    # Software Development Plan (IEC 62304 §5.1)
+    ("CREATE_SDP",               "Create Software Development Plans and forks"),
+    ("UPDATE_SDP",               "Update SDP content, sections, phases, and roles"),
+    ("DELETE_SDP",               "Delete draft Software Development Plans"),
+    ("APPROVE_SDP",              "Transition SDP status (review/approve/obsolete)"),
     # Architecture (IEC 62304 §5.3 — software architectural design)
     ("READ_ARCHITECTURE",        "View architecture components"),
     ("CREATE_ARCHITECTURE",      "Create architecture components and interfaces"),
@@ -95,6 +100,7 @@ ROLE_PERMISSIONS = {
         "EXECUTE_TEST", "CREATE_VALIDATION", "UPDATE_VALIDATION",
         "APPROVE_CHANGE_REQUEST", "APPROVE_RELEASE", "PUBLISH_RELEASE",
         "CREATE_RELEASE", "GENERATE_DHF", "VIEW_AUDIT", "UPDATE_DOCUMENT",
+        "CREATE_SDP", "UPDATE_SDP", "APPROVE_SDP",
     ],
     "QARA": [
         "READ_REQUIREMENT", "CREATE_REQUIREMENT", "UPDATE_REQUIREMENT",
@@ -108,6 +114,7 @@ ROLE_PERMISSIONS = {
         "CREATE_VALIDATION", "UPDATE_VALIDATION",
         "APPROVE_CHANGE_REQUEST", "APPROVE_RELEASE", "PUBLISH_RELEASE",
         "CREATE_RELEASE", "GENERATE_DHF", "VIEW_AUDIT", "UPDATE_DOCUMENT",
+        "CREATE_SDP", "UPDATE_SDP", "APPROVE_SDP",
     ],
     "DEVELOPER": [
         "READ_REQUIREMENT", "CREATE_REQUIREMENT", "UPDATE_REQUIREMENT", "DELETE_REQUIREMENT",
@@ -121,6 +128,7 @@ ROLE_PERMISSIONS = {
         "READ_TESTCASE", "CREATE_TESTCASE", "EXECUTE_TEST",
         "CREATE_CHANGE_REQUEST", "IMPLEMENT_CHANGE", "CREATE_RELEASE",
         "READ_DOCUMENT",
+        "CREATE_SDP", "UPDATE_SDP",
     ],
     "TESTER": [
         "READ_REQUIREMENT", "READ_RISK", "READ_DESIGN",
