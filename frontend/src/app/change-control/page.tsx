@@ -19,6 +19,26 @@ const NEXT_STATUS: Partial<Record<ChangeRequestState, ChangeRequestState>> = {
 
 const REJECT_FROM: Set<ChangeRequestState> = new Set(["IMPACT_ANALYSIS"]);
 
+type EffectFieldKey = "effect_on_organization" | "effect_on_released_software" | "effect_on_interfacing_systems";
+
+const EFFECT_FIELDS: { key: EffectFieldKey; label: string; placeholder: string }[] = [
+  {
+    key: "effect_on_organization",
+    label: "Effect on organization",
+    placeholder: "Describe impact on processes, training, roles, SOPs…",
+  },
+  {
+    key: "effect_on_released_software",
+    label: "Effect on released software",
+    placeholder: "Describe modifications to existing release, regression scope, rollback plan…",
+  },
+  {
+    key: "effect_on_interfacing_systems",
+    label: "Effect on interfacing systems",
+    placeholder: "Describe impact on connected medical devices, HL7/FHIR partners, EHR integrations…",
+  },
+];
+
 export default function ChangeControlPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [requests, setRequests] = useState<ChangeRequest[]>([]);
@@ -29,6 +49,15 @@ export default function ChangeControlPage() {
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [error, setError] = useState("");
+
+  // §6.2.3 effect-of-change fields
+  const [modifiesReleased, setModifiesReleased] = useState(false);
+  const [effects, setEffects] = useState<Record<EffectFieldKey, string>>({
+    effect_on_organization: "",
+    effect_on_released_software: "",
+    effect_on_interfacing_systems: "",
+  });
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<EffectFieldKey, string>>>({});
 
   const [approverName, setApproverName] = useState("");
   const [approvalComments, setApprovalComments] = useState("");
@@ -48,12 +77,43 @@ export default function ChangeControlPage() {
     loadRequests(pid);
   };
 
+  const resetForm = () => {
+    setTitle("");
+    setDesc("");
+    setModifiesReleased(false);
+    setEffects({ effect_on_organization: "", effect_on_released_software: "", effect_on_interfacing_systems: "" });
+    setFieldErrors({});
+  };
+
   const createRequest = async () => {
     if (!projectId || !title.trim()) return;
+
+    // §6.2.3 pre-submit validation: when modifies_released_software is checked,
+    // all three effect-of-change fields are required (matches backend gate).
+    if (modifiesReleased) {
+      const errs: Partial<Record<EffectFieldKey, string>> = {};
+      for (const f of EFFECT_FIELDS) {
+        if (!effects[f.key].trim()) errs[f.key] = "Required when modifying released software (§6.2.3).";
+      }
+      if (Object.keys(errs).length > 0) {
+        setFieldErrors(errs);
+        return;
+      }
+    }
+
     try {
       setError("");
-      await api.changeControl.createRequest({ project_id: projectId, title, description: desc || undefined });
-      setTitle(""); setDesc("");
+      setFieldErrors({});
+      await api.changeControl.createRequest({
+        project_id: projectId,
+        title,
+        description: desc || undefined,
+        modifies_released_software: modifiesReleased,
+        effect_on_organization: modifiesReleased ? effects.effect_on_organization.trim() : undefined,
+        effect_on_released_software: modifiesReleased ? effects.effect_on_released_software.trim() : undefined,
+        effect_on_interfacing_systems: modifiesReleased ? effects.effect_on_interfacing_systems.trim() : undefined,
+      });
+      resetForm();
       loadRequests(projectId);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -106,8 +166,13 @@ export default function ChangeControlPage() {
 
   const cardStyle: React.CSSProperties = { background: "#fff", border: "1px solid #ddd", borderRadius: 8, padding: "1.5rem", marginBottom: "1rem" };
   const inputStyle: React.CSSProperties = { border: "1px solid #ccc", borderRadius: 4, padding: "0.4rem 0.6rem", fontSize: "0.85rem", width: "100%" };
+  const inputErrStyle: React.CSSProperties = { ...inputStyle, border: "1px solid #f44336" };
   const btnStyle = (color = "#1565c0"): React.CSSProperties => ({ background: color, color: "#fff", border: "none", borderRadius: 4, padding: "0.4rem 0.8rem", cursor: "pointer", fontSize: "0.8rem" });
   const badge = (status: string, color: string): React.CSSProperties => ({ background: color, color: "#fff", borderRadius: 12, padding: "2px 10px", fontSize: "0.7rem", fontWeight: "bold" });
+  const sectionLabel: React.CSSProperties = { fontSize: "0.7rem", fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: "1rem", marginBottom: "0.25rem" };
+  const readonlyBox: React.CSSProperties = { background: "#fafafa", border: "1px solid #eee", borderRadius: 4, padding: "0.5rem 0.6rem", fontSize: "0.85rem", color: "#333", whiteSpace: "pre-wrap" };
+  const fieldErrStyle: React.CSSProperties = { color: "#b71c1c", fontSize: "0.75rem", marginTop: 2 };
+  const releasedChipStyle: React.CSSProperties = { background: "#fff3e0", color: "#e65100", border: "1px solid #ffb74d", borderRadius: 10, padding: "1px 8px", fontSize: "0.65rem", fontWeight: 600, marginLeft: 6 };
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px" }}>
@@ -132,6 +197,56 @@ export default function ChangeControlPage() {
             <div style={{ marginBottom: "0.75rem" }}>
               <textarea style={{ ...inputStyle, height: 60 }} placeholder="Description" value={desc} onChange={e => setDesc(e.target.value)} />
             </div>
+
+            {/* §6.2.3 modifies released software checkbox */}
+            <label style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.5rem", cursor: "pointer", fontSize: "0.85rem" }}>
+              <input
+                type="checkbox"
+                checked={modifiesReleased}
+                onChange={e => {
+                  setModifiesReleased(e.target.checked);
+                  if (!e.target.checked) setFieldErrors({});
+                }}
+                style={{ marginTop: 3 }}
+              />
+              <span>
+                <strong>Modifies released software (§6.2.3)</strong>
+                <div style={{ color: "#888", fontSize: "0.75rem", marginTop: 2 }}>
+                  Per IEC 62304 §6.2.3, document the effect of this change before approval.
+                </div>
+              </span>
+            </label>
+
+            {modifiesReleased && (
+              <div style={{ background: "#fff8e1", border: "1px solid #ffe082", borderRadius: 6, padding: "0.75rem", marginBottom: "0.75rem" }}>
+                {EFFECT_FIELDS.map(f => {
+                  const err = fieldErrors[f.key];
+                  return (
+                    <div key={f.key} style={{ marginBottom: "0.5rem" }}>
+                      <div style={{ fontSize: "0.75rem", fontWeight: 600, marginBottom: 2, color: "#555" }}>
+                        {f.label} <span style={{ color: "#b71c1c" }}>*</span>
+                      </div>
+                      <textarea
+                        style={{ ...(err ? inputErrStyle : inputStyle), height: 55 }}
+                        placeholder={f.placeholder}
+                        value={effects[f.key]}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setEffects(prev => ({ ...prev, [f.key]: v }));
+                          if (err && v.trim()) {
+                            const next = { ...fieldErrors };
+                            delete next[f.key];
+                            setFieldErrors(next);
+                          }
+                        }}
+                      />
+                      {err && <div style={fieldErrStyle}>{err}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             <button style={btnStyle()} onClick={createRequest}>Create Request</button>
           </div>
 
@@ -149,7 +264,10 @@ export default function ChangeControlPage() {
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <strong style={{ fontSize: "0.9rem" }}>{cr.title}</strong>
+                  <strong style={{ fontSize: "0.9rem" }}>
+                    {cr.title}
+                    {cr.modifies_released_software && <span style={releasedChipStyle}>§6.2.3</span>}
+                  </strong>
                   <span style={badge(cr.status, STATUS_COLORS[cr.status])}>{cr.status}</span>
                 </div>
                 <div style={{ color: "#888", fontSize: "0.75rem", marginTop: 4 }}>{new Date(cr.created_at).toLocaleDateString()}</div>
@@ -165,11 +283,32 @@ export default function ChangeControlPage() {
               <div style={cardStyle}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div>
-                    <h3 style={{ marginTop: 0 }}>{selected.title}</h3>
+                    <h3 style={{ marginTop: 0 }}>
+                      {selected.title}
+                      {selected.modifies_released_software && <span style={releasedChipStyle}>§6.2.3</span>}
+                    </h3>
                     {selected.description && <p style={{ color: "#555", fontSize: "0.85rem" }}>{selected.description}</p>}
                   </div>
                   <span style={badge(selected.status, STATUS_COLORS[selected.status])}>{selected.status}</span>
                 </div>
+
+                {/* §6.2.3 read-only effect-of-change display */}
+                {selected.modifies_released_software && (
+                  <div style={{ marginTop: "1rem", padding: "0.75rem", background: "#fff8e1", border: "1px solid #ffe082", borderRadius: 6 }}>
+                    <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#e65100", marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      §6.2.3 Effect-of-change assessment
+                    </div>
+                    {EFFECT_FIELDS.map(f => {
+                      const value = selected[f.key];
+                      return (
+                        <div key={f.key} style={{ marginBottom: "0.5rem" }}>
+                          <div style={sectionLabel}>{f.label}</div>
+                          <div style={readonlyBox}>{value && value.trim() ? value : <span style={{ color: "#aaa" }}>—</span>}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "1rem" }}>
                   {NEXT_STATUS[selected.status] && (

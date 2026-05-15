@@ -233,6 +233,11 @@ export type ChangeRequestState = "OPEN" | "IMPACT_ANALYSIS" | "APPROVED" | "REJE
 export type ChangeRequest = {
   id: string; project_id: string; title: string; description: string | null;
   status: ChangeRequestState; created_at: string;
+  // IEC 62304 §6.2.3 — effect-of-change assessment when modifying released software
+  modifies_released_software?: boolean | null;
+  effect_on_organization?: string | null;
+  effect_on_released_software?: string | null;
+  effect_on_interfacing_systems?: string | null;
 };
 export type ChangeImpact = {
   id: string; change_request_id: string;
@@ -1064,7 +1069,16 @@ export const api = {
   changeControl: {
     listRequests: (project_id?: string) =>
       req<ChangeRequest[]>(`/change-control/requests${project_id ? `?project_id=${project_id}` : ""}`),
-    createRequest: (d: { project_id: string; title: string; description?: string }) =>
+    createRequest: (d: {
+      project_id: string;
+      title: string;
+      description?: string;
+      // IEC 62304 §6.2.3 — required when modifies_released_software is true
+      modifies_released_software?: boolean;
+      effect_on_organization?: string;
+      effect_on_released_software?: string;
+      effect_on_interfacing_systems?: string;
+    }) =>
       req<ChangeRequest>("/change-control/requests", { method: "POST", body: JSON.stringify(d) }),
     getRequest: (id: string) => req<ChangeRequestDetail>(`/change-control/requests/${id}`),
     transition: (id: string, new_status: ChangeRequestState) =>
