@@ -1180,7 +1180,15 @@ export const api = {
   changeControl: {
     listRequests: (project_id?: string) =>
       req<ChangeRequest[]>(`/change-control/requests${project_id ? `?project_id=${project_id}` : ""}`),
-    createRequest: (d: { project_id: string; title: string; description?: string }) =>
+    createRequest: (d: {
+      project_id: string;
+      title: string;
+      description?: string;
+      modifies_released_software?: boolean;
+      effect_on_organization?: string;
+      effect_on_released_software?: string;
+      effect_on_interfacing_systems?: string;
+    }) =>
       req<ChangeRequest>("/change-control/requests", { method: "POST", body: JSON.stringify(d) }),
     getRequest: (id: string) => req<ChangeRequestDetail>(`/change-control/requests/${id}`),
     transition: (id: string, new_status: ChangeRequestState) =>

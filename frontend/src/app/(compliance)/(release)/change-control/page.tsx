@@ -28,6 +28,11 @@ export default function ChangeControlPage() {
   const [projectId, setProjectId] = useActiveProject();
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
+  const [modifiesReleased, setModifiesReleased] = useState(false);
+  const [effOrg, setEffOrg] = useState("");
+  const [effRel, setEffRel] = useState("");
+  const [effIfc, setEffIfc] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
 
   const [approverName, setApproverName] = useState("");
@@ -50,10 +55,31 @@ export default function ChangeControlPage() {
 
   const createRequest = async () => {
     if (!projectId || !title.trim()) return;
+    // §6.2.3 pre-submit gate: when the CR modifies released software, all three
+    // effect-of-change fields are required before the request is created. The
+    // backend enforces this on APPROVED transition, but blocking at create-time
+    // surfaces the missing fields immediately.
+    if (modifiesReleased) {
+      const errs: Record<string, string> = {};
+      if (!effOrg.trim()) errs.effect_on_organization = "§6.2.3: required when modifying released software";
+      if (!effRel.trim()) errs.effect_on_released_software = "§6.2.3: required when modifying released software";
+      if (!effIfc.trim()) errs.effect_on_interfacing_systems = "§6.2.3: required when modifying released software";
+      if (Object.keys(errs).length) { setFieldErrors(errs); return; }
+    }
     try {
       setError("");
-      await api.changeControl.createRequest({ project_id: projectId, title, description: desc || undefined });
+      setFieldErrors({});
+      await api.changeControl.createRequest({
+        project_id: projectId,
+        title,
+        description: desc || undefined,
+        modifies_released_software: modifiesReleased,
+        effect_on_organization: modifiesReleased ? effOrg : undefined,
+        effect_on_released_software: modifiesReleased ? effRel : undefined,
+        effect_on_interfacing_systems: modifiesReleased ? effIfc : undefined,
+      });
       setTitle(""); setDesc("");
+      setModifiesReleased(false); setEffOrg(""); setEffRel(""); setEffIfc("");
       loadRequests(projectId);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -107,6 +133,7 @@ export default function ChangeControlPage() {
   const cardStyle: React.CSSProperties = { background: "#fff", border: "1px solid #ddd", borderRadius: 8, padding: "1.5rem", marginBottom: "1rem" };
   const inputStyle: React.CSSProperties = { border: "1px solid #ccc", borderRadius: 4, padding: "0.4rem 0.6rem", fontSize: "0.85rem", width: "100%" };
   const btnStyle = (color = "#1565c0"): React.CSSProperties => ({ background: color, color: "#fff", border: "none", borderRadius: 4, padding: "0.4rem 0.8rem", cursor: "pointer", fontSize: "0.8rem" });
+  const fieldErrStyle: React.CSSProperties = { color: "#b71c1c", fontSize: "0.75rem", marginTop: "0.25rem" };
   const badge = (status: string, color: string): React.CSSProperties => ({ background: color, color: "#fff", borderRadius: 12, padding: "2px 10px", fontSize: "0.7rem", fontWeight: "bold" });
 
   return (
@@ -132,6 +159,27 @@ export default function ChangeControlPage() {
             <div style={{ marginBottom: "0.75rem" }}>
               <textarea style={{ ...inputStyle, height: 60 }} placeholder="Description" value={desc} onChange={e => setDesc(e.target.value)} />
             </div>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem", fontSize: "0.85rem", color: "#444" }}>
+              <input type="checkbox" checked={modifiesReleased} onChange={e => { setModifiesReleased(e.target.checked); if (!e.target.checked) setFieldErrors({}); }} />
+              Modifies released software (§6.2.3)
+            </label>
+            {modifiesReleased && (
+              <div style={{ background: "#fff8e1", border: "1px solid #ffe082", borderRadius: 6, padding: "0.75rem", marginBottom: "0.75rem" }}>
+                <div style={{ fontSize: "0.8rem", color: "#666", marginBottom: "0.5rem" }}>§6.2.3 — All three effect-of-change fields are required before this CR can be approved.</div>
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <textarea style={{ ...inputStyle, height: 50, borderColor: fieldErrors.effect_on_organization ? "#f44336" : "#ccc" }} placeholder="Effect on organization" value={effOrg} onChange={e => { setEffOrg(e.target.value); if (e.target.value.trim()) setFieldErrors(p => { const n = { ...p }; delete n.effect_on_organization; return n; }); }} />
+                  {fieldErrors.effect_on_organization && <div style={fieldErrStyle}>{fieldErrors.effect_on_organization}</div>}
+                </div>
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <textarea style={{ ...inputStyle, height: 50, borderColor: fieldErrors.effect_on_released_software ? "#f44336" : "#ccc" }} placeholder="Effect on released software" value={effRel} onChange={e => { setEffRel(e.target.value); if (e.target.value.trim()) setFieldErrors(p => { const n = { ...p }; delete n.effect_on_released_software; return n; }); }} />
+                  {fieldErrors.effect_on_released_software && <div style={fieldErrStyle}>{fieldErrors.effect_on_released_software}</div>}
+                </div>
+                <div>
+                  <textarea style={{ ...inputStyle, height: 50, borderColor: fieldErrors.effect_on_interfacing_systems ? "#f44336" : "#ccc" }} placeholder="Effect on interfacing systems" value={effIfc} onChange={e => { setEffIfc(e.target.value); if (e.target.value.trim()) setFieldErrors(p => { const n = { ...p }; delete n.effect_on_interfacing_systems; return n; }); }} />
+                  {fieldErrors.effect_on_interfacing_systems && <div style={fieldErrStyle}>{fieldErrors.effect_on_interfacing_systems}</div>}
+                </div>
+              </div>
+            )}
             <button style={btnStyle()} onClick={createRequest}>Create Request</button>
           </div>
 
