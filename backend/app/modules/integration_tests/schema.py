@@ -106,7 +106,7 @@ class InterfaceCoverageItem(BaseModel):
 
 class ProjectCoverage(BaseModel):
     project_id: str
-    total_interfaces: int
+    total_interfaces: int                 # interfaces in scope of this report (filtered)
     covered_interfaces: int
     uncovered_interfaces: int
     coverage_pct: float
@@ -116,6 +116,11 @@ class ProjectCoverage(BaseModel):
     not_run: int
     pass_rate: float
     safety_relevant_uncovered: int
+    # §5.6 safety filter context — always populated so the UI can show
+    # "safety-relevant: 8/10 covered (12 non-safety interfaces excluded)".
+    safety_relevant_only: bool
+    total_interfaces_all: int             # total interfaces in project, ignoring filter
+    excluded_non_safety_interfaces: int   # interfaces hidden when safety_relevant_only=True
     interfaces: List[InterfaceCoverageItem]
     release_blocked: bool
     release_block_reasons: List[str]

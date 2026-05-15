@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -214,17 +214,42 @@ async def set_risks(
 # ── coverage ──────────────────────────────────────────────────────────────────
 
 @router.get("/coverage/{project_id}", response_model=ProjectCoverage)
-async def get_coverage(project_id: str, db: AsyncSession = Depends(get_db)):
+async def get_coverage(
+    project_id: str,
+    safety_relevant_only: bool = Query(
+        True,
+        description=(
+            "When True (default), the coverage report is restricted to safety-relevant "
+            "SWInterfaces per IEC 62304 §5.6 — only those interfaces require integration "
+            "tests. Set to False to include every interface."
+        ),
+    ),
+    db: AsyncSession = Depends(get_db),
+):
     from app.modules.architecture.model import SWInterface, SWComponent
 
     pid = uuid.UUID(project_id)
 
-    # load all interfaces for the project (via its components)
-    ifaces = (await db.execute(
-        select(SWInterface).join(
-            SWComponent, SWInterface.source_component_id == SWComponent.id
-        ).where(SWComponent.project_id == pid)
-    )).scalars().all()
+    # Base query: every interface attached to one of this project's components.
+    iface_q = select(SWInterface).join(
+        SWComponent, SWInterface.source_component_id == SWComponent.id
+    ).where(SWComponent.project_id == pid)
+
+    if safety_relevant_only:
+        # §5.6 — restrict to safety-relevant interfaces by default.
+        ifaces = (await db.execute(
+            iface_q.where(SWInterface.safety_relevant.is_(True))
+        )).scalars().all()
+        # Separate count of the unfiltered set so the UI can show how many
+        # non-safety interfaces the filter excluded.
+        total_interfaces_all = (await db.execute(
+            select(func.count()).select_from(iface_q.subquery())
+        )).scalar_one()
+        excluded_non_safety = total_interfaces_all - len(ifaces)
+    else:
+        ifaces = (await db.execute(iface_q)).scalars().all()
+        total_interfaces_all = len(ifaces)
+        excluded_non_safety = 0
 
     # load all test cases for the project
     tests = (await db.execute(
@@ -330,6 +355,9 @@ async def get_coverage(project_id: str, db: AsyncSession = Depends(get_db)):
         not_run=not_run,
         pass_rate=pass_rate,
         safety_relevant_uncovered=safety_uncovered,
+        safety_relevant_only=safety_relevant_only,
+        total_interfaces_all=total_interfaces_all,
+        excluded_non_safety_interfaces=excluded_non_safety,
         interfaces=coverage_items,
         release_blocked=len(block_reasons) > 0 or failed > 0,
         release_block_reasons=block_reasons + ([f"{failed} failed test(s)"] if failed > 0 else []),
