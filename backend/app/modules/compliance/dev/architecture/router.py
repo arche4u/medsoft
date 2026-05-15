@@ -281,6 +281,11 @@ async def create_component(
     current_user: TokenData = Depends(require_permission("CREATE_ARCHITECTURE")),
 ):
     await assert_architecture_unlocked(db, payload.project_id)
+    # §4.3 — safety class must be one of A/B/C. Component inherits the
+    # classification of the parent SoftwareItem; until that FK exists, at
+    # least guarantee the value is in the standard.
+    if payload.safety_class not in ("A", "B", "C"):
+        raise HTTPException(400, f"§4.3: safety_class must be A, B, or C (got '{payload.safety_class}')")
     # Hierarchy enforcement — taxonomy rules come from constants.py.
     is_root_type = payload.component_type in ROOT_COMPONENT_TYPES
     if is_root_type and payload.parent_id:
@@ -374,7 +379,10 @@ async def update_component(
         raise HTTPException(404, "Component not found")
     await assert_architecture_unlocked(db, c.project_id)
     _assert_editable(c)
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    update_fields = payload.model_dump(exclude_unset=True)
+    if "safety_class" in update_fields and update_fields["safety_class"] not in ("A", "B", "C"):
+        raise HTTPException(400, f"§4.3: safety_class must be A, B, or C (got '{update_fields['safety_class']}')")
+    for k, v in update_fields.items():
         setattr(c, k, v)
     await audit(db, "sw_component", c.id, AuditAction.UPDATE, current_user.user_id)
     await db.commit()
