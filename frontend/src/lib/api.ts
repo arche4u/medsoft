@@ -262,6 +262,8 @@ export type Release = {
   regulator_notification_sent: boolean;
   regulator_notification_summary: string | null;
   regulator_notified_at: string | null;
+  // IEC 62304 §6.3.2 — link to predecessor RELEASED version.
+  parent_release_id: string | null;
   created_at: string;
 };
 export type ReleaseItem = { id: string; release_id: string; requirement_id: string | null; system_test_id: string | null; design_element_id: string | null };
@@ -1118,7 +1120,7 @@ export const api = {
   release: {
     list: (project_id?: string) =>
       req<Release[]>(`/release/releases${project_id ? `?project_id=${project_id}` : ""}`),
-    create: (d: { project_id: string; version: string }) =>
+    create: (d: { project_id: string; version: string; parent_release_id?: string | null }) =>
       req<Release>("/release/releases", { method: "POST", body: JSON.stringify(d) }),
     get: (id: string) => req<ReleaseDetail>(`/release/releases/${id}`),
     transition: (id: string, new_status: ReleaseStatus) =>
@@ -1130,6 +1132,12 @@ export const api = {
     addItem: (d: { release_id: string; requirement_id?: string; system_test_id?: string; design_element_id?: string }) =>
       req<ReleaseItem>("/release/items", { method: "POST", body: JSON.stringify(d) }),
     deleteItem: (id: string) => req<void>(`/release/items/${id}`, { method: "DELETE" }),
+    // §6.2.5 — record user / regulator notification on a release.
+    notify: (id: string, audience: "USER" | "REGULATOR", summary: string) =>
+      req<Release>(`/release/releases/${id}/notify`, {
+        method: "PATCH",
+        body: JSON.stringify({ audience, summary }),
+      }),
   },
   dhf: {
     generate: (project_id: string, release_id?: string) =>

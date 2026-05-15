@@ -46,3 +46,6 @@ Thumbs.db
 
 # Uploaded attachments (images/PDF) — never committed
 backend/uploads/
+
+# mkdocs build output — regenerable from docs/ via `mkdocs build`
+site/

@@ -21,16 +21,22 @@ export default function FeedbackPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [error, setError] = useState<string>("");
+  // §6.2.1.1 — top-level tab switch between the triage funnel (default) and
+  // the monitoring dashboard view.
+  const [tab, setTab] = useState<"triage" | "monitor">("triage");
 
   // ── Load meta once + items on project/filter change ─────────────────────
   useEffect(() => { api.feedback.meta().then(setMeta).catch(e => setError(String(e))); }, []);
   useEffect(() => {
     if (!projectId) { setItems([]); return; }
-    api.feedback.list(projectId, {
+    // Monitor view aggregates over the full dataset, so we drop filters when
+    // that tab is active. Triage view uses whatever the user selected.
+    const opts = tab === "monitor" ? undefined : {
       status:   statusFilter   || undefined,
       severity: severityFilter || undefined,
-    }).then(setItems).catch(e => setError(String(e)));
-  }, [projectId, statusFilter, severityFilter]);
+    };
+    api.feedback.list(projectId, opts).then(setItems).catch(e => setError(String(e)));
+  }, [projectId, statusFilter, severityFilter, tab]);
 
   const selected = items.find(x => x.id === selectedId) ?? null;
 
@@ -77,49 +83,269 @@ export default function FeedbackPage() {
 
       {error && <div style={s.error}>{error}</div>}
 
-      {/* Stats by status */}
-      <div style={s.statsRow}>
-        {meta.statuses.map(st => (
-          <div key={st.name} style={{ ...s.statCard, borderLeft: `4px solid ${st.color}` }}>
-            <div style={s.statCount}>{counts[st.name] ?? 0}</div>
-            <div style={s.statLabel}>{st.label}</div>
+      {/* Tab switcher — Triage (intake funnel) vs Monitor (§6.2.1.1 surveillance) */}
+      <div style={s.tabs}>
+        <button onClick={() => setTab("triage")}
+                style={{ ...s.tab, ...(tab === "triage" ? s.tabActive : {}) }}>
+          Triage
+        </button>
+        <button onClick={() => setTab("monitor")}
+                style={{ ...s.tab, ...(tab === "monitor" ? s.tabActive : {}) }}>
+          Monitor §6.2.1.1
+        </button>
+      </div>
+
+      {tab === "triage" ? (
+        <>
+          {/* Stats by status */}
+          <div style={s.statsRow}>
+            {meta.statuses.map(st => (
+              <div key={st.name} style={{ ...s.statCard, borderLeft: `4px solid ${st.color}` }}>
+                <div style={s.statCount}>{counts[st.name] ?? 0}</div>
+                <div style={s.statLabel}>{st.label}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {/* Filters */}
-      <div style={s.filterRow}>
-        <Select value={statusFilter} onChange={setStatusFilter} placeholder="All statuses"
-                options={meta.statuses.map(x => ({ value: x.name, label: x.label }))} />
-        <Select value={severityFilter} onChange={setSeverityFilter} placeholder="All severities"
-                options={meta.severities.map(x => ({ value: x.name, label: x.label }))} />
-        <div style={{ flex: 1 }} />
-        <span style={s.muted}>{items.length} item{items.length === 1 ? "" : "s"}</span>
-      </div>
+          {/* Filters */}
+          <div style={s.filterRow}>
+            <Select value={statusFilter} onChange={setStatusFilter} placeholder="All statuses"
+                    options={meta.statuses.map(x => ({ value: x.name, label: x.label }))} />
+            <Select value={severityFilter} onChange={setSeverityFilter} placeholder="All severities"
+                    options={meta.severities.map(x => ({ value: x.name, label: x.label }))} />
+            <div style={{ flex: 1 }} />
+            <span style={s.muted}>{items.length} item{items.length === 1 ? "" : "s"}</span>
+          </div>
 
-      {/* List + detail split */}
-      <div style={s.split}>
-        <div style={s.listCol}>
-          {items.length === 0
-            ? <Placeholder>No feedback items yet. Click <b>+ New Feedback</b> to log the first one.</Placeholder>
-            : items.map(it => (
-                <Card key={it.id} item={it} meta={meta}
-                      selected={selectedId === it.id}
-                      onClick={() => setSelectedId(selectedId === it.id ? null : it.id)} />
-              ))}
-        </div>
-        <div style={s.detailCol}>
-          {selected
-            ? <Detail item={selected} meta={meta} onRefresh={refresh} onClose={() => setSelectedId(null)} />
-            : <Placeholder>Select a feedback item to view details.</Placeholder>}
-        </div>
-      </div>
+          {/* List + detail split */}
+          <div style={s.split}>
+            <div style={s.listCol}>
+              {items.length === 0
+                ? <Placeholder>No feedback items yet. Click <b>+ New Feedback</b> to log the first one.</Placeholder>
+                : items.map(it => (
+                    <Card key={it.id} item={it} meta={meta}
+                          selected={selectedId === it.id}
+                          onClick={() => setSelectedId(selectedId === it.id ? null : it.id)} />
+                  ))}
+            </div>
+            <div style={s.detailCol}>
+              {selected
+                ? <Detail item={selected} meta={meta} onRefresh={refresh} onClose={() => setSelectedId(null)} />
+                : <Placeholder>Select a feedback item to view details.</Placeholder>}
+            </div>
+          </div>
+        </>
+      ) : (
+        <MonitorView items={items} meta={meta} />
+      )}
 
       {showCreate && (
         <CreateModal meta={meta} projectId={projectId}
                      onClose={() => setShowCreate(false)}
                      onCreated={async () => { setShowCreate(false); await refresh(); }} />
       )}
+    </div>
+  );
+}
+
+
+// ── §6.2.1.1 Monitor view — trend chart + recurring-defect detection ───────
+//
+// "Monitor feedback on medical device software released for intended use."
+// IEC 62304 §6.2.1.1 doesn't prescribe a UI but the obligation is to actively
+// watch the post-market signal. This view surfaces:
+//
+//   • 90-day stacked bar chart of feedback volume by severity
+//   • Channel-mix donut (proportion by source)
+//   • Recurring-defect alerts: ≥3 NEW/UNDER_REVIEW items with the same
+//     `affected_version` OR same `source` in the last 30 days → flag for
+//     trend review per §6.1(b) criteria
+//   • Counters for adverse events / spec deviations / open safety-class items
+//
+// Pure client-side aggregation over `items` already loaded by the parent.
+function MonitorView({ items, meta }: { items: FeedbackItem[]; meta: FeedbackMeta }) {
+  // ── 90-day bucketed counts by severity ──────────────────────────────────
+  const buckets = useMemo(() => {
+    const days = 90;
+    const bucketSize = 7; // weekly buckets
+    const bucketCount = Math.ceil(days / bucketSize);
+    const now = Date.now();
+    const startMs = now - days * 86_400_000;
+
+    type Bucket = { startMs: number; bySeverity: Record<string, number>; total: number };
+    const out: Bucket[] = Array.from({ length: bucketCount }, (_, i) => ({
+      startMs: startMs + i * bucketSize * 86_400_000,
+      bySeverity: {},
+      total: 0,
+    }));
+
+    for (const it of items) {
+      const t = new Date(it.created_at).getTime();
+      if (t < startMs) continue;
+      const idx = Math.min(bucketCount - 1, Math.floor((t - startMs) / (bucketSize * 86_400_000)));
+      const b = out[idx];
+      b.bySeverity[it.severity] = (b.bySeverity[it.severity] ?? 0) + 1;
+      b.total += 1;
+    }
+    return out;
+  }, [items]);
+
+  const maxBucket = Math.max(1, ...buckets.map(b => b.total));
+
+  // ── Channel mix ─────────────────────────────────────────────────────────
+  const channelMix = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const it of items) map[it.source] = (map[it.source] ?? 0) + 1;
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  }, [items]);
+  const channelTotal = channelMix.reduce((s, [, n]) => s + n, 0);
+
+  // ── §6.1(b) recurring-defect detection ──────────────────────────────────
+  // Bucket open (NEW/UNDER_REVIEW) items by (affected_version) and (source)
+  // in the last 30 days; flag groups with ≥3 hits.
+  const alerts = useMemo(() => {
+    const cutoff = Date.now() - 30 * 86_400_000;
+    const open = items.filter(it =>
+      (it.status === "NEW" || it.status === "UNDER_REVIEW") &&
+      new Date(it.created_at).getTime() >= cutoff
+    );
+    const byVersion: Record<string, FeedbackItem[]> = {};
+    const bySource:  Record<string, FeedbackItem[]> = {};
+    for (const it of open) {
+      const v = it.affected_version ?? "(unspecified)";
+      const s = it.source;
+      (byVersion[v] = byVersion[v] ?? []).push(it);
+      (bySource[s]  = bySource[s]  ?? []).push(it);
+    }
+    const out: { kind: "version" | "source"; key: string; count: number; items: FeedbackItem[] }[] = [];
+    for (const [v, list] of Object.entries(byVersion))
+      if (list.length >= 3) out.push({ kind: "version", key: v, count: list.length, items: list });
+    for (const [src, list] of Object.entries(bySource))
+      if (list.length >= 3) out.push({ kind: "source", key: src, count: list.length, items: list });
+    return out;
+  }, [items]);
+
+  // ── Counters ────────────────────────────────────────────────────────────
+  const adverseCount  = items.filter(i => i.adverse_event).length;
+  const specDevCount  = items.filter(i => i.spec_deviation).length;
+  const openSafety    = items.filter(i => i.severity === "SAFETY" && i.status !== "CLOSED").length;
+  const escalatedCAPA = items.filter(i => !!i.escalated_problem_id).length;
+  const escalatedCR   = items.filter(i => !!i.escalated_change_request_id).length;
+
+  const sevColor = (name: string) =>
+    meta.severities.find(x => x.name === name)?.color ?? "#9e9e9e";
+  const srcColor = (name: string) =>
+    meta.sources.find(x => x.name === name)?.color ?? "#546e7a";
+  const srcLabel = (name: string) =>
+    meta.sources.find(x => x.name === name)?.label ?? name;
+
+  return (
+    <div>
+      {/* Counter row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 16 }}>
+        <Counter label="Adverse events"      value={adverseCount}  color="#b71c1c" />
+        <Counter label="Spec deviations"     value={specDevCount}  color="#e65100" />
+        <Counter label="Open SAFETY items"   value={openSafety}    color="#5d4037" />
+        <Counter label="Escalated to CAPA"   value={escalatedCAPA} color="#1565c0" />
+        <Counter label="Escalated to CR"     value={escalatedCR}   color="#6a1b9a" />
+      </div>
+
+      {/* Recurring-defect alerts */}
+      {alerts.length > 0 && (
+        <div style={{ background: "#fff3e0", border: "1px solid #ffcc80", borderRadius: 6, padding: "10px 14px", marginBottom: 16 }}>
+          <strong style={{ color: "#e65100", fontSize: 13 }}>
+            §6.1(b) recurring-defect alert — {alerts.length} cluster{alerts.length === 1 ? "" : "s"} above the 30-day threshold (≥3 open items)
+          </strong>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+            {alerts.map((a, i) => (
+              <div key={i} style={{ fontSize: 12, color: "#5d4037" }}>
+                • {a.count} open items grouped by {a.kind === "version" ? "affected version" : "source channel"} =
+                <span style={{ fontFamily: "monospace", marginLeft: 4 }}>{a.key}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Weekly stacked-bar chart */}
+      <div style={{ background: "#fff", border: "1px solid #e0e0e0", borderRadius: 6, padding: "14px 16px", marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <strong style={{ fontSize: 13, color: "#37474f" }}>Feedback volume by severity — last 90 days (weekly)</strong>
+          <div style={{ display: "flex", gap: 12, fontSize: 11 }}>
+            {meta.severities.map(sv => (
+              <span key={sv.name} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <span style={{ width: 10, height: 10, background: sv.color, borderRadius: 2 }} />
+                {sv.label}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 140, borderBottom: "1px solid #e0e0e0", paddingBottom: 2 }}>
+          {buckets.map((b, i) => (
+            <div key={i} title={`Week of ${new Date(b.startMs).toLocaleDateString()}: ${b.total} item${b.total === 1 ? "" : "s"}`}
+                 style={{ flex: 1, display: "flex", flexDirection: "column-reverse", height: "100%" }}>
+              {meta.severities.map(sv => {
+                const n = b.bySeverity[sv.name] ?? 0;
+                if (!n) return null;
+                return <div key={sv.name}
+                            style={{ background: sv.color, height: `${(n / maxBucket) * 100}%`, minHeight: 2 }} />;
+              })}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10, color: "#9e9e9e" }}>
+          <span>90 days ago</span><span>today</span>
+        </div>
+      </div>
+
+      {/* Channel mix */}
+      <div style={{ background: "#fff", border: "1px solid #e0e0e0", borderRadius: 6, padding: "14px 16px" }}>
+        <strong style={{ fontSize: 13, color: "#37474f" }}>Channel mix — {channelTotal} item{channelTotal === 1 ? "" : "s"} total</strong>
+        {channelMix.length === 0
+          ? <div style={{ color: "#9e9e9e", fontSize: 12, marginTop: 8 }}>No feedback yet.</div>
+          : (
+            <>
+              <div style={{ display: "flex", height: 14, marginTop: 10, marginBottom: 8, borderRadius: 4, overflow: "hidden", border: "1px solid #f5f5f5" }}>
+                {channelMix.map(([src, n]) => (
+                  <div key={src} title={`${srcLabel(src)}: ${n} (${Math.round((n / channelTotal) * 100)}%)`}
+                       style={{ background: srcColor(src), flexBasis: `${(n / channelTotal) * 100}%` }} />
+                ))}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 6, fontSize: 12 }}>
+                {channelMix.map(([src, n]) => (
+                  <div key={src} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 10, height: 10, background: srcColor(src), borderRadius: 2 }} />
+                    <span style={{ color: "#37474f" }}>{srcLabel(src)}</span>
+                    <span style={{ color: "#9e9e9e", marginLeft: "auto" }}>{n}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+      </div>
+
+      {/* Severity counts strip (also reuses meta.severities color) */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginTop: 16 }}>
+        {meta.severities.map(sv => {
+          const n = items.filter(i => i.severity === sv.name).length;
+          return (
+            <div key={sv.name}
+                 style={{ background: "#fff", border: "1px solid #e0e0e0", borderRadius: 6, padding: "10px 14px", borderLeft: `4px solid ${sv.color}` }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: sevColor(sv.name) }}>{n}</div>
+              <div style={{ fontSize: 12, color: "#546e7a", marginTop: 2 }}>{sv.label}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Counter({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e0e0e0", borderRadius: 6, padding: "10px 14px", borderLeft: `4px solid ${color}` }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
+      <div style={{ fontSize: 12, color: "#546e7a", marginTop: 2 }}>{label}</div>
     </div>
   );
 }
@@ -405,7 +631,11 @@ function CreateModal({ meta, projectId, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void | Promise<void>;
 }) {
-  const [source,   setSource]   = useState(meta.sources[0]?.name ?? "");
+  // "OTHER" is the modal-only sentinel for the custom-channel option.
+  // It's NOT one of the built-in meta.sources; selecting it reveals a free-text
+  // input. The actual value sent to the API is whatever the user typed.
+  const [source,        setSource]        = useState(meta.sources[0]?.name ?? "");
+  const [customSource,  setCustomSource]  = useState("");
   const [severity, setSeverity] = useState("MINOR");
   const [reporter, setReporter] = useState("");
   const [summary,  setSummary]  = useState("");
@@ -416,13 +646,20 @@ function CreateModal({ meta, projectId, onClose, onCreated }: {
   const [busy,     setBusy]     = useState(false);
   const [err,      setErr]      = useState("");
 
+  const isCustom = source === "__OTHER__";
+  const effectiveSource = isCustom ? customSource.trim() : source;
+
   async function submit() {
     if (!summary.trim()) { setErr("Summary required"); return; }
+    if (isCustom && !effectiveSource) { setErr("Custom channel name required"); return; }
     setBusy(true); setErr("");
     try {
       await api.feedback.create({
         project_id: projectId,
-        source, severity,
+        // Backend treats `source` as a free-form String(30); built-in
+        // taxonomy is metadata for the UI, not a DB constraint.
+        source: effectiveSource,
+        severity,
         reporter: reporter || null,
         summary: summary.trim(),
         description: desc || null,
@@ -446,7 +683,18 @@ function CreateModal({ meta, projectId, onClose, onCreated }: {
           <Field label="Source channel">
             <select value={source} onChange={e => setSource(e.target.value)} style={s.input}>
               {meta.sources.map(o => <option key={o.name} value={o.name}>{o.label}</option>)}
+              <option value="__OTHER__">Other (custom channel…)</option>
             </select>
+            {isCustom && (
+              <input
+                value={customSource}
+                onChange={e => setCustomSource(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_").slice(0, 30))}
+                style={{ ...s.input, marginTop: 6 }}
+                placeholder="e.g. STAKEHOLDER_INTERVIEW, ADVISORY_BOARD…"
+                maxLength={30}
+                autoFocus
+              />
+            )}
           </Field>
           <Field label="Severity">
             <select value={severity} onChange={e => setSeverity(e.target.value)} style={s.input}>

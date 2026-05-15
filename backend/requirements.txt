@@ -10,3 +10,7 @@ python-multipart==0.0.12
 bcrypt==4.2.1
 PyJWT==2.8.0
 anthropic>=0.96.0
+
+# Documentation site — `mkdocs build` produces ../site/ which FastAPI serves at /manual
+mkdocs>=1.6
+mkdocs-material>=9.5

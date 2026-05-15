@@ -1,0 +1,85 @@
+# MedSoft Compliance Platform — mkdocs configuration
+#
+# Builds the HTML documentation site from the Markdown sources in `docs/`.
+# Run `mkdocs serve` for live preview at http://127.0.0.1:8000, or
+# `mkdocs build` to emit static HTML into `site/`.
+
+site_name: MedSoft Compliance Platform
+site_description: Medical software compliance platform for IEC 62304 / ISO 14971 / IEC 81001-5-1
+site_dir: site
+docs_dir: docs
+repo_name: medsoft
+repo_url: https://example.invalid/medsoft   # update when public repo lands
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.tracking
+    - navigation.indexes
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+
+  - Developer Guide:
+      - developer/index.md
+      - Architecture: developer/architecture.md
+      - Adding a Module: developer/adding-a-module.md
+      - Conventions: developer/conventions.md
+      - Data Model: developer/data-model.md
+      - API Reference: developer/api-reference.md
+      - IEC 62304 Clause Mapping: developer/iec-62304-mapping.md
+
+  - User Guide:
+      - user/index.md
+      - Getting Started: user/00-getting-started.md
+      - Projects: user/01-projects.md
+      - Requirements (§5.2): user/02-requirements.md
+      - Architecture & Design (§5.3–§5.4): user/03-architecture.md
+      - Verification (§5.5–§5.7): user/04-verification.md
+      - Release Management (§5.8): user/05-release.md
+      - Feedback Intake (§6): user/06-feedback.md
+      - Risk Register (§7): user/07-risks.md
+      - Configuration Management (§8): user/08-config-mgmt.md
+      - CAPA / Problem Resolution (§9): user/09-capa.md
+      - DHF (Design History File): user/10-dhf.md
+      - End-to-end Walkthrough: user/iec-62304-walkthrough.md

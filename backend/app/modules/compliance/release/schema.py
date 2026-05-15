@@ -7,6 +7,8 @@ from .model import ReleaseStatus
 class ReleaseCreate(BaseModel):
     project_id: uuid.UUID
     version: str
+    # IEC 62304 §6.3.2 — optional link to predecessor RELEASED version.
+    parent_release_id: uuid.UUID | None = None
 
 
 class ReleaseTransition(BaseModel):
@@ -48,6 +50,8 @@ class ReleaseRead(BaseModel):
     regulator_notification_sent: bool
     regulator_notification_summary: str | None
     regulator_notified_at: datetime | None
+    # §6.3.2 lineage
+    parent_release_id: uuid.UUID | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

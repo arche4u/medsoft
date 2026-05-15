@@ -35,14 +35,34 @@ async def create_release(
     db: AsyncSession = Depends(get_db),
     current_user: TokenData = Depends(require_permission("CREATE_RELEASE")),
 ):
+    # §6.3.2 — validate parent_release_id belongs to the same project AND is
+    # RELEASED (you can only supersede an actually-released version).
+    if body.parent_release_id is not None:
+        parent = (await db.execute(
+            select(Release).where(Release.id == body.parent_release_id)
+        )).scalar_one_or_none()
+        if not parent:
+            raise HTTPException(404, "parent_release_id not found")
+        if parent.project_id != body.project_id:
+            raise HTTPException(400, "parent_release_id belongs to a different project")
+        if parent.status != ReleaseStatus.RELEASED:
+            raise HTTPException(
+                400,
+                f"parent release must be in RELEASED state (currently {parent.status.value}); "
+                "only released versions can be superseded per §6.3.2."
+            )
+
     rel = Release(
         project_id=body.project_id,
         version=body.version,
         status=ReleaseStatus.DRAFT,
+        parent_release_id=body.parent_release_id,
     )
     db.add(rel)
     await db.flush()
-    await audit(db, "Release", rel.id, AuditAction.CREATE, current_user.user_id, f"v{rel.version}")
+    lineage = f" supersedes {body.parent_release_id}" if body.parent_release_id else ""
+    await audit(db, "Release", rel.id, AuditAction.CREATE, current_user.user_id,
+                f"v{rel.version}{lineage}")
     await db.commit()
     await db.refresh(rel)
     return rel

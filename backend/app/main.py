@@ -1,5 +1,8 @@
+from pathlib import Path
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.modules.platform.auth.deps import get_current_user
@@ -89,3 +92,35 @@ for router in [
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "0.5.0"}
+
+
+# ── Documentation sites ─────────────────────────────────────────────────────
+# Two mkdocs builds, two mount paths:
+#
+#   /manual        → site/        (full docs — User Guide + Developer Guide)
+#                                  shown to ADMIN / DEVELOPER roles
+#   /manual-user   → site-user/   (User Guide ONLY — Developer Guide excluded
+#                                  from build per mkdocs-user.yml)
+#                                  shown to QA / QARA / TESTER / REVIEWER / etc.
+#
+# Build both with:   mkdocs build && mkdocs build -f mkdocs-user.yml
+# Not /docs — that's already FastAPI's Swagger UI.
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_MANUAL_FULL = _REPO_ROOT / "site"
+_MANUAL_USER = _REPO_ROOT / "site-user"
+
+if _MANUAL_FULL.is_dir():
+    app.mount("/manual", StaticFiles(directory=_MANUAL_FULL, html=True), name="manual")
+
+if _MANUAL_USER.is_dir():
+    app.mount("/manual-user", StaticFiles(directory=_MANUAL_USER, html=True), name="manual_user")
+
+if not _MANUAL_FULL.is_dir() and not _MANUAL_USER.is_dir():
+    @app.get("/manual-not-built")
+    async def manual_not_built_page():
+        return {
+            "status": "not_built",
+            "message": "The user manual hasn't been built yet. Run "
+                       "`mkdocs build && mkdocs build -f mkdocs-user.yml` in the repo root.",
+        }

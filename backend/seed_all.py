@@ -15,6 +15,13 @@ Steps executed (order matters):
                              elements, §5.5 units, §5.6 integration tests, §5.7
                              system tests, §5.8 release baselines + artifacts,
                              §9 CAPA, and release e-signatures.
+  4. seed_section6.py      — §6 Software Maintenance: APPROVED Maintenance Plan
+                             v1.0 per project, feedback items across every
+                             lifecycle state + all 8 built-in channels +
+                             a custom-channel example, ProblemReport / Change
+                             Request escalation chains, and §6.2.5 user +
+                             regulator notification audit trail on each
+                             RELEASED version.
 
 Not seeded — generated on demand: DHF documents (POST /dhf/generate/{project_id}).
 
@@ -38,6 +45,10 @@ STEPS = [
     {
         "script": "seed_architecture.py",
         "label":  "Architecture, §4.3–§5.8 modules, CAPA & release e-signatures",
+    },
+    {
+        "script": "seed_section6.py",
+        "label":  "§6 Software Maintenance: Plans, feedback intake, escalations, notifications",
     },
 ]
 
@@ -92,6 +103,10 @@ def main():
     §5.6  integration test cases + results
     §5.7  system test cases + results
     §5.8  releases + configuration-baseline snapshots + artifacts + e-signatures
+    §6.1  APPROVED Software Maintenance Plan v1.0 (11 sections, §6.1 a–f)
+    §6.2  Feedback intake (5–7 items per project across all 8 channels) with
+          ProblemReport (§6.2.2) + ChangeRequest (§6.2.3) escalation chains
+    §6.2.5 user + regulator notification audit trail on every RELEASED version
     §9    CAPA / problem reports with verified corrective actions
     V&V   15 test cases + executions · validation records · change requests
     §8    config management items + baselines · 34 documents

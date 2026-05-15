@@ -1,0 +1,34 @@
+# MedSoft — user-only docs config
+#
+# Builds a SEPARATE site containing *only* the User Guide. Non-admin/dev
+# users land here from the sidebar Help popover; the left navigation in
+# every page shows only user pages — no Developer Guide section.
+#
+# Run with: `mkdocs build -f mkdocs-user.yml`
+# Output:   site-user/  (served by FastAPI at /manual-user)
+
+INHERIT: mkdocs.yml
+
+site_name: MedSoft Compliance Platform — User Manual
+site_dir: site-user
+
+# Exclude the developer/ tree entirely from this build — non-admin users
+# shouldn't even be able to URL-hop into developer docs from /manual-user.
+exclude_docs: |
+  developer/
+  developer/*
+
+nav:
+  - Home: index.md
+  - Getting Started: user/00-getting-started.md
+  - Projects: user/01-projects.md
+  - Requirements (§5.2): user/02-requirements.md
+  - Architecture & Design (§5.3–§5.4): user/03-architecture.md
+  - Verification (§5.5–§5.7): user/04-verification.md
+  - Release Management (§5.8): user/05-release.md
+  - Feedback Intake (§6): user/06-feedback.md
+  - Risk Register (§7): user/07-risks.md
+  - Configuration Management (§8): user/08-config-mgmt.md
+  - CAPA / Problem Resolution (§9): user/09-capa.md
+  - DHF (Design History File): user/10-dhf.md
+  - End-to-end Walkthrough: user/iec-62304-walkthrough.md

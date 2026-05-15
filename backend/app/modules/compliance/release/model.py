@@ -47,6 +47,15 @@ class Release(Base, TimestampMixin):
     regulator_notification_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     regulator_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # ── IEC 62304 §6.3.2 — maintenance-release lineage ──────────────────────
+    # Link to the prior RELEASED version that this release supersedes. Lets
+    # the DHF + audit show the upgrade chain (v1.0.0 → v1.1.0 → v1.2.0) as
+    # an explicit graph rather than implicit version-string ordering. NULL
+    # for the very first release of the project.
+    parent_release_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("releases.id", ondelete="SET NULL"), nullable=True
+    )
+
     items: Mapped[list["ReleaseItem"]] = relationship(
         back_populates="release", cascade="all, delete-orphan"
     )

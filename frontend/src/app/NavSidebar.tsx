@@ -30,6 +30,14 @@ function IconPM({ size = 20 }: { size?: number }) {
   );
 }
 
+function IconHelp({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
+    </svg>
+  );
+}
+
 // ── Nav config ───────────────────────────────────────────────────────────────
 
 type SubItem = { href: string; label: string };
@@ -214,6 +222,137 @@ const SECTIONS: Section[] = [
   },
 ];
 
+// ── Help menu (role-aware popover) ──────────────────────────────────────────
+//
+// Sits at the bottom of the icon rail. Click → opens a small popover with
+// links into the mkdocs-built manual that FastAPI serves at /manual.
+//
+// • Admin / Developer  → both Developer Guide + User Guide
+// • Everyone else      → User Guide only (single-item popover)
+//
+// Reads the role off the JWT response cached in localStorage by the login
+// flow (see api.ts `getToken`). Default-deny: if there's no auth (e.g. the
+// pre-login page), we show only the User Guide.
+
+function HelpMenu() {
+  const [open, setOpen] = useState(false);
+  const [role, setRole] = useState<string>("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const auth = JSON.parse(localStorage.getItem("medsoft_auth") ?? "null");
+      setRole(auth?.role ?? "");
+    } catch { setRole(""); }
+  }, []);
+
+  // Two separate static sites served by the backend:
+  //   /manual       → full site (User + Developer)  — for ADMIN / DEVELOPER
+  //   /manual-user  → user-only site (Developer Guide excluded from build)
+  //                                                  — for everyone else
+  // Build them with: `mkdocs build && mkdocs build -f mkdocs-user.yml`
+  const backend = process.env.NEXT_PUBLIC_API_URL
+    ? process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/v1\/?$/, "")
+    : "http://localhost:8000";
+  const userGuideUrl = `${backend}/manual-user/`;
+  const devGuideUrl  = `${backend}/manual/developer/`;
+  // Admin / Developer roles see both guides; everyone else sees only the
+  // user guide. The role check is purely a UI affordance — the docs
+  // themselves are not access-controlled.
+  const isElevated = role === "ADMIN" || role === "DEVELOPER";
+
+  return (
+    <div style={{ marginTop: "auto", position: "relative" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Help"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 44,
+          padding: "0.6rem 0.3rem",
+          background: open ? "rgba(255,255,255,0.18)" : "transparent",
+          border: "none",
+          borderRadius: 8,
+          borderLeft: `3px solid ${open ? "#93c5fd" : "transparent"}`,
+          color: open ? "#ffffff" : "rgba(255,255,255,0.5)",
+          cursor: "pointer",
+          gap: "0.22rem",
+          transition: "background 0.15s, color 0.15s",
+        }}
+        onMouseOver={e => { if (!open) { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.1)"; (e.currentTarget as HTMLElement).style.color = "#bfdbfe"; } }}
+        onMouseOut={e => { if (!open) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.5)"; } }}
+      >
+        <IconHelp />
+        <span style={{ fontSize: "0.48rem", letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: "700" }}>
+          Help
+        </span>
+      </button>
+
+      {open && (
+        // Click-outside backdrop — closes the popover on any outside click.
+        <>
+          <div
+            onClick={() => setOpen(false)}
+            style={{ position: "fixed", inset: 0, zIndex: 100, background: "transparent" }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              left: 56,
+              bottom: 0,
+              minWidth: 220,
+              background: "#ffffff",
+              border: "1px solid #c7d2fe",
+              borderRadius: 8,
+              boxShadow: "0 8px 24px rgba(15,23,42,0.18)",
+              padding: 6,
+              zIndex: 101,
+            }}
+          >
+            <div style={{ padding: "6px 10px 8px", fontSize: 11, fontWeight: 700, color: "#475569",
+                          letterSpacing: "0.06em", textTransform: "uppercase", borderBottom: "1px solid #e2e8f0" }}>
+              Documentation
+            </div>
+            <HelpLink href={userGuideUrl} title="User Guide"
+                      subtitle="Workflow guides per module — for QA, RA, clinical engineers" />
+            {isElevated && (
+              <HelpLink href={devGuideUrl} title="Developer Guide"
+                        subtitle="Architecture, conventions, API reference, IEC mapping" />
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function HelpLink({ href, title, subtitle }: { href: string; title: string; subtitle: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      style={{
+        display: "block",
+        padding: "8px 10px",
+        textDecoration: "none",
+        color: "#0f172a",
+        borderRadius: 6,
+        transition: "background 0.12s",
+      }}
+      onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = "#eef2ff"; }}
+      onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 600 }}>{title}</div>
+      <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{subtitle}</div>
+    </a>
+  );
+}
+
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseQS(qs: string | undefined): Record<string, string> {
@@ -369,6 +508,12 @@ function NavSidebarInner() {
             </button>
           );
         })}
+
+        {/* Help — role-aware popover anchored at the bottom of the icon rail.
+            • ADMIN / DEVELOPER → Developer Guide + User Guide (both)
+            • Everyone else    → User Guide only
+            URLs point at the backend's /manual mount (FastAPI serves the mkdocs HTML). */}
+        <HelpMenu />
       </div>
 
       {/* ── Content Panel ─────────────────────────────────────────────────── */}

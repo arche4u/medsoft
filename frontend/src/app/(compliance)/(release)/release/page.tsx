@@ -25,7 +25,16 @@ export default function ReleasePage() {
 
   const [projectId, setProjectId] = useActiveProject();
   const [version, setVersion] = useState("v1.0.0");
+  // §6.3.2 — optional predecessor selection in the New Release form.
+  const [parentReleaseId, setParentReleaseId] = useState<string>("");
   const [error, setError] = useState("");
+
+  // §6.2.5 — user / regulator notification form state, scoped to the
+  // currently-selected release. Each audience has its own input + busy
+  // flag so they can be recorded independently.
+  const [notifAudience, setNotifAudience] = useState<"USER" | "REGULATOR">("USER");
+  const [notifSummary,  setNotifSummary]  = useState("");
+  const [notifBusy,     setNotifBusy]     = useState(false);
 
   // Suggest the next release version automatically — minor-bump from the
   // latest existing release (v1.2.0 → v1.3.0); v1.0.0 for the first release.
@@ -77,13 +86,37 @@ export default function ReleasePage() {
     if (!projectId || !version.trim()) return;
     try {
       setError("");
-      await api.release.create({ project_id: projectId, version });
+      await api.release.create({
+        project_id: projectId,
+        version,
+        parent_release_id: parentReleaseId || null,
+      });
       setVersion("");
+      setParentReleaseId("");
       loadReleases(projectId);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+
+  const recordNotification = async () => {
+    if (!selected || !notifSummary.trim()) return;
+    try {
+      setError("");
+      setNotifBusy(true);
+      await api.release.notify(selected.id, notifAudience, notifSummary.trim());
+      setNotifSummary("");
+      await selectRelease(selected.id);
+      loadReleases(projectId);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally { setNotifBusy(false); }
+  };
+
+  // Map of release id → version for the "supersedes" chip + form picker.
+  const releasesById = Object.fromEntries(releases.map(r => [r.id, r]));
+  // Only RELEASED versions can be picked as predecessors (§6.3.2).
+  const releasedPredecessors = releases.filter(r => r.status === "RELEASED");
 
   const selectRelease = async (id: string) => {
     const detail = await api.release.get(id);
@@ -178,6 +211,19 @@ export default function ReleasePage() {
             <div style={{ marginBottom: "0.75rem" }}>
               <input style={inputStyle} placeholder="Version (e.g. v1.0.0)" value={version} onChange={e => setVersion(e.target.value)} />
             </div>
+            {/* §6.3.2 supersedes picker — only released versions can be predecessors */}
+            {releasedPredecessors.length > 0 && (
+              <div style={{ marginBottom: "0.75rem" }}>
+                <select style={inputStyle} value={parentReleaseId}
+                        onChange={e => setParentReleaseId(e.target.value)}
+                        title="§6.3.2 — link to predecessor RELEASED version">
+                  <option value="">(no predecessor — first release)</option>
+                  {releasedPredecessors.map(r => (
+                    <option key={r.id} value={r.id}>supersedes {r.version}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button style={btnStyle()} onClick={createRelease}>Create Release</button>
           </div>
 
@@ -198,7 +244,16 @@ export default function ReleasePage() {
                   <strong style={{ fontSize: "0.9rem" }}>{rel.version}</strong>
                   <span style={badge(rel.status, STATUS_COLORS[rel.status])}>{rel.status}</span>
                 </div>
-                <div style={{ color: "#888", fontSize: "0.75rem", marginTop: 4 }}>{new Date(rel.created_at).toLocaleDateString()}</div>
+                <div style={{ color: "#888", fontSize: "0.75rem", marginTop: 4, display: "flex", gap: 6, alignItems: "center" }}>
+                  <span>{new Date(rel.created_at).toLocaleDateString()}</span>
+                  {rel.parent_release_id && releasesById[rel.parent_release_id] && (
+                    <span title="IEC 62304 §6.3.2 — supersedes predecessor"
+                          style={{ background: "#ede7f6", color: "#4527a0", border: "1px solid #b39ddb",
+                                   borderRadius: 4, padding: "1px 6px", fontSize: 10, fontWeight: 600 }}>
+                      ← {releasesById[rel.parent_release_id].version}
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -213,6 +268,15 @@ export default function ReleasePage() {
                   <h3 style={{ marginTop: 0 }}>Release {selected.version}</h3>
                   <span style={badge(selected.status, STATUS_COLORS[selected.status])}>{selected.status}</span>
                 </div>
+                {selected.parent_release_id && releasesById[selected.parent_release_id] && (
+                  <div style={{ marginBottom: 12, fontSize: "0.8rem", color: "#5d4037" }}>
+                    <span title="IEC 62304 §6.3.2"
+                          style={{ background: "#ede7f6", color: "#4527a0", border: "1px solid #b39ddb",
+                                   borderRadius: 4, padding: "1px 8px", fontSize: 11, fontWeight: 600 }}>
+                      §6.3.2 supersedes {releasesById[selected.parent_release_id].version}
+                    </span>
+                  </div>
+                )}
 
                 {readiness && (
                   <div style={{
@@ -255,6 +319,79 @@ export default function ReleasePage() {
                   </div>
                 )}
               </div>
+
+              {/* §6.2.5 — communicate to users and regulators ─────────────── */}
+              {selected.status === "RELEASED" && (
+                <div style={cardStyle}>
+                  <h4 style={{ marginTop: 0 }}>§6.2.5 Communication to Users and Regulators</h4>
+                  <p style={{ margin: "0 0 0.75rem", color: "#666", fontSize: "0.8rem" }}>
+                    Record when users and regulators have been notified about this release per IEC 62304 §6.2.5.
+                  </p>
+
+                  {/* Existing notifications */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
+                    {(["USER", "REGULATOR"] as const).map(aud => {
+                      const sent      = aud === "USER" ? selected.user_notification_sent      : selected.regulator_notification_sent;
+                      const summary   = aud === "USER" ? selected.user_notification_summary   : selected.regulator_notification_summary;
+                      const sentAt    = aud === "USER" ? selected.user_notified_at            : selected.regulator_notified_at;
+                      return (
+                        <div key={aud} style={{
+                          border: `1px solid ${sent ? "#a5d6a7" : "#e0e0e0"}`,
+                          background: sent ? "#f1f8e9" : "#fafafa",
+                          borderRadius: 6, padding: "0.6rem 0.75rem",
+                        }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                            <strong style={{ fontSize: "0.8rem", color: "#37474f" }}>
+                              {aud === "USER" ? "User notification" : "Regulator notification"}
+                            </strong>
+                            <span style={{ fontSize: "0.7rem", color: sent ? "#2e7d32" : "#9e9e9e", fontWeight: 600 }}>
+                              {sent ? "✓ recorded" : "not yet"}
+                            </span>
+                          </div>
+                          {sent && (
+                            <>
+                              <div style={{ fontSize: "0.75rem", color: "#546e7a", whiteSpace: "pre-wrap" }}>{summary}</div>
+                              <div style={{ fontSize: "0.7rem", color: "#888", marginTop: 4 }}>
+                                {sentAt ? new Date(sentAt).toLocaleString() : ""}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Record-new form */}
+                  <div style={{ borderTop: "1px solid #eee", paddingTop: "0.75rem" }}>
+                    <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                      {(["USER", "REGULATOR"] as const).map(aud => (
+                        <button key={aud}
+                                onClick={() => setNotifAudience(aud)}
+                                style={{
+                                  ...btnStyle(notifAudience === aud ? "#1565c0" : "#90a4ae"),
+                                  padding: "0.3rem 0.7rem",
+                                }}>
+                          {aud === "USER" ? "Record User Notification" : "Record Regulator Notification"}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      value={notifSummary}
+                      onChange={e => setNotifSummary(e.target.value)}
+                      placeholder={
+                        notifAudience === "USER"
+                          ? "Summary of how users were informed (email, distributor portal, IFU update, OTA push…)"
+                          : "Summary of regulator notification (Notified Body, FDA pre-submission, vigilance, MIR…)"
+                      }
+                      style={{ ...inputStyle, height: 70, marginBottom: "0.5rem" }}
+                    />
+                    <button onClick={recordNotification} disabled={notifBusy || !notifSummary.trim()}
+                            style={btnStyle("#2e7d32")}>
+                      {notifBusy ? "Recording…" : `Record ${notifAudience === "USER" ? "User" : "Regulator"} Notification`}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {approvals.length > 0 && (
                 <div style={cardStyle}>

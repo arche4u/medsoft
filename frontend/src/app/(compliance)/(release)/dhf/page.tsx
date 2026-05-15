@@ -92,8 +92,9 @@ export default function DHFPage() {
       { key: "unit_test_cases",         title: "§5.5 Unit Tests",               columns: [{ id: "name", label: "Name" }, { id: "test_type", label: "Type" }, { id: "expected_result", label: "Expected" }, { id: "latest_result", label: "Latest" }] },
       { key: "integration_tests",       title: "§5.6 Integration Tests",        columns: [{ id: "name", label: "Name" }, { id: "test_type", label: "Type" }, { id: "safety_relevance", label: "Safety" }, { id: "latest_result", label: "Latest" }] },
       { key: "system_tests",            title: "§5.7 System Tests",             columns: [{ id: "name", label: "Name" }, { id: "test_type", label: "Type" }, { id: "safety_relevance", label: "Safety" }, { id: "latest_result", label: "Latest" }] },
-      { key: "releases",                title: "§5.8 Releases",                 columns: [{ id: "version", label: "Version" }, { id: "status", label: "Status" }, { id: "item_count", label: "Items" }, { id: "has_snapshot", label: "Snapshot" }, { id: "artifact_count", label: "Artifacts" }] },
+      { key: "releases",                title: "§5.8 Releases",                 columns: [{ id: "version", label: "Version" }, { id: "status", label: "Status" }, { id: "parent_release_id", label: "Supersedes (§6.3.2)" }, { id: "item_count", label: "Items" }, { id: "has_snapshot", label: "Snapshot" }, { id: "user_notification_sent", label: "User notif §6.2.5" }, { id: "regulator_notification_sent", label: "Regulator notif §6.2.5" }] },
       { key: "release_artifacts",       title: "§5.8 Release Artifacts",        columns: [{ id: "version", label: "Version" }, { id: "artifact_type", label: "Type" }, { id: "reference_id", label: "Reference" }, { id: "label", label: "Label" }] },
+      { key: "feedback_items",          title: "§6.2.1 Feedback Intake",        columns: [{ id: "readable_id", label: "ID" }, { id: "source", label: "Source" }, { id: "severity", label: "Sev" }, { id: "status", label: "Status" }, { id: "summary", label: "Summary" }, { id: "is_problem", label: "Problem?" }, { id: "change_needed", label: "Change needed" }, { id: "escalated_problem_id", label: "→ CAPA" }, { id: "escalated_change_request_id", label: "→ CR" }] },
       { key: "plans",                   title: "§6/§7/§8/§9 Plans",             columns: [{ id: "plan_type", label: "Type" }, { id: "title", label: "Title" }, { id: "version", label: "Version" }, { id: "status", label: "Status" }, { id: "approved_by", label: "Approved by" }] },
       { key: "risks",                   title: "§7 Risk Register (ISO 14971)",  columns: [{ id: "hazard", label: "Hazard" }, { id: "harm", label: "Harm" }, { id: "severity", label: "Sev" }, { id: "probability", label: "Prob" }, { id: "risk_level", label: "Level" }] },
       { key: "problem_reports",         title: "§9 Problem Reports / CAPA",     columns: [{ id: "title", label: "Title" }, { id: "severity", label: "Severity" }, { id: "status", label: "Status" }, { id: "source", label: "Source" }] },
@@ -122,6 +123,10 @@ export default function DHFPage() {
           ["Problem Reports §9", summary.total_problem_reports,         "#bf360c"],
           ["E-Signatures",       summary.total_esignatures,             "#01579b"],
           ["SDP",                summary.sdp_present ? "✓" : "—",       summary.sdp_present ? "#15803d" : "#9ca3af"],
+          ["Feedback §6.2.1",    summary.total_feedback_items,          "#5d4037"],
+          ["→ CAPA §6.2.2",      summary.feedback_escalated_to_capa,    "#b71c1c"],
+          ["→ CR §6.2.3",        summary.feedback_escalated_to_cr,      "#6a1b9a"],
+          ["Maintenance Plan",   summary.maintenance_plan_approved ? "✓" : "—", summary.maintenance_plan_approved ? "#15803d" : "#9ca3af"],
         ].map(([label, value, color]) => `
           <div class="stat-card" style="border-top: 3px solid ${color}">
             <div class="stat-value" style="color:${color}">${value ?? 0}</div>
@@ -434,6 +439,7 @@ export default function DHFPage() {
               <DHFSection title="Unit Tests (§5.5)" items={parsedContent.unit_test_cases as unknown[]} columns={["name", "test_type", "expected_result", "latest_result"]} />
               <DHFSection title="Risks" items={parsedContent.risks as unknown[]} columns={["hazard", "harm", "severity", "probability", "risk_level"]} />
               <DHFSection title="Validation Records" items={parsedContent.validation_records as unknown[]} columns={["requirement_id", "description", "status"]} />
+              <DHFSection title="§6.2.1 Feedback Intake" items={parsedContent.feedback_items as unknown[]} columns={["readable_id", "source", "severity", "status", "summary", "is_problem", "change_needed"]} />
             </>
           ) : (
             <div style={{ ...cardStyle, color: "#888", textAlign: "center", padding: "3rem" }}>

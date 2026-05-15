@@ -26,6 +26,7 @@ from app.modules.compliance.release.model import Release, ReleaseItem
 from app.modules.compliance.plans.model import Plan, PlanSection
 from app.modules.compliance.problems.capa.model import ProblemReport, RootCause, CAPA, CAPAVerification, ProblemLink
 from app.modules.compliance.config.config_mgmt.model import CMConfigItem, CMBaseline
+from app.modules.compliance.maintenance.feedback.model import FeedbackItem  # §6.2.1
 from app.modules.platform.esign.model import ElectronicSignature, ESignEntityType
 
 from .model import DHFDocument
@@ -254,6 +255,27 @@ async def generate_dhf(
         select(ProblemReport).where(ProblemReport.project_id == project_id)
     )).scalars().all()
 
+    # ── §6.2.1 Feedback Intake — post-market surveillance funnel ─────────────
+    # The full feedback log goes in the DHF so auditors see what was reported,
+    # how it was triaged (§6.2.1.2), the safety assessment (§6.2.1.3), and the
+    # link to the resulting ProblemReport (§6.2.2) or ChangeRequest (§6.2.3).
+    feedback_items = (await db.execute(
+        select(FeedbackItem).where(FeedbackItem.project_id == project_id)
+        .order_by(FeedbackItem.created_at.desc())
+    )).scalars().all()
+
+    # ── §6.1 Maintenance Plan — current APPROVED template ────────────────────
+    # Single most-recently-approved MAINTENANCE plan, mirrored from the
+    # generic plans bucket. The dedicated §6 section in the DHF makes it
+    # findable without scrolling through every plan type.
+    maintenance_plan = (await db.execute(
+        select(Plan).where(
+            Plan.project_id == project_id,
+            Plan.plan_type == "MAINTENANCE",
+            Plan.status == "APPROVED",
+        ).order_by(Plan.approved_at.desc()).limit(1)
+    )).scalar_one_or_none()
+
     # ── Cross-cutting: electronic signatures on this project's releases ──────
     esignatures = []
     if rel_ids:
@@ -346,6 +368,15 @@ async def generate_dhf(
             "total_problem_reports": len(problem_reports),
             "total_capas": sum(len(pr.capas) for pr in problem_reports),
             "total_esignatures": len(esignatures),
+            # §6 Software Maintenance Process
+            "total_feedback_items": len(feedback_items),
+            "feedback_escalated_to_capa": sum(1 for f in feedback_items if f.escalated_problem_id),
+            "feedback_escalated_to_cr":   sum(1 for f in feedback_items if f.escalated_change_request_id),
+            "feedback_adverse_events":    sum(1 for f in feedback_items if f.adverse_event),
+            "feedback_spec_deviations":   sum(1 for f in feedback_items if f.spec_deviation),
+            "maintenance_plan_approved":  maintenance_plan is not None,
+            "releases_user_notified":     sum(1 for r in releases if r.user_notification_sent),
+            "releases_regulator_notified": sum(1 for r in releases if r.regulator_notification_sent),
         },
         "sdp": _serialize_sdp(sdp),
         "requirements": [
@@ -519,12 +550,23 @@ async def generate_dhf(
             for tc in system_tests
         ],
         # ── §5.8 releases + configuration baseline + artifacts ───────────────
+        # Each release carries its §6.3.2 lineage (parent_release_id) and
+        # §6.2.5 user/regulator notification audit trail.
         "releases": [
             {
                 "id": str(rel.id), "version": rel.version, "status": str(rel.status),
                 "item_count": sum(1 for ri in release_items if ri.release_id == rel.id),
                 "has_snapshot": any(s.release_id == rel.id for s in release_snapshots),
                 "artifact_count": sum(1 for a in release_artifacts if a.release_id == rel.id),
+                # §6.3.2 maintenance-release lineage
+                "parent_release_id": str(rel.parent_release_id) if rel.parent_release_id else None,
+                # §6.2.5 communication to users and regulators
+                "user_notification_sent": rel.user_notification_sent,
+                "user_notification_summary": rel.user_notification_summary,
+                "user_notified_at": rel.user_notified_at.isoformat() if rel.user_notified_at else None,
+                "regulator_notification_sent": rel.regulator_notification_sent,
+                "regulator_notification_summary": rel.regulator_notification_summary,
+                "regulator_notified_at": rel.regulator_notified_at.isoformat() if rel.regulator_notified_at else None,
             }
             for rel in releases
         ],
@@ -602,6 +644,52 @@ async def generate_dhf(
                 "ip_address": s.ip_address, "comments": s.comments,
             }
             for s in esignatures
+        ],
+        # ── §6.1 Maintenance Plan (most-recently-approved snapshot) ──────────
+        "maintenance_plan": ({
+            "id": str(maintenance_plan.id),
+            "version": maintenance_plan.version,
+            "status": maintenance_plan.status,
+            "iec_clause": maintenance_plan.iec_clause,
+            "title": maintenance_plan.title,
+            "approved_by": maintenance_plan.approved_by,
+            "approved_at": maintenance_plan.approved_at.isoformat() if maintenance_plan.approved_at else None,
+            "sections": [
+                {"section_number": s.section_number, "section_name": s.section_name,
+                 "content": s.content, "sort_order": s.sort_order}
+                for s in sorted(maintenance_plan.sections, key=lambda x: x.sort_order)
+            ],
+        } if maintenance_plan else None),
+        # ── §6.2.1 Feedback Intake log — full post-market surveillance trail ──
+        "feedback_items": [
+            {
+                "id": str(fb.id),
+                "readable_id": fb.readable_id,
+                "source": fb.source,
+                "reporter": fb.reporter,
+                "reported_at": fb.reported_at.isoformat() if fb.reported_at else None,
+                "summary": fb.summary,
+                "description": fb.description,
+                "affected_version": fb.affected_version,
+                "severity": fb.severity,
+                "adverse_event": fb.adverse_event,
+                "spec_deviation": fb.spec_deviation,
+                "is_problem": fb.is_problem,
+                "status": fb.status,
+                # §6.2.1.2 evaluation
+                "evaluation_notes": fb.evaluation_notes,
+                "evaluated_by": fb.evaluated_by,
+                "evaluated_at": fb.evaluated_at.isoformat() if fb.evaluated_at else None,
+                # §6.2.1.3 safety assessment
+                "safety_impact_assessment": fb.safety_impact_assessment,
+                "change_needed": fb.change_needed,
+                # §6.2.2 / §6.2.3 escalation linkage
+                "escalated_problem_id": str(fb.escalated_problem_id) if fb.escalated_problem_id else None,
+                "escalated_change_request_id": str(fb.escalated_change_request_id) if fb.escalated_change_request_id else None,
+                "closure_rationale": fb.closure_rationale,
+                "created_at": fb.created_at.isoformat(),
+            }
+            for fb in feedback_items
         ],
     }
 

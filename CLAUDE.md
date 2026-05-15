@@ -1,20 +1,24 @@
 # MedSoft Compliance Platform — CLAUDE.md
 
-Medical software compliance platform targeting IEC 62304 traceability requirements, with AI-assisted requirements generation and a standards knowledge base.
-Always read this file before starting any task.
+Medical-device software compliance platform targeting **IEC 62304** with risk management per **ISO 14971**. Currently covers §4.3 + §5.1–§5.8 + §6 + §7 + §8 + §9. **Cybersecurity (IEC 81001-5-1)** is planned as its own top-level layer.
+
+**Always read this file before starting any task.**
+
+For end-user help, see [`docs/user/`](docs/user/index.md). For deeper developer reference, see [`docs/developer/`](docs/developer/index.md). Both render as a browseable site via `mkdocs build` / `mkdocs serve`.
 
 ---
 
 ## Stack
 
-| Layer      | Technology                          |
-|------------|-------------------------------------|
-| Backend    | FastAPI + SQLAlchemy 2.0 (async)    |
-| Database   | PostgreSQL 16 + Alembic migrations  |
-| Frontend   | Next.js 15 (App Router, TypeScript) |
-| Auth       | JWT + bcrypt                        |
-| AI         | Anthropic Claude API (claude-haiku-4-5-20251001) |
-| Node.js    | Use `~/.nvm/versions/node/v20.20.2` for builds (system node is v12) |
+| Layer | Technology |
+|---|---|
+| Backend | FastAPI + SQLAlchemy 2.0 (async) |
+| Database | PostgreSQL 16 + Alembic migrations |
+| Frontend | Next.js 15 (App Router, TypeScript) — inline styles only |
+| Auth | JWT + bcrypt |
+| AI | Anthropic Claude API (claude-haiku-4-5-20251001) |
+| Docs | Markdown source + mkdocs-material → static HTML |
+| Node.js | Use `~/.nvm/versions/node/v20.20.2` for builds (system node is v12) |
 
 ---
 
@@ -22,151 +26,265 @@ Always read this file before starting any task.
 
 ```
 medsoft/
-├── setup.sh                    ← one-command setup for new machines
-├── export_knowledge.sh         ← export/import knowledge base via Git
-├── docker-compose.yml          ← Postgres only (frontend/backend run locally)
+├── CLAUDE.md                  ← this file — AI / contributor context
+├── README.md                  ← project entry point
+├── mkdocs.yml                 ← docs site config
+├── docs/                      ← all project documentation
+│   ├── index.md
+│   ├── developer/             ← architecture, conventions, API ref, IEC mapping
+│   └── user/                  ← non-technical workflow guides per module
+├── setup.sh                   ← one-command setup for new machines
+├── export_knowledge.sh        ← export/import knowledge base via Git
+├── docker-compose.yml         ← Postgres only (frontend/backend run locally)
 ├── backend/
 │   ├── app/
-│   │   ├── core/               ← config, db session, base model + TimestampMixin
-│   │   ├── main.py             ← FastAPI app, all routers registered here
+│   │   ├── core/              ← config, db session, base model + TimestampMixin
+│   │   ├── main.py            ← FastAPI app; all routers registered here
 │   │   └── modules/
-│   │       ├── projects/       ← CRUD
-│   │       ├── requirements/   ← CRUD + hierarchy + categories + readable IDs + Excel upload
-│   │       ├── testcases/      ← CRUD
-│   │       ├── tracelinks/     ← requirement ↔ testcase links
-│   │       ├── risks/          ← risk CRUD, auto risk_level computation
-│   │       ├── design/         ← DesignElement + RequirementDesignLink + Mermaid diagrams
-│   │       ├── verification/   ← TestExecution (PASS/FAIL/BLOCKED)
-│   │       ├── validation/     ← ValidationRecord (USER req → validation)
-│   │       ├── audit/          ← AuditLog + service.py helper
-│   │       ├── impact/         ← /impact-analysis/{req_id} endpoint
-│   │       ├── traceability/   ← full V-model tree endpoint
-│   │       ├── documents/      ← Document register (SOP/Plans/Technical/Development/Standards)
-│   │       ├── change_control/ ← ChangeRequest + ChangeImpact
-│   │       ├── release/        ← Release + ReleaseItem
-│   │       ├── dhf/            ← Design History File (JSON + PDF with diagrams)
-│   │       ├── knowledge/      ← Knowledge Base (global standards + project-specific)
-│   │       ├── ai/             ← AI requirements generation (Claude API)
-│   │       ├── users/          ← User accounts
-│   │       ├── roles/          ← Role + Permission + RolePermission
-│   │       ├── auth/           ← JWT login/register
-│   │       ├── esign/          ← ElectronicSignature
-│   │       └── training/       ← TrainingRecord
+│   │       ├── platform/      ← cross-cutting infrastructure
+│   │       │   ├── auth/                 ← JWT login/register
+│   │       │   ├── users/                ← User accounts
+│   │       │   ├── roles/                ← Role + Permission + RolePermission (RBAC)
+│   │       │   ├── audit/                ← AuditLog + audit() service helper
+│   │       │   ├── esign/                ← ElectronicSignature (21 CFR Part 11)
+│   │       │   ├── training/             ← TrainingRecord
+│   │       │   ├── attachments/          ← Generic file attachments
+│   │       │   ├── ai/                   ← Anthropic Claude integration
+│   │       │   ├── knowledge/            ← Standards reference library
+│   │       │   ├── documents/            ← Document Register (SOP / Plans / Technical)
+│   │       │   ├── approval/             ← Generic approval workflow
+│   │       │   └── projects/             ← Multi-project anchor
+│   │       │
+│   │       └── compliance/    ← regulated process modules
+│   │           ├── dev/                  §4.3 + §5.1–§5.7
+│   │           │   ├── requirements/     §5.2 — hierarchy + categories + baselines + Excel upload
+│   │           │   ├── software_items/   §4.3 — safety classification tree (A/B/C)
+│   │           │   ├── sdp/              §5.1 — Software Development Plan
+│   │           │   ├── architecture/     §5.3 — SWComponent + SWInterface + Baselines
+│   │           │   ├── design/           §5.4 — Detailed Design (Mermaid diagrams)
+│   │           │   ├── units/            §5.5 — SoftwareUnit + UnitTestCase + Results
+│   │           │   ├── integration_tests/ §5.6 — IntegrationTestCase + Results + Coverage
+│   │           │   ├── system_testing/   §5.7 — SystemTestCase + Readiness gates
+│   │           │   ├── validation/       USER-requirement validation records
+│   │           │   ├── traceability/     /traceability/{project_id} V-model tree
+│   │           │   └── impact/           /impact-analysis/{req_id}
+│   │           ├── maintenance/
+│   │           │   └── feedback/         §6.2.1 — Feedback Intake + escalation
+│   │           ├── risk/
+│   │           │   └── risks/            §7 / ISO 14971 — Risk + RiskControl + ResidualRisk
+│   │           ├── config/
+│   │           │   └── config_mgmt/      §8 — CMConfigItem + CMBaseline
+│   │           ├── problems/
+│   │           │   └── capa/             §9 — ProblemReport → RootCause → CAPA → Verification
+│   │           ├── release/              §5.8 — Release lifecycle, snapshots, §6.2.5, §6.3.2
+│   │           ├── change_control/       §6.2 / §6.3 — ChangeRequest with §6.2.3 gate
+│   │           ├── dhf/                  Design History File generator (auditor bundle)
+│   │           └── plans/                §6.1 / §7 / §8.1 / §9 plan-template engine
 │   ├── alembic/
-│   │   └── versions/           ← migration chain, apply with `alembic upgrade head`
+│   │   └── versions/                     ← migration chain (run `alembic upgrade head`)
 │   ├── fixtures/
-│   │   └── knowledge_base.sql  ← committed knowledge base snapshot (auto-imported by setup.sh)
-│   ├── seed_all.py             ← Full seed entrypoint (recommended): chains the 3 below
-│   ├── seed_comprehensive.py   ← 5 IEC 62304 projects, all base modules (wipes DB)
-│   ├── seed_phase4.py          ← users / roles / RBAC permissions / training
-│   ├── seed_architecture.py    ← §4.3–§5.8 modules, CAPA, release e-signatures
-│   ├── seed.py                 ← minimal Phase 1 demo (single project) — setup.sh option [2]
-│   ├── seed_phase2.py          ← minimal Phase 2 demo (design/verification/validation)
+│   │   └── knowledge_base.sql            ← committed KB snapshot (auto-imported by setup.sh)
+│   ├── seed_all.py                       ← Master seed: chains the 4 below
+│   ├── seed_comprehensive.py             ← 5 IEC 62304 projects, all base modules (wipes DB)
+│   ├── seed_phase4.py                    ← users / roles / permissions / training
+│   ├── seed_architecture.py              ← §4.3–§5.8 modules, CAPA, release e-signatures
+│   ├── seed_section6.py                  ← §6 Maintenance: plans, feedback, notifications, lineage
+│   ├── seed.py                           ← minimal Phase 1 demo (single project)
+│   ├── seed_phase2.py                    ← minimal Phase 2 demo (design/verification/validation)
 │   └── requirements.txt
 └── frontend/
     └── src/
-        ├── lib/api.ts          ← typed API client (single source of truth)
+        ├── lib/
+        │   ├── api.ts                    ← typed API client (single source of truth)
+        │   └── useActiveProject.ts       ← project-id hook + localStorage + stale-id guard
         └── app/
-            ├── NavSidebar.tsx  ← collapsible icon rail + content panel sidebar
-            ├── NavUser.tsx     ← user widget (bottom of sidebar)
-            ├── projects/       ← create + list
-            ├── requirements/   ← hierarchy tree + readable IDs + Excel upload + ✨ AI Generate
-            ├── testcases/      ← create + link SOFTWARE→TC, grouped by linked/unlinked
-            ├── risks/          ← risk register grouped HIGH/MEDIUM/LOW
-            ├── design/         ← ARCH→DETAILED tree + Mermaid diagrams + link to SW req
-            ├── verification/   ← run tests, record PASS/FAIL/BLOCKED
-            ├── validation/     ← validation records for USER reqs
-            ├── traceability/   ← collapsible V-model tree
-            ├── tracelinks/     ← trace matrix grid
-            ├── impact/         ← impact analysis UI
-            ├── documents/      ← document register (SOP/Plans/Technical/Development/Standards)
-            ├── change-control/ ← change requests with impact analysis
-            ├── release/        ← release management
-            ├── dhf/            ← design history file (JSON + PDF with inline diagrams)
-            ├── knowledge/      ← knowledge base (global standards library + project rules)
-            ├── audit/          ← audit log viewer
-            ├── users/          ← user management
-            └── training/       ← training records
+            ├── layout.tsx + page.tsx     ← root
+            ├── NavSidebar.tsx            ← collapsible icon rail + grouped panel (bottom Help link)
+            ├── NavUser.tsx               ← user widget
+            ├── (platform)/               ← route group — parens stripped from URL
+            │   ├── audit/                ← /audit
+            │   ├── users/                ← /users
+            │   ├── training/             ← /training
+            │   ├── projects/             ← /projects, /projects/dashboard
+            │   ├── documents/            ← /documents, /documents/edit
+            │   ├── knowledge/            ← /knowledge
+            │   └── login/                ← /login
+            └── (compliance)/
+                ├── (dev)/
+                │   ├── requirements/     ← /requirements
+                │   ├── software-items/   ← /software-items
+                │   ├── sdp/              ← /sdp
+                │   ├── architecture/     ← /architecture
+                │   ├── design/           ← /design
+                │   ├── units/            ← /units
+                │   ├── integration-tests/← /integration-tests
+                │   ├── system-testing/   ← /system-testing
+                │   ├── validation/       ← /validation
+                │   └── traceability/     ← /traceability
+                ├── (maintenance)/
+                │   └── feedback/         ← /feedback  (Triage + Monitor §6.2.1.1 tabs)
+                ├── (risk)/
+                │   └── risks/            ← /risks
+                ├── (config)/
+                │   └── config-mgmt/      ← /config-mgmt
+                ├── (problems)/
+                │   └── capa/             ← /capa
+                ├── (release)/
+                │   ├── release/          ← /release  (with §6.2.5 notification UI + §6.3.2 chip)
+                │   ├── change-control/   ← /change-control
+                │   └── dhf/              ← /dhf
+                └── plans/                ← /plans + /plans/{maintenance,risk-mgmt,…}
 ```
+
+**Two-package split rationale:**
+- `platform/` modules exist because the *application* needs them (auth, files, audit).
+- `compliance/` modules exist because a *standard* requires them (IEC 62304, ISO 14971, FDA 21 CFR 820).
+- Cybersecurity (IEC 81001-5-1) lands as `compliance/cybersecurity/` — its own sibling, not nested in `dev/`.
 
 ---
 
 ## Data Model
 
+Every regulated entity FKs to a `Project`. See [`docs/developer/data-model.md`](docs/developer/data-model.md) for the full ER overview.
+
 ```
 Project
-├── Requirement (USER → SYSTEM → SOFTWARE hierarchy via parent_id)
-│   ├── readable_id: auto-generated URQ-001 / SYS-001 / SWR-001
-│   ├── type: references RequirementCategory.name (built-in or custom)
-│   ├── Risk (severity × probability → risk_level: LOW/MEDIUM/HIGH)
-│   ├── TraceLink → TestCase (only SOFTWARE reqs)
-│   └── RequirementDesignLink → DesignElement (only SOFTWARE reqs)
-├── RequirementCategory (per-project, built-in USER/SYSTEM/SOFTWARE + custom)
-├── TestCase
-│   └── TestExecution (PASS/FAIL/BLOCKED, history kept)
-├── DesignElement (ARCHITECTURE → DETAILED hierarchy via parent_id, diagram_source Mermaid)
-├── Document (SOP/Plans/Technical/Development/Standards — auto-seeded per project)
-├── ValidationRecord (linked to USER requirements only)
-├── ChangeRequest + ChangeImpact
-└── Release + ReleaseItem
+├── Requirement (USER → SYSTEM → SOFTWARE — dynamic tree from RequirementCategory.parent_id)
+│   ├── readable_id auto-generated (URQ-NNN / SYS-NNN / SWR-NNN — prefix configurable per category)
+│   ├── Risk (severity × probability → risk_level: LOW / MEDIUM / HIGH)
+│   └── RequirementDesignLink → DesignElement
+├── SoftwareItem (§4.3 — safety classification tree A/B/C)
+├── SWComponent (§5.3 — SYSTEM → SUBSYSTEM → ITEM → UNIT)
+│   ├── SWInterface (DATA / CONTROL / API / SIGNAL)
+│   ├── SWComponentReqLink → Requirement
+│   ├── SWComponentRiskLink → Risk
+│   └── SWComponentTCLink → SystemTestCase
+├── ArchitectureBaseline (versioned, signed-off, mirrors to CMBaseline)
+├── DesignElement (§5.4 — linked to a SWComponent, optional self-nest)
+├── SoftwareUnit (§5.5)
+│   ├── CodeArtifact[]
+│   ├── UnitTestCase + UnitTestResult
+│   └── UnitRequirementLink / UnitRiskLink
+├── IntegrationTestCase (§5.6) + IntegrationTestResult
+├── SystemTestCase (§5.7) + SystemTestResult
+├── Release (§5.8)
+│   ├── ReleaseItem → Requirement | SystemTestCase | DesignElement
+│   ├── parent_release_id           (§6.3.2 maintenance lineage)
+│   ├── user/regulator_notification (§6.2.5)
+│   ├── ReleaseSnapshot              (frozen JSON at approval)
+│   ├── ReleaseArtifact[]
+│   └── ReleaseChecklistItem[]
+├── ChangeRequest (§6.2)
+│   ├── modifies_released_software   (§6.2.3 trigger)
+│   ├── effect_on_organization       (§6.2.3)
+│   ├── effect_on_released_software  (§6.2.3)
+│   ├── effect_on_interfacing_systems(§6.2.3)
+│   └── ChangeImpact[] → Requirement | DesignElement | SystemTestCase
+├── FeedbackItem (§6.2.1)
+│   ├── source / severity / status (open vocabulary via /feedback/meta)
+│   ├── adverse_event / spec_deviation (§6.2.1.2)
+│   ├── safety_impact_assessment / change_needed (§6.2.1.3)
+│   ├── escalated_problem_id → ProblemReport
+│   └── escalated_change_request_id → ChangeRequest
+├── ProblemReport → RootCause → CAPA → CAPAVerification (§9)
+├── CMConfigItem + CMBaseline (§8)
+├── Plan + PlanSection (§6.1 / §7 / §8.1 / §9 templates — shared engine)
+├── SoftwareDevelopmentPlan (§5.1 — richer, has phases + roles)
+├── RequirementsBaseline + RequirementCategoryBaseline (§5.2 two-tier)
+├── ValidationRecord (USER reqs only)
+└── DHFDocument (generated on demand — bundles everything)
 
-KnowledgeEntry    — global (is_global=True, project_id=NULL) or project-specific
-                    global entries auto-seeded from seed_data.py + committed to fixtures/
-AuditLog          — cross-cutting, logs all write ops
-User + Role + Permission — RBAC
-ElectronicSignature      — approval signatures
-TrainingRecord           — staff training log
-DHFDocument              — design history file entries
+Cross-cutting:
+KnowledgeEntry · AuditLog · ElectronicSignature · TrainingRecord
+User + Role + Permission + RolePermission
+Attachment (polymorphic across all entities)
+Document (Document Register — SOP / Plans / Technical / Development / Standards)
 ```
 
-All primary keys are `UUID`. All timestamps are `DateTime(timezone=True)`.
+All primary keys are `UUID`. All timestamps are `DateTime(timezone=True)`. Status fields are `String`, not Enum (taxonomies stay open-vocabulary).
 
 ---
 
 ## Key Rules (enforced in backend)
 
-| Entity | Constraint |
-|--------|-----------|
-| Requirement | USER: no parent. SYSTEM: parent must be USER. SOFTWARE: parent must be SYSTEM. |
-| Requirement.type | Must match a `RequirementCategory.name` for that project. |
-| readable_id | Auto-generated: `URQ-NNN` / `SYS-NNN` / `SWR-NNN`. Unique per project. |
-| DesignElement | ARCHITECTURE: no parent. DETAILED: parent must be ARCHITECTURE. |
-| RequirementDesignLink | Only SOFTWARE requirements can link to design elements. |
-| ValidationRecord | Must link to USER requirements only. |
-| Risk level | Computed: S×P ≤ 4 → LOW, ≤ 9 → MEDIUM, > 9 → HIGH. Stored in DB. |
-| KnowledgeEntry (global) | Fully editable/deletable via UI. Re-seeded from seed_data.py only if missing. |
+| Constraint | Where |
+|---|---|
+| `Requirement.parent_id` chain must match `RequirementCategory.parent_id` chain | `compliance/dev/requirements/router.py` |
+| `Requirement.type` references `RequirementCategory.name` for that project | same |
+| `readable_id` auto-generated: prefix-NNN per category per project | `_next_readable_id()` per module |
+| `DesignElement.component_id` links to a §5.3 SWComponent (was the ARCH/DETAILED tier — removed) | `compliance/dev/design/model.py` |
+| `RequirementDesignLink` allowed only on SOFTWARE requirements (leaf categories) | `compliance/dev/design/router.py` |
+| `ValidationRecord` must link to a USER requirement | `compliance/dev/validation/router.py` |
+| `Risk.risk_level` computed: S × P ≤ 4 LOW, ≤ 9 MEDIUM, else HIGH | `compliance/risk/risks/model.py:_compute_level` |
+| `KnowledgeEntry` global entries auto-seeded if missing on startup | `platform/knowledge/seed_data.py` |
+| Approving a Release requires an `ElectronicSignature` (meaning=APPROVAL) | `compliance/release/router.py` |
+| Approving a CR that `modifies_released_software` requires all 3 §6.2.3 fields | `compliance/change_control/router.py` |
+| `Release.parent_release_id` must point to a same-project RELEASED row | `compliance/release/router.py:create_release` |
+| Stale `project_id` in active-project hook → backend returns 404, frontend auto-clears | `compliance/dev/requirements/router.py:_ensure_builtins` + `useActiveProject.ts` |
 
 ---
 
 ## API Structure
 
-All routes are prefixed with `/api/v1`.
+All routes are prefixed with `/api/v1`. Interactive Swagger at `http://localhost:8000/docs`. Full endpoint reference: [`docs/developer/api-reference.md`](docs/developer/api-reference.md).
 
 | Module | Prefix | Key endpoints |
-|--------|--------|---------------|
-| projects | `/projects` | Standard CRUD |
-| requirements | `/requirements` | CRUD + `POST /upload` (Excel) + `/categories` CRUD |
-| testcases | `/testcases` | Standard CRUD |
-| tracelinks | `/tracelinks` | CRUD |
-| risks | `/risks` | CRUD, risk_level auto-computed; `?project_id=` for project-wide list |
+|---|---|---|
+| auth | `/auth` | `POST /login` (form-encoded), `POST /register` |
+| projects | `/projects` | CRUD |
+| requirements | `/requirements` | CRUD + `/categories` CRUD + `/baselines/` + `/category-baselines/` + `POST /upload` (Excel) |
+| software_items | `/software-items` | §4.3 CRUD + `/compliance` check |
+| sdp | `/sdp` | §5.1 SDP CRUD + sections / phases / roles + status transition |
+| architecture | `/architecture` | §5.3 components + interfaces + baselines + `/component-types` taxonomy |
 | design | `/design` | `/elements` CRUD + `/links` CRUD |
-| verification | `/verification` | `/executions` CRUD + `/executions/latest` |
-| validation | `/validation` | `/records` CRUD |
-| audit | `/audit` | `/logs` (read-only) |
-| traceability | `/traceability` | `GET /{project_id}` → full V-model tree |
+| units | `/units` | §5.5 CRUD + code artifacts + test cases + results |
+| integration_tests | `/integration-tests` | §5.6 CRUD + results + `/coverage/{project_id}` |
+| system_testing | `/system-testing` | §5.7 CRUD + results + `/coverage/{project_id}` + `/release/{release_id}/readiness` |
+| validation | `/validation` | `/records` CRUD (USER reqs only) |
+| traceability | `/traceability` | `GET /{project_id}` → V-model tree |
 | impact | `/impact-analysis` | `GET /{requirement_id}` |
-| documents | `/documents` | CRUD; auto-seeds 34 canonical docs per project on first GET |
-| change_control | `/change-control` | ChangeRequest CRUD + status transitions |
-| release | `/release` | Release CRUD + status transitions + items |
-| dhf | `/dhf` | DHF document CRUD + `POST /generate/{project_id}` |
-| knowledge | `/knowledge` | Global CRUD + project CRUD + copy-to-project |
-| ai | `/ai` | `POST /generate-requirements` (Claude API) |
-| auth | `/auth` | `POST /login`, `POST /register` |
-| users | `/users` | User CRUD |
-| roles | `/roles` | Role + Permission management |
-| training | `/training` | TrainingRecord CRUD |
+| feedback | `/feedback` | §6.2.1 CRUD + `/meta` + `/evaluate` + `/escalate` + `/close` |
+| change_control | `/change-control` | CRUD + status transitions (with §6.2.3 gate) |
+| release | `/release` | CRUD + transitions + items + `/readiness` + `/notify` (§6.2.5) |
+| risks | `/risks` | CRUD + controls + residual + dashboard + categories + safety profile |
+| config_mgmt | `/config-mgmt` | Items + baselines + `/release-check/{project_id}` |
+| capa | `/capa` | Problem reports + root causes + CAPAs + verifications |
+| plans | `/plans` | Plan engine (MAINTENANCE / RISK_MGMT / CONFIG_MGMT / PROBLEM_RESOLUTION / custom) |
+| dhf | `/dhf` | `POST /generate/{project_id}?release_id=…` + document CRUD |
+| audit | `/audit` | `/logs` (read-only) |
+| esign | `/esign` | `/sign` (21 CFR Part 11) |
+| documents | `/documents` | Document Register CRUD |
+| knowledge | `/knowledge` | Global + project CRUD + copy-to-project |
+| ai | `/ai` | `POST /generate-requirements` (Claude) |
+| roles · users · training · attachments · approval | standard CRUD |
 
-Interactive docs: `http://localhost:8000/docs`
+---
+
+## IEC 62304 clause → module mapping
+
+| Clause | Backend module | Frontend page |
+|---|---|---|
+| §4.3 | `compliance/dev/software_items` | `/software-items` |
+| §5.1 | `compliance/dev/sdp` + `compliance/plans` | `/sdp`, `/plans/maintenance`, … |
+| §5.2 | `compliance/dev/requirements` | `/requirements` |
+| §5.3 | `compliance/dev/architecture` | `/architecture` |
+| §5.4 | `compliance/dev/design` | `/design` |
+| §5.5 | `compliance/dev/units` | `/units` |
+| §5.6 | `compliance/dev/integration_tests` | `/integration-tests` |
+| §5.7 | `compliance/dev/system_testing` | `/system-testing` |
+| §5.8 | `compliance/release` | `/release` |
+| §6.1 | `compliance/plans` (`plan_type=MAINTENANCE`) | `/plans/maintenance` |
+| §6.2.1 | `compliance/maintenance/feedback` | `/feedback` |
+| §6.2.2 | `feedback` → `compliance/problems/capa` | `/feedback` → `/capa` |
+| §6.2.3 | `compliance/change_control` (post-release fields) | `/change-control` |
+| §6.2.4 | `compliance/change_control` (esign + permission) | `/change-control` |
+| §6.2.5 | `compliance/release` (`PATCH /notify`) | `/release` |
+| §6.3.1 | existing §5 modules (re-run) | various |
+| §6.3.2 | `compliance/release` (`parent_release_id`) | `/release` |
+| §7 / ISO 14971 | `compliance/risk/risks` | `/risks` |
+| §8 | `compliance/config/config_mgmt` | `/config-mgmt` |
+| §9 | `compliance/problems/capa` | `/capa` |
+| DHF | `compliance/dhf` | `/dhf` |
 
 ---
 
@@ -178,68 +296,83 @@ Interactive docs: `http://localhost:8000/docs`
 # Returns: { requirements: [{type, title, description, rationale}], categories, tokens_used, model }
 ```
 
-- Uses `claude-haiku-4-5-20251001` model (fast + cheap, ~$0.001/request)
-- Reads project's `RequirementCategory` list — generates for ALL custom types, not hardcoded USER/SYSTEM/SOFTWARE
-- Context = project knowledge entries + global standards summaries + project SOP/Plans docs
-- `ANTHROPIC_API_KEY` must be set in `backend/.env`
+- Uses `claude-haiku-4-5-20251001` (fast + cheap, ~$0.001/request).
+- Reads project's `RequirementCategory` list — generates for **all** custom types, not hardcoded USER/SYSTEM/SOFTWARE.
+- Context = project knowledge entries + global standards summaries + project SOP/Plans docs.
+- `ANTHROPIC_API_KEY` must be set in `backend/.env`.
 
 ---
 
 ## Knowledge Base
 
-- `KnowledgeEntry` with `is_global=True` — visible to all projects, auto-seeded from `seed_data.py`
-- Seeding is idempotent (keyed by standard+clause_ref+title) — safe to run repeatedly
-- Built-in entries cover: IEC 62304 §4–§9, ISO 14971, IEC 62366, ISO 13485, FDA 21 CFR 820, EU MDR Annex I, plus checklists
-- All entries (global + project) are fully editable/deletable via UI
-- Snapshot committed to `backend/fixtures/knowledge_base.sql` — auto-imported by `setup.sh`
-- To update snapshot after UI changes: `bash export_knowledge.sh && git add backend/fixtures/knowledge_base.sql`
+- `KnowledgeEntry` with `is_global=True` — visible to all projects, auto-seeded from `platform/knowledge/seed_data.py`.
+- Seeding is idempotent (keyed by standard + clause_ref + title) — safe to run repeatedly.
+- Built-in entries cover IEC 62304 §4–§9, ISO 14971, IEC 62366, ISO 13485, FDA 21 CFR 820, EU MDR Annex I + checklists.
+- All entries (global + project) fully editable via UI.
+- Snapshot committed to `backend/fixtures/knowledge_base.sql` — auto-imported by `setup.sh`.
+- After UI changes: `bash export_knowledge.sh && git add backend/fixtures/knowledge_base.sql`.
 
 ---
 
 ## Frontend Conventions
 
 - All pages are `"use client"` components using `useState` + `useEffect`.
-- API calls go through `src/lib/api.ts` — never call `fetch` directly in a page.
-- Inline styles only (no CSS files, no Tailwind). Style constants at bottom of each file.
+- API calls go through `src/lib/api.ts` — never `fetch()` directly in a page.
+- **Inline styles only** (no CSS files, no Tailwind, no styled-components). Style constants at bottom of each page file.
 - No external UI library dependencies.
-- Sidebar fires `CustomEvent("medsoft:project_changed")` and writes to `localStorage("medsoft_active_project")` when project changes.
-- All pages with `useSearchParams` must be wrapped in `<Suspense>`.
-- Never mix `border` shorthand with `borderColor` non-shorthand in style objects — use full `border: "1px solid #color"`.
-- Mermaid diagrams: use dynamic import `import("mermaid")` pattern, never static import.
+- Sidebar fires `CustomEvent("medsoft:project_changed")` + writes `localStorage("medsoft_active_project")` on project change.
+- `useActiveProject` hook **verifies cached project still exists** on mount (auto-clears stale IDs from re-seeds).
+- Pages with `useSearchParams` must be wrapped in `<Suspense>`.
+- Mermaid diagrams: use `import("mermaid")` dynamic import; never static.
+- **No hardcoded dynamic data.** Pull taxonomies (sources, severities, statuses, component types) from `/meta` endpoints. Fall back to `item.source` raw value when not in the taxonomy.
+- Next.js route groups (parens-wrapped folders) preserve URLs — file system is `(compliance)/(maintenance)/feedback/page.tsx`, URL is `/feedback`.
 
 ---
 
 ## Adding a New Module
 
-1. **Backend**: create `app/modules/<name>/{__init__,model,schema,router}.py`
-2. **Register** router in `app/main.py`
-3. **Import** model in `alembic/env.py`
-4. **Write migration**: new file in `alembic/versions/` with correct `down_revision`
-5. **Run**: `alembic upgrade head`
-6. **Frontend**: add page in `src/app/<name>/page.tsx`, add API methods to `src/lib/api.ts`, add nav link in `NavSidebar.tsx`
+Step-by-step in [`docs/developer/adding-a-module.md`](docs/developer/adding-a-module.md). The short form:
+
+1. **Backend**: create `app/modules/<section>/<name>/{__init__,model,schema,router}.py`.
+2. **Register** router in `app/main.py`.
+3. **Import** model in `alembic/env.py`.
+4. **Write migration**: new file in `alembic/versions/` with correct `down_revision`.
+5. **Run**: `alembic upgrade head`.
+6. **Permissions**: add `(NAME, "desc")` tuples to `seed_phase4.py` `ALL_PERMISSIONS`; wire to roles.
+7. **Frontend page**: create `src/app/(<section>)/<name>/page.tsx`.
+8. **API client**: add `api.<name>.*` methods to `src/lib/api.ts`.
+9. **Sidebar**: insert link in `NavSidebar.tsx` at the correct ascending-clause position.
+10. **Seed**: extend `seed_architecture.py` or add a new `seed_section<N>.py` to `seed_all.py`.
+11. **Docs**: add developer-side + user-side guides; update `mkdocs.yml` `nav`; update this file.
 
 ---
 
 ## Running Locally
 
 ```bash
-# First time — one command
+# First time
 bash setup.sh
 
 # Backend (every time)
 cd backend && source .venv/bin/activate
 uvicorn app.main:app --reload        # http://localhost:8000
+# API docs: http://localhost:8000/docs
 
 # Frontend (every time)
 cd frontend && npm run dev           # http://localhost:3000
 
-# Recommended full seed (5 projects + users, wipes existing data)
+# Master seed (5 projects + all modules, wipes DB)
 cd backend && source .venv/bin/activate
 python seed_all.py
 
-# After adding/editing knowledge base entries via UI — update the fixture
+# After UI knowledge-base edits — update the fixture
 bash export_knowledge.sh
-git add backend/fixtures/knowledge_base.sql && git commit -m "Update knowledge base"
+git add backend/fixtures/knowledge_base.sql
+
+# Docs — preview while editing
+pip install mkdocs-material   # one-time
+mkdocs serve                  # http://127.0.0.1:8002 (use 8002 to avoid the backend's :8000)
+mkdocs build                  # emits static HTML into site/
 ```
 
 ---
@@ -248,33 +381,22 @@ git add backend/fixtures/knowledge_base.sql && git commit -m "Update knowledge b
 
 ```bash
 cd backend && source .venv/bin/activate
-
-# Apply all pending
-alembic upgrade head
-
-# Create new migration after model changes
-alembic revision --autogenerate -m "describe change"
-
-# Rollback one step
-alembic downgrade -1
+alembic upgrade head                          # apply pending
+alembic revision -m "describe change"          # new migration (hand-author preferred)
+alembic downgrade -1                          # rollback one step
 ```
 
-> **Important**: When adding a new PostgreSQL ENUM type in a migration that uses
-> `op.create_table`, do NOT call `op.execute("CREATE TYPE ...")` separately —
-> SQLAlchemy creates it automatically via `op.create_table`. For `op.add_column`
-> on an existing table, create the type first with `op.execute` and use
-> `create_type=False` in the column definition.
->
-> **Requirement.type** is a plain `String(50)` column — NOT an Enum. Never use
-> `.value` on it or compare with `RequirementType.xxx` enum in SQLAlchemy WHERE
-> clauses; use plain string literals (`"SOFTWARE"`, `"USER"`, `"SYSTEM"`).
+> **Migration footguns:**
+> - When adding a Postgres ENUM via `op.create_table`, do **not** also call `op.execute("CREATE TYPE …")` — SQLAlchemy emits it. For `op.add_column` on an existing table, create the type first with `op.execute` and use `create_type=False`.
+> - `Requirement.type` is a plain `String(50)`, **not** an Enum. Never use `.value` on it or compare against `RequirementType.xxx`. Use string literals.
+> - Forward-only migrations (no implementable downgrade) are fine for destructive changes — document the reason in the docstring and raise `NotImplementedError` in `downgrade()`.
 
 ---
 
 ## Environment Variables
 
 | File | Variable | Default |
-|------|----------|---------|
+|---|---|---|
 | `backend/.env` | `DATABASE_URL` | `postgresql+asyncpg://medsoft:medsoft@localhost:5432/medsoft` |
 | `backend/.env` | `API_PREFIX` | `/api/v1` |
 | `backend/.env` | `ANTHROPIC_API_KEY` | *(required for AI features)* |
@@ -285,11 +407,27 @@ alembic downgrade -1
 ## Phases
 
 | Phase | Status | Scope |
-|-------|--------|-------|
-| 0 | ✅ Complete | Projects, Requirements, TestCases, TraceLinks |
-| 1 | ✅ Complete | Hierarchy, Risk, Excel upload, Traceability tree |
+|---|---|---|
+| 0 | ✅ Complete | Projects, Requirements, Hierarchy, Excel upload |
+| 1 | ✅ Complete | Risk, Traceability tree, Categories |
 | 2 | ✅ Complete | Design, Verification, Validation, Audit, Impact Analysis |
 | 3 | ✅ Complete | Change Control, Release, DHF, Documents register |
-| 4 | ✅ Complete | Authentication (JWT), RBAC, Users, Training, Electronic Signatures |
-| 5 | ✅ Complete | AI Requirements Generation, Knowledge Base, DHF PDF with diagrams |
-| 6 | 🔜 Planned | PDF export for all modules, ERP integration, advanced reporting |
+| 4 | ✅ Complete | Auth (JWT), RBAC, Users, Training, Electronic Signatures |
+| 5 | ✅ Complete | AI Requirements Generation, Knowledge Base, IEC 62304 §4.3 + §5.1–§5.8 deep |
+| 6 | ✅ Complete | Module restructure (platform / compliance) · §6 Maintenance: Feedback Intake, escalation chains, §6.2.3 gate, §6.2.5 notifications, §6.3.2 lineage · §6.2.1.1 Monitor view · DHF §6 inclusion · seed_section6 · full docs suite (developer + user) with mkdocs-material |
+| 7 | 🔜 Next | §7 deepening — close the §7.3 verification loop, §7.4 risk re-eval triggers, formalize re-evaluation workflow. Will become the central cross-cutting layer for software + cyber + system risk (ISO 14971 + AAMI TIR57). |
+| 8 | 🔜 After §7 | Cybersecurity (IEC 81001-5-1) — own top-level sidebar group: SBOM, Threat Model, Vulnerability Intake, Cyber Plan. SOUP register lands here as SBOM's foundation. |
+
+---
+
+## Documentation
+
+- **Project documentation lives in `docs/`.** Two trees:
+  - `docs/developer/` — architecture, conventions, data model, API reference, IEC clause mapping. For contributors.
+  - `docs/user/` — non-technical workflow guides per module + end-to-end walkthrough. For QA / RA / clinical engineers.
+- **MkDocs** with mkdocs-material theme. `mkdocs serve` for live preview; `mkdocs build` for static HTML.
+- The application sidebar has a **Help** button at the bottom — opens a role-aware popover:
+  - **ADMIN / DEVELOPER** roles see both *User Guide* and *Developer Guide* links.
+  - All other roles see only *User Guide*.
+  - Links open the mkdocs-rendered HTML in a new tab.
+- **Update docs before every commit.** Documentation is audit evidence — stale docs are worse than no docs.
