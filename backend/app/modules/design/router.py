@@ -7,7 +7,7 @@ from app.modules.audit.service import audit
 from app.modules.audit.model import AuditAction
 from app.modules.auth.deps import require_permission
 from app.modules.auth.schema import TokenData
-from app.modules.requirements.model import Requirement
+from app.modules.requirements.model import Requirement, RequirementCategory
 from app.modules.architecture.model import SWComponent
 from .model import DesignElement, RequirementDesignLink
 from .schema import (
@@ -167,6 +167,33 @@ async def create_link(
     el = await db.get(DesignElement, payload.design_element_id)
     if not el:
         raise HTTPException(404, detail="Design element not found")
+    # IEC 62304 §5.4: design links only allowed on SOFTWARE-tier requirements,
+    # defined as those whose category is a leaf in the per-project category
+    # tree (no child categories point at it via parent_id).
+    category = (await db.execute(
+        select(RequirementCategory).where(
+            RequirementCategory.project_id == req.project_id,
+            RequirementCategory.name == req.type,
+        )
+    )).scalar_one_or_none()
+    if category is None:
+        raise HTTPException(
+            400,
+            f"§5.4: Requirement '{req.readable_id}' has type '{req.type}' which is not a "
+            f"category in this project; cannot determine leaf-ness for design link.",
+        )
+    has_child = (await db.execute(
+        select(RequirementCategory.id)
+        .where(RequirementCategory.parent_id == category.id)
+        .limit(1)
+    )).scalar_one_or_none()
+    if has_child is not None:
+        raise HTTPException(
+            400,
+            f"§5.4: Cannot link a non-leaf requirement to design. Requirement "
+            f"'{req.readable_id}' is in category '{category.name}' which has child "
+            f"categories. Design links only allowed on SOFTWARE (leaf-category) requirements.",
+        )
     link = RequirementDesignLink(**payload.model_dump())
     db.add(link)
     await db.flush()
