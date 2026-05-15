@@ -20,54 +20,54 @@ from sqlalchemy.orm import sessionmaker
 
 # Eager-import every model so the SQLAlchemy mapper resolves cross-module
 # relationships (Requirement → Risk → DesignElement etc.) before we query.
-import app.modules.projects.model           # noqa: F401
-import app.modules.requirements.model       # noqa: F401
-import app.modules.risks.model              # noqa: F401
-import app.modules.design.model             # noqa: F401
-import app.modules.validation.model         # noqa: F401
-import app.modules.architecture.model       # noqa: F401
-import app.modules.config_mgmt.model        # noqa: F401
-import app.modules.sdp.model                # noqa: F401
-import app.modules.audit.model              # noqa: F401
-import app.modules.units.model              # noqa: F401
-import app.modules.integration_tests.model  # noqa: F401
-import app.modules.system_testing.model     # noqa: F401
-import app.modules.software_items.model     # noqa: F401
-import app.modules.release.model            # noqa: F401
-import app.modules.capa.model               # noqa: F401
-import app.modules.esign.model              # noqa: F401
-import app.modules.users.model              # noqa: F401
-import app.modules.roles.model              # noqa: F401
-import app.modules.training.model           # noqa: F401
+import app.modules.platform.projects.model           # noqa: F401
+import app.modules.compliance.dev.requirements.model       # noqa: F401
+import app.modules.compliance.risk.risks.model              # noqa: F401
+import app.modules.compliance.dev.design.model             # noqa: F401
+import app.modules.compliance.dev.validation.model         # noqa: F401
+import app.modules.compliance.dev.architecture.model       # noqa: F401
+import app.modules.compliance.config.config_mgmt.model        # noqa: F401
+import app.modules.compliance.dev.sdp.model                # noqa: F401
+import app.modules.platform.audit.model              # noqa: F401
+import app.modules.compliance.dev.units.model              # noqa: F401
+import app.modules.compliance.dev.integration_tests.model  # noqa: F401
+import app.modules.compliance.dev.system_testing.model     # noqa: F401
+import app.modules.compliance.dev.software_items.model     # noqa: F401
+import app.modules.compliance.release.model            # noqa: F401
+import app.modules.compliance.problems.capa.model               # noqa: F401
+import app.modules.platform.esign.model              # noqa: F401
+import app.modules.platform.users.model              # noqa: F401
+import app.modules.platform.roles.model              # noqa: F401
+import app.modules.platform.training.model           # noqa: F401
 
 from app.core.config import settings
-from app.modules.projects.model import Project
-from app.modules.architecture.model import (
+from app.modules.platform.projects.model import Project
+from app.modules.compliance.dev.architecture.model import (
     SWComponent, SWInterface, SWDataFlow, ArchitectureBaseline,
 )
-from app.modules.architecture.seed import seed_approved_architecture
-from app.modules.design.model import DesignElement, RequirementDesignLink
-from app.modules.requirements.model import Requirement
-from app.modules.risks.model import Risk
-from app.modules.units.model import (
+from app.modules.compliance.dev.architecture.seed import seed_approved_architecture
+from app.modules.compliance.dev.design.model import DesignElement, RequirementDesignLink
+from app.modules.compliance.dev.requirements.model import Requirement
+from app.modules.compliance.risk.risks.model import Risk
+from app.modules.compliance.dev.units.model import (
     SoftwareUnit, CodeArtifact, UnitTestCase, UnitTestResult, UnitRequirementLink,
 )
-from app.modules.integration_tests.model import (
+from app.modules.compliance.dev.integration_tests.model import (
     IntegrationTestCase, IntegrationTestResult, ITCRequirementLink,
 )
-from app.modules.system_testing.model import (
+from app.modules.compliance.dev.system_testing.model import (
     SystemTestCase, SystemTestResult, STRiskLink,
 )
-from app.modules.software_items.model import (
+from app.modules.compliance.dev.software_items.model import (
     SoftwareItem, SoftwareItemRequirementLink, SoftwareItemRiskLink,
 )
-from app.modules.release.model import Release, ReleaseItem, ReleaseStatus
-from app.modules.system_testing.model import ReleaseArtifact, ReleaseSnapshot, ReleaseChecklistItem
-from app.modules.system_testing.router import DEFAULT_CHECKLIST
-from app.modules.validation.model import ValidationRecord
-from app.modules.capa.model import ProblemReport, ProblemLink, RootCause, CAPA, CAPAVerification
-from app.modules.esign.model import ElectronicSignature, ESignEntityType, ESignMeaning
-from app.modules.users.model import User
+from app.modules.compliance.release.model import Release, ReleaseItem, ReleaseStatus
+from app.modules.compliance.dev.system_testing.model import ReleaseArtifact, ReleaseSnapshot, ReleaseChecklistItem
+from app.modules.compliance.dev.system_testing.router import DEFAULT_CHECKLIST
+from app.modules.compliance.dev.validation.model import ValidationRecord
+from app.modules.compliance.problems.capa.model import ProblemReport, ProblemLink, RootCause, CAPA, CAPAVerification
+from app.modules.platform.esign.model import ElectronicSignature, ESignEntityType, ESignMeaning
+from app.modules.platform.users.model import User
 
 
 engine = create_async_engine(settings.DATABASE_URL, echo=False)

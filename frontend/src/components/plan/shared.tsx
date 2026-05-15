@@ -11,7 +11,7 @@
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { api, Plan, PlanSummary, PlanStatus, PlanCompliance, PlanTypeInfo } from "@/lib/api";
 import { useActiveProject } from "@/lib/useActiveProject";
-import { downloadPlanPdf } from "@/app/plans/pdf";
+import { downloadPlanPdf } from "@/app/(compliance)/plans/pdf";
 
 // ── Status metadata ────────────────────────────────────────────────────────────
 

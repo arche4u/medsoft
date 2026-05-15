@@ -13,11 +13,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.modules.roles.model import Role, Permission, RolePermission
-from app.modules.users.model import User
-from app.modules.training.model import TrainingRecord
-from app.modules.esign.model import ElectronicSignature  # noqa: F401 — resolves User relationship
-from app.modules.auth.security import hash_password
+from app.modules.platform.roles.model import Role, Permission, RolePermission
+from app.modules.platform.users.model import User
+from app.modules.platform.training.model import TrainingRecord
+from app.modules.platform.esign.model import ElectronicSignature  # noqa: F401 — resolves User relationship
+from app.modules.platform.auth.security import hash_password
 
 engine = create_async_engine(settings.DATABASE_URL)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -74,6 +74,12 @@ ALL_PERMISSIONS = [
     ("CREATE_CHANGE_REQUEST",    "Create change requests"),
     ("APPROVE_CHANGE_REQUEST",   "Approve or reject change requests"),
     ("IMPLEMENT_CHANGE",         "Mark change requests as implemented"),
+    # Feedback Intake (IEC 62304 §6.2.1 — post-market surveillance)
+    ("READ_FEEDBACK",            "View feedback items"),
+    ("CREATE_FEEDBACK",          "Log new feedback items"),
+    ("UPDATE_FEEDBACK",          "Edit feedback metadata before evaluation"),
+    ("EVALUATE_FEEDBACK",        "Evaluate, escalate, and close feedback items"),
+    ("DELETE_FEEDBACK",          "Delete new (untriaged) feedback items"),
     # Release
     ("CREATE_RELEASE",           "Create release drafts"),
     ("APPROVE_RELEASE",          "Approve releases"),
@@ -95,6 +101,7 @@ ROLE_PERMISSIONS = {
         "EXECUTE_TEST", "CREATE_VALIDATION", "UPDATE_VALIDATION",
         "APPROVE_CHANGE_REQUEST", "APPROVE_RELEASE", "PUBLISH_RELEASE",
         "CREATE_RELEASE", "GENERATE_DHF", "VIEW_AUDIT", "UPDATE_DOCUMENT",
+        "READ_FEEDBACK", "CREATE_FEEDBACK", "UPDATE_FEEDBACK", "EVALUATE_FEEDBACK",
     ],
     "QARA": [
         "READ_REQUIREMENT", "CREATE_REQUIREMENT", "UPDATE_REQUIREMENT",
@@ -108,6 +115,7 @@ ROLE_PERMISSIONS = {
         "CREATE_VALIDATION", "UPDATE_VALIDATION",
         "APPROVE_CHANGE_REQUEST", "APPROVE_RELEASE", "PUBLISH_RELEASE",
         "CREATE_RELEASE", "GENERATE_DHF", "VIEW_AUDIT", "UPDATE_DOCUMENT",
+        "READ_FEEDBACK", "CREATE_FEEDBACK", "UPDATE_FEEDBACK", "EVALUATE_FEEDBACK", "DELETE_FEEDBACK",
     ],
     "DEVELOPER": [
         "READ_REQUIREMENT", "CREATE_REQUIREMENT", "UPDATE_REQUIREMENT", "DELETE_REQUIREMENT",
@@ -121,6 +129,7 @@ ROLE_PERMISSIONS = {
         "READ_TESTCASE", "CREATE_TESTCASE", "EXECUTE_TEST",
         "CREATE_CHANGE_REQUEST", "IMPLEMENT_CHANGE", "CREATE_RELEASE",
         "READ_DOCUMENT",
+        "READ_FEEDBACK", "CREATE_FEEDBACK", "UPDATE_FEEDBACK",
     ],
     "TESTER": [
         "READ_REQUIREMENT", "READ_RISK", "READ_DESIGN",
@@ -128,12 +137,14 @@ ROLE_PERMISSIONS = {
         "READ_TESTCASE", "CREATE_TESTCASE", "EXECUTE_TEST",
         "CREATE_VALIDATION", "UPDATE_VALIDATION",
         "READ_DOCUMENT", "VIEW_AUDIT",
+        "READ_FEEDBACK",
     ],
     "REVIEWER": [
         "READ_REQUIREMENT", "READ_RISK", "READ_DESIGN", "READ_TESTCASE", "READ_DOCUMENT",
         "READ_SOFTWARE_ITEM", "READ_ARCHITECTURE", "READ_SOFTWARE_UNIT", "READ_INTEGRATION_TEST", "READ_SYSTEM_TEST",
         "APPROVE_CHANGE_REQUEST", "APPROVE_RELEASE",
         "CREATE_VALIDATION", "VIEW_AUDIT",
+        "READ_FEEDBACK", "EVALUATE_FEEDBACK",
     ],
 }
 

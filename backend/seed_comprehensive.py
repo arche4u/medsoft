@@ -10,28 +10,28 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
-from app.modules.projects.model import Project
-from app.modules.requirements.model import Requirement
-from app.modules.risks.model import Risk, _compute_level
-import app.modules.design.model  # noqa: F401 — register design_elements table for FK resolution
+from app.modules.platform.projects.model import Project
+from app.modules.compliance.dev.requirements.model import Requirement
+from app.modules.compliance.risk.risks.model import Risk, _compute_level
+import app.modules.compliance.dev.design.model  # noqa: F401 — register design_elements table for FK resolution
 # §5.4 design elements themselves are seeded by seed_architecture.py (they link to §5.3 components).
-from app.modules.validation.model import ValidationRecord, ValidationStatus
-from app.modules.change_control.model import ChangeRequest, ChangeRequestState, ChangeImpact
-from app.modules.release.model import Release, ReleaseStatus, ReleaseItem
-from app.modules.sdp.seed import seed_approved_sdp
-from app.modules.requirements.seed import seed_approved_srs
-from app.modules.requirements.router import _ensure_builtins
-import app.modules.architecture.model  # noqa: F401  ensure mapper registered
-import app.modules.audit.model  # noqa: F401
-import app.modules.sdp.model  # noqa: F401  (ensure mapper registered before TRUNCATE)
-import app.modules.config_mgmt.model  # noqa: F401  (CM mirror tables)
-import app.modules.system_testing.model  # noqa: F401  (system_test_cases — FK target for §5.7 columns)
-import app.modules.units.model  # noqa: F401  (§5.5 unit tests)
-import app.modules.integration_tests.model  # noqa: F401  (§5.6 integration tests)
-import app.modules.software_items.model  # noqa: F401  (§4.3 safety classification)
-import app.modules.plans.model  # noqa: F401
-import app.modules.capa.model  # noqa: F401
-import app.modules.attachments.model  # noqa: F401
+from app.modules.compliance.dev.validation.model import ValidationRecord, ValidationStatus
+from app.modules.compliance.change_control.model import ChangeRequest, ChangeRequestState, ChangeImpact
+from app.modules.compliance.release.model import Release, ReleaseStatus, ReleaseItem
+from app.modules.compliance.dev.sdp.seed import seed_approved_sdp
+from app.modules.compliance.dev.requirements.seed import seed_approved_srs
+from app.modules.compliance.dev.requirements.router import _ensure_builtins
+import app.modules.compliance.dev.architecture.model  # noqa: F401  ensure mapper registered
+import app.modules.platform.audit.model  # noqa: F401
+import app.modules.compliance.dev.sdp.model  # noqa: F401  (ensure mapper registered before TRUNCATE)
+import app.modules.compliance.config.config_mgmt.model  # noqa: F401  (CM mirror tables)
+import app.modules.compliance.dev.system_testing.model  # noqa: F401  (system_test_cases — FK target for §5.7 columns)
+import app.modules.compliance.dev.units.model  # noqa: F401  (§5.5 unit tests)
+import app.modules.compliance.dev.integration_tests.model  # noqa: F401  (§5.6 integration tests)
+import app.modules.compliance.dev.software_items.model  # noqa: F401  (§4.3 safety classification)
+import app.modules.compliance.plans.model  # noqa: F401
+import app.modules.compliance.problems.capa.model  # noqa: F401
+import app.modules.platform.attachments.model  # noqa: F401
 
 engine = create_async_engine(settings.DATABASE_URL, echo=False)
 Session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

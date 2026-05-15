@@ -18,14 +18,14 @@ from datetime import datetime, timezone
 
 # Import every model so the SQLAlchemy mapper resolves cross-module
 # relationships before we start querying.
-import app.modules.projects.model           # noqa: F401
-import app.modules.requirements.model       # noqa: F401
-import app.modules.risks.model              # noqa: F401
-import app.modules.design.model             # noqa: F401
-import app.modules.validation.model         # noqa: F401
-import app.modules.config_mgmt.model        # noqa: F401
-import app.modules.sdp.model                # noqa: F401
-import app.modules.audit.model              # noqa: F401
+import app.modules.platform.projects.model           # noqa: F401
+import app.modules.compliance.dev.requirements.model       # noqa: F401
+import app.modules.compliance.risk.risks.model              # noqa: F401
+import app.modules.compliance.dev.design.model             # noqa: F401
+import app.modules.compliance.dev.validation.model         # noqa: F401
+import app.modules.compliance.config.config_mgmt.model        # noqa: F401
+import app.modules.compliance.dev.sdp.model                # noqa: F401
+import app.modules.platform.audit.model              # noqa: F401
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import (
@@ -33,34 +33,34 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import settings
-from app.modules.projects.model import Project
-from app.modules.requirements.model import (
+from app.modules.platform.projects.model import Project
+from app.modules.compliance.dev.requirements.model import (
     Requirement, RequirementCategory,
     RequirementsBaseline, RequirementsBaselineComponent,
     RequirementCategoryBaseline,
 )
-from app.modules.requirements.router import (
+from app.modules.compliance.dev.requirements.router import (
     _ensure_builtins,
     _next_readable_id,
     _validate_hierarchy,
     _collect_descendants,
 )
-from app.modules.requirements.lock import (
+from app.modules.compliance.dev.requirements.lock import (
     assert_category_unlocked, is_category_locked,
 )
-from app.modules.requirements.seed import seed_approved_srs
-from app.modules.requirements.category_baseline_router import (
+from app.modules.compliance.dev.requirements.seed import seed_approved_srs
+from app.modules.compliance.dev.requirements.category_baseline_router import (
     _snapshot_category_requirements,
 )
-from app.modules.traceability.router import get_traceability_tree
-import app.modules.architecture.model  # noqa: F401
-from app.modules.architecture.model import SWComponent, ArchitectureBaseline
-from app.modules.architecture.lock import (
+from app.modules.compliance.dev.traceability.router import get_traceability_tree
+import app.modules.compliance.dev.architecture.model  # noqa: F401
+from app.modules.compliance.dev.architecture.model import SWComponent, ArchitectureBaseline
+from app.modules.compliance.dev.architecture.lock import (
     assert_architecture_unlocked, is_architecture_locked,
 )
-from app.modules.architecture.seed import seed_approved_architecture
-import app.modules.attachments.model  # noqa: F401
-from app.modules.attachments.model import Attachment
+from app.modules.compliance.dev.architecture.seed import seed_approved_architecture
+import app.modules.platform.attachments.model  # noqa: F401
+from app.modules.platform.attachments.model import Attachment
 import tempfile
 import os
 
@@ -474,7 +474,7 @@ async def scenario_attachments(db: AsyncSession, project_id) -> None:
 
 async def scenario_validation_root_category(db: AsyncSession, project_id) -> None:
     print("\n[6] Validation accepts any root-category requirement (not just literal USER)")
-    from app.modules.requirements.model import RequirementCategory as RC
+    from app.modules.compliance.dev.requirements.model import RequirementCategory as RC
 
     # Pick a USER requirement (root category)
     user_req = (await db.execute(

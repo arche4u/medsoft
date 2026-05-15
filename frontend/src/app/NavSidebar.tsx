@@ -133,6 +133,14 @@ const SECTIONS: Section[] = [
         ],
       },
       {
+        // §6 Software Maintenance Process — post-release feedback funnel that
+        // feeds problems to §9 CAPA and change requests to §6.3 change-control.
+        group: "Maintenance",
+        items: [
+          { href: "/feedback", label: "Feedback Intake (§6.2.1)" },
+        ],
+      },
+      {
         // Cross-cutting V&V + traceability spine — spans every §-level above.
         // Not a clause-numbered process, so it sits last as the "whole picture".
         group: "Traceability",

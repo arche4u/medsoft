@@ -7,32 +7,33 @@ from alembic import context
 
 from app.core.config import settings
 from app.core.base import Base
-import app.modules.projects.model       # noqa: F401
-import app.modules.requirements.model   # noqa: F401
-import app.modules.risks.model          # noqa: F401
-import app.modules.design.model         # noqa: F401
-import app.modules.validation.model     # noqa: F401
-import app.modules.audit.model          # noqa: F401
-import app.modules.change_control.model # noqa: F401
-import app.modules.approval.model       # noqa: F401
-import app.modules.release.model        # noqa: F401
-import app.modules.dhf.model            # noqa: F401
-import app.modules.roles.model          # noqa: F401
-import app.modules.users.model          # noqa: F401
-import app.modules.esign.model          # noqa: F401
-import app.modules.training.model       # noqa: F401
-import app.modules.documents.model      # noqa: F401
-import app.modules.knowledge.model      # noqa: F401
-import app.modules.software_items.model # noqa: F401
-import app.modules.sdp.model            # noqa: F401
-import app.modules.architecture.model   # noqa: F401
-import app.modules.attachments.model     # noqa: F401
-import app.modules.units.model                   # noqa: F401
-import app.modules.integration_tests.model       # noqa: F401
-import app.modules.system_testing.model          # noqa: F401
-import app.modules.config_mgmt.model            # noqa: F401
-import app.modules.capa.model                  # noqa: F401
-import app.modules.plans.model                 # noqa: F401
+import app.modules.platform.projects.model       # noqa: F401
+import app.modules.compliance.dev.requirements.model   # noqa: F401
+import app.modules.compliance.risk.risks.model          # noqa: F401
+import app.modules.compliance.dev.design.model         # noqa: F401
+import app.modules.compliance.dev.validation.model     # noqa: F401
+import app.modules.platform.audit.model          # noqa: F401
+import app.modules.compliance.change_control.model # noqa: F401
+import app.modules.platform.approval.model       # noqa: F401
+import app.modules.compliance.release.model        # noqa: F401
+import app.modules.compliance.dhf.model            # noqa: F401
+import app.modules.platform.roles.model          # noqa: F401
+import app.modules.platform.users.model          # noqa: F401
+import app.modules.platform.esign.model          # noqa: F401
+import app.modules.platform.training.model       # noqa: F401
+import app.modules.platform.documents.model      # noqa: F401
+import app.modules.platform.knowledge.model      # noqa: F401
+import app.modules.compliance.dev.software_items.model # noqa: F401
+import app.modules.compliance.dev.sdp.model            # noqa: F401
+import app.modules.compliance.dev.architecture.model   # noqa: F401
+import app.modules.platform.attachments.model     # noqa: F401
+import app.modules.compliance.dev.units.model                   # noqa: F401
+import app.modules.compliance.dev.integration_tests.model       # noqa: F401
+import app.modules.compliance.dev.system_testing.model          # noqa: F401
+import app.modules.compliance.config.config_mgmt.model            # noqa: F401
+import app.modules.compliance.problems.capa.model                  # noqa: F401
+import app.modules.compliance.plans.model                 # noqa: F401
+import app.modules.compliance.maintenance.feedback.model              # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

@@ -7,9 +7,9 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
-from app.modules.projects.model import Project
-from app.modules.requirements.model import Requirement, RequirementType
-from app.modules.risks.model import Risk, _compute_level
+from app.modules.platform.projects.model import Project
+from app.modules.compliance.dev.requirements.model import Requirement, RequirementType
+from app.modules.compliance.risk.risks.model import Risk, _compute_level
 
 engine = create_async_engine(settings.DATABASE_URL, echo=False)
 Session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

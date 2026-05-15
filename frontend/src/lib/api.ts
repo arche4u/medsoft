@@ -227,7 +227,14 @@ export type TrainingRecord  = { id: string; user_id: string; training_name: stri
 export type ChangeRequestState = "OPEN" | "IMPACT_ANALYSIS" | "APPROVED" | "REJECTED" | "IMPLEMENTED";
 export type ChangeRequest = {
   id: string; project_id: string; title: string; description: string | null;
-  status: ChangeRequestState; created_at: string;
+  status: ChangeRequestState;
+  // IEC 62304 §6.2.3 — post-release impact analysis fields. Required before
+  // APPROVED transition when `modifies_released_software` is true.
+  modifies_released_software: boolean;
+  effect_on_organization: string | null;
+  effect_on_released_software: string | null;
+  effect_on_interfacing_systems: string | null;
+  created_at: string;
 };
 export type ChangeImpact = {
   id: string; change_request_id: string;
@@ -246,12 +253,58 @@ export type Approval = {
 };
 
 export type ReleaseStatus = "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "RELEASED";
-export type Release = { id: string; project_id: string; version: string; status: ReleaseStatus; created_at: string };
+export type Release = {
+  id: string; project_id: string; version: string; status: ReleaseStatus;
+  // IEC 62304 §6.2.5 — communicate to users and regulators audit trail.
+  user_notification_sent: boolean;
+  user_notification_summary: string | null;
+  user_notified_at: string | null;
+  regulator_notification_sent: boolean;
+  regulator_notification_summary: string | null;
+  regulator_notified_at: string | null;
+  created_at: string;
+};
 export type ReleaseItem = { id: string; release_id: string; requirement_id: string | null; system_test_id: string | null; design_element_id: string | null };
 export type ReleaseDetail = Release & { items: ReleaseItem[] };
 export type ReadinessCheck = { ready: boolean; total_system_tests: number; passed: number; not_passed: string[] };
 
 export type DHFDocument = { id: string; project_id: string; name: string; generated_at: string; file_path: string | null; content: string | null };
+
+// ── IEC 62304 §6.2.1 — Feedback Intake (post-market surveillance) ───────────
+export type FeedbackStatus = "NEW" | "UNDER_REVIEW" | "EVALUATED" | "ESCALATED" | "CLOSED";
+
+export type FeedbackItem = {
+  id: string;
+  project_id: string;
+  readable_id: string;
+  source: string;
+  reporter: string | null;
+  reported_at: string | null;
+  summary: string;
+  description: string | null;
+  affected_version: string | null;
+  severity: string;
+  adverse_event: boolean;
+  spec_deviation: boolean;
+  is_problem: boolean | null;
+  status: FeedbackStatus;
+  evaluation_notes: string | null;
+  evaluated_by: string | null;
+  evaluated_at: string | null;
+  safety_impact_assessment: string | null;
+  change_needed: boolean | null;
+  closure_rationale: string | null;
+  escalated_problem_id: string | null;
+  escalated_change_request_id: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type FeedbackMeta = {
+  sources:    { name: string; label: string; color: string }[];
+  severities: { name: string; label: string; color: string }[];
+  statuses:   { name: string; label: string; color: string }[];
+};
 
 // ── Documents module ─────────────────────────────────────────────────────────
 export type DocumentStatus   = "NOT_STARTED" | "DRAFT" | "IN_REVIEW" | "APPROVED" | "OBSOLETE";
@@ -1498,5 +1551,45 @@ export const api = {
         req<PlanSection>(`/plans/sections/${section_id}`, { method: "PUT", body: JSON.stringify(d) }),
       delete: (section_id: string) => req<void>(`/plans/sections/${section_id}`, { method: "DELETE" }),
     },
+  },
+
+  feedback: {
+    meta: () => req<FeedbackMeta>("/feedback/meta"),
+    list: (project_id: string, opts?: { status?: string; severity?: string }) => {
+      const p = new URLSearchParams({ project_id });
+      if (opts?.status)   p.set("status",   opts.status);
+      if (opts?.severity) p.set("severity", opts.severity);
+      return req<FeedbackItem[]>(`/feedback/?${p}`);
+    },
+    get:    (id: string) => req<FeedbackItem>(`/feedback/${id}`),
+    create: (d: {
+      project_id: string;
+      source: string;
+      reporter?: string | null;
+      reported_at?: string | null;
+      summary: string;
+      description?: string | null;
+      affected_version?: string | null;
+      severity?: string;
+      adverse_event?: boolean;
+      spec_deviation?: boolean;
+    }) => req<FeedbackItem>("/feedback/", { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: Partial<{
+      source: string; reporter: string | null; reported_at: string | null;
+      summary: string; description: string | null; affected_version: string | null;
+      severity: string; adverse_event: boolean; spec_deviation: boolean;
+    }>) => req<FeedbackItem>(`/feedback/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    evaluate: (id: string, d: {
+      is_problem: boolean;
+      evaluation_notes?: string | null;
+      evaluated_by?: string | null;
+      safety_impact_assessment?: string | null;
+      change_needed?: boolean | null;
+    }) => req<FeedbackItem>(`/feedback/${id}/evaluate`, { method: "PATCH", body: JSON.stringify(d) }),
+    escalate: (id: string, d: { to_problem?: boolean; to_change_request?: boolean; extra_notes?: string | null }) =>
+      req<FeedbackItem>(`/feedback/${id}/escalate`, { method: "PATCH", body: JSON.stringify(d) }),
+    close: (id: string, closure_rationale: string) =>
+      req<FeedbackItem>(`/feedback/${id}/close`, { method: "PATCH", body: JSON.stringify({ closure_rationale }) }),
+    delete: (id: string) => req<void>(`/feedback/${id}`, { method: "DELETE" }),
   },
 };

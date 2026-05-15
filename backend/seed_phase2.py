@@ -8,11 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
-from app.modules.projects.model import Project
-from app.modules.requirements.model import Requirement
-import app.modules.risks.model  # noqa: F401 — resolve Risk forward ref
-import app.modules.design.model  # noqa: F401 — resolve DesignElement forward ref
-from app.modules.validation.model import ValidationRecord, ValidationStatus
+from app.modules.platform.projects.model import Project
+from app.modules.compliance.dev.requirements.model import Requirement
+import app.modules.compliance.risk.risks.model  # noqa: F401 — resolve Risk forward ref
+import app.modules.compliance.dev.design.model  # noqa: F401 — resolve DesignElement forward ref
+from app.modules.compliance.dev.validation.model import ValidationRecord, ValidationStatus
 
 engine = create_async_engine(settings.DATABASE_URL, echo=False)
 Session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
