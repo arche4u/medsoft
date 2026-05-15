@@ -65,7 +65,9 @@ from app.modules.software_items.model import (
     SoftwareItem, SoftwareItemRequirementLink, SoftwareItemRiskLink,
 )
 from app.modules.release.model import Release, ReleaseItem, ReleaseStatus
-from app.modules.system_testing.model import ReleaseArtifact, ReleaseSnapshot
+from app.modules.system_testing.model import ReleaseArtifact, ReleaseSnapshot, ReleaseChecklistItem
+from app.modules.system_testing.router import DEFAULT_CHECKLIST
+from app.modules.validation.model import ValidationRecord
 from app.modules.capa.model import ProblemReport, ProblemLink, RootCause, CAPA, CAPAVerification
 from app.modules.esign.model import ElectronicSignature, ESignEntityType, ESignMeaning
 from app.modules.users.model import User
@@ -780,30 +782,181 @@ async def _seed_software_items(db: AsyncSession, proj: Project) -> int:
 # / SBOM artifacts. The snapshot freezes the project's configuration-item counts
 # at release time; `capture_snapshot` regenerates a full one on demand.
 
+# ── Demo release completion ───────────────────────────────────────────────────
+#
+# Most seeded projects intentionally have realistic "in-progress" gaps so the
+# release-readiness gates exercise their blocking logic. Projects listed in
+# DEMO_PROJECT_NAMES, however, get every gap closed so they present as a fully
+# release-ready demo for walkthroughs — system tests covering every SYSTEM and
+# SOFTWARE requirement, validation records for every USER requirement, HIGH
+# risks at terminal status, and a completed release checklist.
+
+DEMO_PROJECT_NAMES = {"Electrosurgical Generator"}
+
+
+async def _seed_demo_release_complete(db: AsyncSession, proj: Project) -> int:
+    """For demo projects only: fill release-readiness gaps so every gate passes."""
+    if proj.name not in DEMO_PROJECT_NAMES:
+        return 0
+
+    changes = 0
+
+    # 1. System tests covering every SYSTEM + SOFTWARE requirement.
+    ss_reqs = (await db.execute(
+        select(Requirement).where(
+            Requirement.project_id == proj.id,
+            Requirement.type.in_(["SYSTEM", "SOFTWARE"]),
+        ).order_by(Requirement.readable_id)
+    )).scalars().all()
+    sys_tcs = (await db.execute(
+        select(SystemTestCase).where(SystemTestCase.project_id == proj.id)
+    )).scalars().all()
+    covered = set()
+    for tc in sys_tcs:
+        if tc.requirement_id:
+            covered.add(tc.requirement_id)
+        for l in tc.additional_req_links:
+            covered.add(l.requirement_id)
+    for req in ss_reqs:
+        if req.id in covered:
+            continue
+        tc = SystemTestCase(
+            project_id=proj.id, requirement_id=req.id,
+            name=f"System test — {req.readable_id} {(req.title or '')[:46]}".strip(),
+            description=f"End-to-end system test verifying {req.readable_id} on the integrated software.",
+            test_type="FUNCTIONAL",
+            preconditions="Integrated software deployed to the system-test environment from the release build.",
+            test_steps=(
+                "1. Bring the device to the documented start state.\n"
+                "2. Exercise the workflow described by the requirement.\n"
+                "3. Record observed behaviour against the expected result."
+            ),
+            expected_result="System behaviour matches the requirement; no safety-relevant deviations.",
+            safety_relevance=(req.type == "SOFTWARE"),
+        )
+        db.add(tc)
+        await db.flush()
+        db.add(SystemTestResult(
+            test_case_id=tc.id, result="PASS",
+            logs=f"{tc.name}: executed, requirement satisfied.",
+            actual_result="Observed behaviour matched the expected result.",
+            executed_by="System Test Lead (seeded)",
+        ))
+        changes += 1
+
+    # 2. PASSED validation record for every USER requirement.
+    user_reqs = (await db.execute(
+        select(Requirement).where(
+            Requirement.project_id == proj.id, Requirement.type == "USER",
+        ).order_by(Requirement.readable_id)
+    )).scalars().all()
+    vrs = (await db.execute(
+        select(ValidationRecord).where(ValidationRecord.project_id == proj.id)
+    )).scalars().all()
+    by_req: dict = {}
+    for vr in vrs:
+        by_req.setdefault(vr.related_requirement_id, []).append(vr)
+    for req in user_reqs:
+        recs = by_req.get(req.id, [])
+        if recs:
+            if not any(vr.status == "PASSED" for vr in recs):
+                recs[0].status = "PASSED"
+                changes += 1
+        else:
+            db.add(ValidationRecord(
+                project_id=proj.id, related_requirement_id=req.id,
+                description=(
+                    f"Validation of {req.readable_id}: confirmed the delivered software meets "
+                    "this user need via usability evaluation and clinical review."
+                ),
+                status="PASSED",
+            ))
+            changes += 1
+
+    # 3. Resolve HIGH risks (terminal status CLOSED).
+    high = (await db.execute(
+        select(Risk).join(Requirement, Requirement.id == Risk.requirement_id)
+        .where(
+            Requirement.project_id == proj.id,
+            Risk.risk_level == "HIGH",
+            Risk.status.not_in(["ACCEPTED", "CLOSED"]),
+        )
+    )).scalars().all()
+    for rk in high:
+        rk.status = "CLOSED"
+        changes += 1
+
+    # 4. Pre-seed the release checklist as COMPLETED for each release.
+    # (The frontend auto-seeds the default checklist as PENDING on first GET;
+    # seeding it here as COMPLETED makes the checklist gate pass without
+    # needing a UI visit.)
+    releases = (await db.execute(
+        select(Release).where(Release.project_id == proj.id)
+    )).scalars().all()
+    for rel in releases:
+        items = (await db.execute(
+            select(ReleaseChecklistItem).where(ReleaseChecklistItem.release_id == rel.id)
+        )).scalars().all()
+        existing_names = {it.item_name for it in items}
+        for name, cat, order in DEFAULT_CHECKLIST:
+            if name not in existing_names:
+                db.add(ReleaseChecklistItem(
+                    release_id=rel.id, item_name=name, category=cat,
+                    sort_order=order, is_auto=True, status="COMPLETED",
+                ))
+                changes += 1
+        for it in items:
+            if it.status == "PENDING":
+                it.status = "COMPLETED"
+                changes += 1
+
+    # 5. Invalidate any existing release snapshots — they were captured before
+    # this fixture ran and would still show the pre-demo counts. _seed_release_baselines
+    # runs next in _seed_phase6 and will recreate them with the current state.
+    stale = (await db.execute(
+        select(ReleaseSnapshot).join(Release, Release.id == ReleaseSnapshot.release_id)
+        .where(Release.project_id == proj.id)
+    )).scalars().all()
+    for s in stale:
+        await db.delete(s)
+        changes += 1
+
+    await db.flush()
+    return changes
+
+
 async def _seed_release_baselines(db: AsyncSession, proj: Project) -> int:
     """Seed §5.8 release evidence — a configuration baseline snapshot + release
     artifacts for each of the project's releases. Idempotent — skips releases
-    that already have a snapshot."""
+    that already have a snapshot.
+
+    The snapshot shape must match what `capture_snapshot` produces, since the
+    frontend reads `.length` on the per-entity arrays. Keep this in lock-step
+    with system_testing.router.capture_snapshot."""
     releases = (await db.execute(
         select(Release).where(Release.project_id == proj.id)
     )).scalars().all()
     if not releases:
         return 0
 
-    async def _count(model, *where) -> int:
-        return (await db.execute(
-            select(func.count()).select_from(model).where(*where)
-        )).scalar_one()
-
-    # Project-wide configuration-item counts — captured once per project.
-    counts = {
-        "requirements":            await _count(Requirement, Requirement.project_id == proj.id),
-        "software_items":          await _count(SoftwareItem, SoftwareItem.project_id == proj.id),
-        "architecture_components": await _count(SWComponent, SWComponent.project_id == proj.id),
-        "software_units":          await _count(SoftwareUnit, SoftwareUnit.project_id == proj.id),
-        "integration_tests":       await _count(IntegrationTestCase, IntegrationTestCase.project_id == proj.id),
-        "system_tests":            await _count(SystemTestCase, SystemTestCase.project_id == proj.id),
-    }
+    # Project-wide configuration items — captured once per project, then frozen
+    # into each release snapshot. Risks belong to requirements, not projects.
+    reqs = (await db.execute(
+        select(Requirement).where(Requirement.project_id == proj.id)
+    )).scalars().all()
+    risks = (await db.execute(
+        select(Risk).join(Requirement, Requirement.id == Risk.requirement_id)
+        .where(Requirement.project_id == proj.id)
+    )).scalars().all()
+    units = (await db.execute(
+        select(SoftwareUnit).where(SoftwareUnit.project_id == proj.id)
+    )).scalars().all()
+    comps = (await db.execute(
+        select(SWComponent).where(SWComponent.project_id == proj.id)
+    )).scalars().all()
+    stests = (await db.execute(
+        select(SystemTestCase).where(SystemTestCase.project_id == proj.id)
+    )).scalars().all()
 
     n = 0
     for rel in releases:
@@ -813,12 +966,37 @@ async def _seed_release_baselines(db: AsyncSession, proj: Project) -> int:
         if existing:
             continue
 
-        ri_count = await _count(ReleaseItem, ReleaseItem.release_id == rel.id)
         snapshot = {
             "release_version": rel.version,
             "captured_at": datetime.now(timezone.utc).isoformat(),
-            "baseline_type": "seeded",
-            "counts": {**counts, "release_items": ri_count},
+            "requirements": [
+                {"id": str(r.id), "readable_id": r.readable_id, "type": r.type, "title": r.title}
+                for r in reqs
+            ],
+            "risks": [
+                {"id": str(r.id), "hazard": r.hazard, "risk_level": r.risk_level, "status": r.status}
+                for r in risks
+            ],
+            "software_units": [
+                {"id": str(u.id), "name": u.name, "safety_class": u.safety_class, "status": u.status}
+                for u in units
+            ],
+            "architecture_components": [
+                {"id": str(c.id), "name": c.name, "component_type": str(c.component_type),
+                 "safety_class": c.safety_class, "status": str(c.status)}
+                for c in comps
+            ],
+            "system_tests": [
+                {"id": str(tc.id), "name": tc.name, "type": tc.test_type,
+                 "latest_result": tc.results[0].result if tc.results else None}
+                for tc in stests
+            ],
+            "counts": {
+                "requirements": len(reqs),
+                "risks": len(risks),
+                "units": len(units),
+                "system_tests": len(stests),
+            },
         }
         db.add(ReleaseSnapshot(release_id=rel.id, snapshot_json=json.dumps(snapshot)))
 
@@ -1062,17 +1240,20 @@ async def main() -> None:
             return
 
         totals = {"components": 0, "items": 0, "units": 0, "itests": 0,
-                  "stests": 0, "rbaselines": 0, "capa": 0, "esign": 0}
+                  "stests": 0, "demo": 0, "rbaselines": 0, "capa": 0, "esign": 0}
         baselines_created = 0
 
         async def _seed_phase6(proj: Project) -> dict:
             """Seed every post-architecture module for one project — idempotent,
-            so it runs whether or not the components were just created."""
+            so it runs whether or not the components were just created. The
+            demo-complete fixture runs BEFORE the release baselines so the
+            snapshot captures the fully-green state for the demo project."""
             return {
                 "items":      await _seed_software_items(db, proj),
                 "units":      await _seed_software_units(db, proj),
                 "itests":     await _seed_integration_tests(db, proj),
                 "stests":     await _seed_system_tests(db, proj),
+                "demo":       await _seed_demo_release_complete(db, proj),
                 "rbaselines": await _seed_release_baselines(db, proj),
                 "capa":       await _seed_capa(db, proj),
                 "esign":      await _seed_esign(db, proj),
