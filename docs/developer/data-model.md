@@ -149,16 +149,39 @@ ChangeRequest (id, project_id, title, description, status OPEN|IMPACT_ANALYSIS|A
    └── ChangeImpact[]   → Requirement | DesignElement | SystemTestCase
 ```
 
-## §7 — Risk Register (ISO 14971)
+## §7 — Risk Register (ISO 14971 + IEC 62304 §7 + IEC 81001-5-1)
 
 ```
-Risk (id, requirement_id, hazard, hazardous_situation, harm, severity, probability, risk_level LOW|MEDIUM|HIGH,
-      status OPEN|IN_CONTROL|RE_EVALUATION_REQUIRED|ACCEPTED|CLOSED, evaluation_notes)
-   ├── RiskControl[]      control_type INHERENT_SAFETY|PROTECTIVE_MEASURE|INFORMATION_FOR_SAFETY,
-   │                      implementation_status PROPOSED|IMPLEMENTED|VERIFIED
-   └── ResidualRisk       severity, probability, risk_level, is_accepted, accepted_by, accepted_at
+Risk (id, requirement_id, hazard, hazardous_situation, harm,
+      severity, probability, risk_level LOW|MEDIUM|HIGH,
+      risk_class SAFETY|SECURITY|SAFETY_SECURITY,                        ← IEC 81001-5-1 + AAMI TIR57
+      status OPEN|IN_CONTROL|RE_EVALUATION_REQUIRED|ACCEPTED|CLOSED,
+      evaluation_notes,
+      re_evaluation_required bool,                                        ← §7.4 flag
+      re_evaluation_reason text,                                          ← §7.4 audit
+      re_evaluation_triggered_at tstz,                                    ← §7.4 audit
+      last_re_evaluated_at tstz, last_re_evaluated_by str)                ← §7.4 audit
+   ├── RiskControl[]      §7.2
+   │     ├── control_type INHERENT_SAFETY|PROTECTIVE_MEASURE|INFORMATION_FOR_SAFETY
+   │     ├── implementation_status PROPOSED|IMPLEMENTED|VERIFIED        (auto-flip via §7.3)
+   │     ├── requirement_id (FK), system_test_id (FK)
+   │     ├── component_id (FK sw_components)                              ← §7.2 — code location
+   │     └── VerificationEvidence[]                                       ← §7.3 closed loop
+   │           ├── evidence_type SYSTEM_TEST|INTEGRATION_TEST|UNIT_TEST|REVIEW|INSPECTION|ANALYSIS|EXTERNAL_REF
+   │           ├── one of: system_test_id | integration_test_id | unit_test_id | external_reference
+   │           └── result PASS|FAIL, verified_by, verified_at
+   ├── RiskContribution[]  §7.1                                           ← who contributes to the hazard
+   │     └── exactly one of: software_item_id | component_id
+   └── ResidualRisk        severity, probability, risk_level, is_accepted, accepted_by, accepted_at  (ISO 14971 §6.4)
 RiskCategory (id, project_id, name, label, color, is_builtin)
+SoftwareSafetyProfile (id, project_id, iec62304_class A|B|C, rpn_scale, severity/probability_definitions, software_failure_assumption)
 ```
+
+**§7.4 auto-trigger** lives in `compliance/change_control/router.py:transition_change_request`:
+when a ChangeRequest with `modifies_released_software=true` transitions to APPROVED, the
+helper `risks/router.py:trigger_risk_reevaluation(db, risk_ids, reason)` is called over
+every Risk whose linked Requirement appears in the CR's `ChangeImpact` rows. The flag is
+cleared via `POST /risks/{id}/re-evaluate`.
 
 ## §8 — Configuration Management
 

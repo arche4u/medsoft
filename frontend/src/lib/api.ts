@@ -63,18 +63,57 @@ export type ChangeImpactPreview = {
   total: number;
   by_type: Record<string, number>;
 };
+// IEC 81001-5-1 + AAMI TIR57 — single risk register hosts software-safety
+// AND cybersecurity risks under one ISO 14971 file. SAFETY (default) /
+// SECURITY / SAFETY_SECURITY discriminator drives the UI tab / filter.
+export type RiskClass = "SAFETY" | "SECURITY" | "SAFETY_SECURITY";
+
 export type Risk = {
   id: string; requirement_id: string; category_id: string | null;
+  risk_class: RiskClass;
   title: string | null; hazard: string; hazardous_situation: string; harm: string;
   severity: number; probability: number; risk_level: string; mitigation: string | null;
-  status: string; evaluation_notes: string | null; re_evaluation_required: boolean;
-  controls: RiskControl[]; residual_risk: ResidualRisk | null;
+  status: string; evaluation_notes: string | null;
+  re_evaluation_required: boolean;
+  re_evaluation_reason: string | null;
+  re_evaluation_triggered_at: string | null;
+  last_re_evaluated_at: string | null;
+  last_re_evaluated_by: string | null;
+  controls: RiskControl[];
+  residual_risk: ResidualRisk | null;
+  contributions: RiskContribution[];
 };
 export type RiskControl = {
   id: string; risk_id: string; control_type: string; description: string;
   requirement_id: string | null; system_test_id: string | null;
+  component_id: string | null;
   implementation_status: string; verification_notes: string | null;
+  evidence: VerificationEvidence[];
   created_at: string; updated_at: string;
+};
+// §7.3 — Closed-loop verification evidence per RiskControl.
+export type VerificationEvidence = {
+  id: string;
+  control_id: string;
+  evidence_type: "SYSTEM_TEST" | "INTEGRATION_TEST" | "UNIT_TEST" | "REVIEW" | "INSPECTION" | "ANALYSIS" | "EXTERNAL_REF";
+  system_test_id: string | null;
+  integration_test_id: string | null;
+  unit_test_id: string | null;
+  external_reference: string | null;
+  result: "PASS" | "FAIL";
+  notes: string | null;
+  verified_by: string | null;
+  verified_at: string;
+};
+// §7.1 — Risk contribution (which software item / component contributes
+// to a hazardous situation).
+export type RiskContribution = {
+  id: string;
+  risk_id: string;
+  software_item_id: string | null;
+  component_id: string | null;
+  contribution_notes: string | null;
+  created_at: string;
 };
 export type ResidualRisk = {
   id: string; risk_id: string; severity: number; probability: number; risk_level: string;
@@ -965,27 +1004,61 @@ export const api = {
     },
   },
   risks: {
-    list: (requirement_id?: string, project_id?: string) => {
+    list: (requirement_id?: string, project_id?: string, opts?: { risk_class?: RiskClass; needs_reevaluation?: boolean }) => {
       const p = new URLSearchParams();
       if (requirement_id) p.set("requirement_id", requirement_id);
       else if (project_id) p.set("project_id", project_id);
+      if (opts?.risk_class) p.set("risk_class", opts.risk_class);
+      if (opts?.needs_reevaluation !== undefined) p.set("needs_reevaluation", String(opts.needs_reevaluation));
       return req<Risk[]>(`/risks/?${p}`);
     },
-    create: (d: { requirement_id: string; category_id?: string; title?: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; mitigation?: string; evaluation_notes?: string }) =>
+    needsReevaluation: (project_id: string) =>
+      req<Risk[]>(`/risks/needs-reevaluation/${project_id}`),
+    create: (d: { requirement_id: string; category_id?: string; title?: string; hazard: string; hazardous_situation: string; harm: string; severity: number; probability: number; mitigation?: string; evaluation_notes?: string; risk_class?: RiskClass }) =>
       req<Risk>("/risks/", { method: "POST", body: JSON.stringify(d) }),
-    update: (id: string, d: { category_id?: string | null; title?: string | null; hazard?: string; hazardous_situation?: string; harm?: string; severity?: number; probability?: number; mitigation?: string | null; evaluation_notes?: string | null }) =>
+    update: (id: string, d: { category_id?: string | null; title?: string | null; hazard?: string; hazardous_situation?: string; harm?: string; severity?: number; probability?: number; mitigation?: string | null; evaluation_notes?: string | null; risk_class?: RiskClass | null }) =>
       req<Risk>(`/risks/${id}`, { method: "PUT", body: JSON.stringify(d) }),
     updateStatus: (id: string, status: string) =>
       req<Risk>(`/risks/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
+    // §7.4 — record outcome of a re-evaluation (clears the flag).
+    recordReevaluation: (risk_id: string, d: { notes: string; re_evaluated_by?: string | null; severity?: number; probability?: number; new_status?: "OPEN" | "IN_CONTROL" | "ACCEPTED" | "CLOSED" }) =>
+      req<Risk>(`/risks/${risk_id}/re-evaluate`, { method: "POST", body: JSON.stringify(d) }),
     delete: (id: string) => req<void>(`/risks/${id}`, { method: "DELETE" }),
     dashboard: (project_id: string) => req<RiskDashboard>(`/risks/dashboard/${project_id}`),
     controls: {
       list: (risk_id: string) => req<RiskControl[]>(`/risks/${risk_id}/controls`),
-      create: (risk_id: string, d: { control_type: string; description: string; requirement_id?: string | null; system_test_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
+      create: (risk_id: string, d: { control_type: string; description: string; requirement_id?: string | null; system_test_id?: string | null; component_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
         req<RiskControl>(`/risks/${risk_id}/controls`, { method: "POST", body: JSON.stringify(d) }),
-      update: (control_id: string, d: { control_type?: string; description?: string; requirement_id?: string | null; system_test_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
+      update: (control_id: string, d: { control_type?: string; description?: string; requirement_id?: string | null; system_test_id?: string | null; component_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
         req<RiskControl>(`/risks/controls/${control_id}`, { method: "PUT", body: JSON.stringify(d) }),
       delete: (control_id: string) => req<void>(`/risks/controls/${control_id}`, { method: "DELETE" }),
+    },
+    // §7.1 — Risk contributions (which software item / component
+    // contributes to this hazard).
+    contributions: {
+      list: (risk_id: string) => req<RiskContribution[]>(`/risks/${risk_id}/contributions`),
+      add: (risk_id: string, d: { software_item_id?: string; component_id?: string; contribution_notes?: string }) =>
+        req<RiskContribution>(`/risks/${risk_id}/contributions`, { method: "POST", body: JSON.stringify(d) }),
+      delete: (contribution_id: string) =>
+        req<void>(`/risks/contributions/${contribution_id}`, { method: "DELETE" }),
+    },
+    // §7.3 — Verification evidence per RiskControl. Adding a PASS row
+    // auto-flips the control to VERIFIED; deleting the last PASS rolls
+    // it back to IMPLEMENTED.
+    evidence: {
+      list: (control_id: string) => req<VerificationEvidence[]>(`/risks/controls/${control_id}/evidence`),
+      add: (control_id: string, d: {
+        evidence_type: VerificationEvidence["evidence_type"];
+        system_test_id?: string | null;
+        integration_test_id?: string | null;
+        unit_test_id?: string | null;
+        external_reference?: string | null;
+        result?: "PASS" | "FAIL";
+        notes?: string | null;
+        verified_by?: string | null;
+      }) => req<VerificationEvidence>(`/risks/controls/${control_id}/evidence`, { method: "POST", body: JSON.stringify(d) }),
+      delete: (evidence_id: string) =>
+        req<void>(`/risks/evidence/${evidence_id}`, { method: "DELETE" }),
     },
     residual: {
       get: (risk_id: string) => req<ResidualRisk | null>(`/risks/${risk_id}/residual`),

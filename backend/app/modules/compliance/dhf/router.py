@@ -377,6 +377,17 @@ async def generate_dhf(
             "maintenance_plan_approved":  maintenance_plan is not None,
             "releases_user_notified":     sum(1 for r in releases if r.user_notification_sent),
             "releases_regulator_notified": sum(1 for r in releases if r.regulator_notification_sent),
+            # §7 Software Risk Management Process
+            "risks_by_class": {
+                "SAFETY":          sum(1 for r in risks if r.risk_class == "SAFETY"),
+                "SECURITY":        sum(1 for r in risks if r.risk_class == "SECURITY"),
+                "SAFETY_SECURITY": sum(1 for r in risks if r.risk_class == "SAFETY_SECURITY"),
+            },
+            "risks_needing_reevaluation": sum(1 for r in risks if r.re_evaluation_required),
+            "total_risk_controls":        sum(len(r.controls) for r in risks),
+            "verified_risk_controls":     sum(1 for r in risks for c in r.controls if c.implementation_status == "VERIFIED"),
+            "total_verification_evidence": sum(len(c.evidence) for r in risks for c in r.controls),
+            "total_risk_contributions":   sum(len(r.contributions) for r in risks),
         },
         "sdp": _serialize_sdp(sdp),
         "requirements": [
@@ -415,12 +426,65 @@ async def generate_dhf(
             {
                 "id": str(r.id),
                 "requirement_id": str(r.requirement_id),
+                "risk_class": r.risk_class,
                 "hazard": r.hazard,
                 "hazardous_situation": r.hazardous_situation,
                 "harm": r.harm,
                 "severity": r.severity,
                 "probability": r.probability,
                 "risk_level": r.risk_level,
+                "status": r.status,
+                # §7.4 audit
+                "re_evaluation_required": r.re_evaluation_required,
+                "re_evaluation_reason":   r.re_evaluation_reason,
+                "re_evaluation_triggered_at": r.re_evaluation_triggered_at.isoformat() if r.re_evaluation_triggered_at else None,
+                "last_re_evaluated_at": r.last_re_evaluated_at.isoformat() if r.last_re_evaluated_at else None,
+                "last_re_evaluated_by": r.last_re_evaluated_by,
+                # §7.1 contributions (which software/component contributes to the hazard)
+                "contributions": [
+                    {
+                        "software_item_id": str(c.software_item_id) if c.software_item_id else None,
+                        "component_id":     str(c.component_id) if c.component_id else None,
+                        "notes":            c.contribution_notes,
+                    }
+                    for c in r.contributions
+                ],
+                # §7.2 controls + §7.3 verification evidence
+                "controls": [
+                    {
+                        "id": str(c.id),
+                        "control_type": c.control_type,
+                        "description": c.description,
+                        "requirement_id": str(c.requirement_id) if c.requirement_id else None,
+                        "system_test_id": str(c.system_test_id) if c.system_test_id else None,
+                        "component_id":   str(c.component_id) if c.component_id else None,
+                        "implementation_status": c.implementation_status,
+                        "evidence": [
+                            {
+                                "evidence_type": e.evidence_type,
+                                "result": e.result,
+                                "system_test_id":      str(e.system_test_id) if e.system_test_id else None,
+                                "integration_test_id": str(e.integration_test_id) if e.integration_test_id else None,
+                                "unit_test_id":        str(e.unit_test_id) if e.unit_test_id else None,
+                                "external_reference":  e.external_reference,
+                                "verified_by": e.verified_by,
+                                "verified_at": e.verified_at.isoformat() if e.verified_at else None,
+                                "notes":       e.notes,
+                            }
+                            for e in c.evidence
+                        ],
+                    }
+                    for c in r.controls
+                ],
+                # ISO 14971 §6.4 residual risk
+                "residual_risk": ({
+                    "severity": r.residual_risk.severity,
+                    "probability": r.residual_risk.probability,
+                    "risk_level": r.residual_risk.risk_level,
+                    "is_accepted": r.residual_risk.is_accepted,
+                    "accepted_by": r.residual_risk.accepted_by,
+                    "accepted_at": r.residual_risk.accepted_at.isoformat() if r.residual_risk.accepted_at else None,
+                } if r.residual_risk else None),
             }
             for r in risks
         ],

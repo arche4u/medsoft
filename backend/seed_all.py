@@ -22,6 +22,15 @@ Steps executed (order matters):
                              Request escalation chains, and §6.2.5 user +
                              regulator notification audit trail on each
                              RELEASED version.
+  5. seed_section7.py      — §7 Software Risk Management deepening: assigns
+                             a varied risk_class (SAFETY / SECURITY /
+                             SAFETY_SECURITY) for cyber-readiness, adds §7.1
+                             RiskContribution rows linking risks to §4.3
+                             SoftwareItems + §5.3 SWComponents, records §7.3
+                             VerificationEvidence on existing RiskControls
+                             (auto-flipping them to VERIFIED), and flags
+                             two risks per project as §7.4 re-evaluation
+                             required so the inbox view has data.
 
 Not seeded — generated on demand: DHF documents (POST /dhf/generate/{project_id}).
 
@@ -49,6 +58,10 @@ STEPS = [
     {
         "script": "seed_section6.py",
         "label":  "§6 Software Maintenance: Plans, feedback intake, escalations, notifications",
+    },
+    {
+        "script": "seed_section7.py",
+        "label":  "§7 Software Risk Management: contributions (§7.1), evidence (§7.3), re-eval flags (§7.4)",
     },
 ]
 

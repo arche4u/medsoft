@@ -37,6 +37,7 @@ class RiskControlCreate(BaseModel):
     description: str
     requirement_id: uuid.UUID | None = None
     system_test_id: uuid.UUID | None = None
+    component_id: uuid.UUID | None = None
     implementation_status: str = Field(default="PROPOSED", pattern="^(PROPOSED|IMPLEMENTED|VERIFIED)$")
     verification_notes: str | None = None
 
@@ -45,8 +46,38 @@ class RiskControlUpdate(BaseModel):
     description: str | None = None
     requirement_id: uuid.UUID | None = None
     system_test_id: uuid.UUID | None = None
+    component_id: uuid.UUID | None = None
     implementation_status: str | None = Field(default=None, pattern="^(PROPOSED|IMPLEMENTED|VERIFIED)$")
     verification_notes: str | None = None
+
+
+# ── §7.3 — Verification Evidence ─────────────────────────────────────────────
+
+class VerificationEvidenceCreate(BaseModel):
+    evidence_type: str = Field(pattern="^(SYSTEM_TEST|INTEGRATION_TEST|UNIT_TEST|REVIEW|INSPECTION|ANALYSIS|EXTERNAL_REF)$")
+    system_test_id: uuid.UUID | None = None
+    integration_test_id: uuid.UUID | None = None
+    unit_test_id: uuid.UUID | None = None
+    external_reference: str | None = None
+    result: str = Field(default="PASS", pattern="^(PASS|FAIL)$")
+    notes: str | None = None
+    verified_by: str | None = None
+
+
+class VerificationEvidenceRead(BaseModel):
+    id: uuid.UUID
+    control_id: uuid.UUID
+    evidence_type: str
+    system_test_id: uuid.UUID | None
+    integration_test_id: uuid.UUID | None
+    unit_test_id: uuid.UUID | None
+    external_reference: str | None
+    result: str
+    notes: str | None
+    verified_by: str | None
+    verified_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
 
 class RiskControlRead(BaseModel):
     id: uuid.UUID
@@ -55,11 +86,45 @@ class RiskControlRead(BaseModel):
     description: str
     requirement_id: uuid.UUID | None
     system_test_id: uuid.UUID | None
+    component_id: uuid.UUID | None
     implementation_status: str
     verification_notes: str | None
+    evidence: list[VerificationEvidenceRead] = []
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+# ── §7.1 — Risk Contribution (software → hazard analysis) ────────────────────
+
+class RiskContributionCreate(BaseModel):
+    software_item_id: uuid.UUID | None = None
+    component_id: uuid.UUID | None = None
+    contribution_notes: str | None = None
+
+
+class RiskContributionRead(BaseModel):
+    id: uuid.UUID
+    risk_id: uuid.UUID
+    software_item_id: uuid.UUID | None
+    component_id: uuid.UUID | None
+    contribution_notes: str | None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── §7.4 — Re-evaluation recording ──────────────────────────────────────────
+
+class RiskReEvaluate(BaseModel):
+    """Record the outcome of a §7.4 risk re-evaluation. Clears
+    `re_evaluation_required` and writes the audit fields. Caller may also
+    update severity / probability if the re-evaluation concluded the risk
+    score has changed."""
+    notes: str
+    re_evaluated_by: str | None = None
+    severity: int | None = Field(default=None, ge=1, le=5)
+    probability: int | None = Field(default=None, ge=1, le=5)
+    new_status: str | None = Field(default=None, pattern="^(OPEN|IN_CONTROL|ACCEPTED|CLOSED)$")
 
 
 # ── Residual Risk ─────────────────────────────────────────────────────────────
@@ -99,6 +164,8 @@ class RiskCreate(BaseModel):
     probability: int = Field(ge=1, le=5)
     mitigation: str | None = None
     evaluation_notes: str | None = None
+    # IEC 81001-5-1 + AAMI TIR57 discriminator.
+    risk_class: str = Field(default="SAFETY", pattern="^(SAFETY|SECURITY|SAFETY_SECURITY)$")
 
 
 class RiskUpdate(BaseModel):
@@ -111,6 +178,7 @@ class RiskUpdate(BaseModel):
     probability: int | None = Field(default=None, ge=1, le=5)
     mitigation: str | None = None
     evaluation_notes: str | None = None
+    risk_class: str | None = Field(default=None, pattern="^(SAFETY|SECURITY|SAFETY_SECURITY)$")
 
 
 class RiskStatusUpdate(BaseModel):
@@ -121,6 +189,7 @@ class RiskRead(BaseModel):
     id: uuid.UUID
     requirement_id: uuid.UUID
     category_id: uuid.UUID | None = None
+    risk_class: str
     title: str | None = None
     hazard: str
     hazardous_situation: str
@@ -132,8 +201,13 @@ class RiskRead(BaseModel):
     status: str
     evaluation_notes: str | None
     re_evaluation_required: bool
+    re_evaluation_reason: str | None = None
+    re_evaluation_triggered_at: datetime | None = None
+    last_re_evaluated_at: datetime | None = None
+    last_re_evaluated_by: str | None = None
     controls: list[RiskControlRead] = []
     residual_risk: ResidualRiskRead | None = None
+    contributions: list[RiskContributionRead] = []
     model_config = ConfigDict(from_attributes=True)
 
 

@@ -5,7 +5,10 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.compliance.dev.requirements.model import Requirement
-from .model import Risk, RiskCategory, RiskControl, ResidualRisk, SoftwareSafetyProfile, _compute_level
+from .model import (
+    Risk, RiskCategory, RiskControl, ResidualRisk, SoftwareSafetyProfile,
+    RiskContribution, VerificationEvidence, _compute_level,
+)
 from .schema import (
     RiskCreate, RiskRead, RiskUpdate, RiskStatusUpdate,
     RiskCategoryCreate, RiskCategoryRead, RiskCategoryUpdate,
@@ -13,6 +16,9 @@ from .schema import (
     ResidualRiskUpsert, ResidualRiskRead,
     RiskDashboard, HeatmapCell,
     SafetyProfileCreate, SafetyProfileRead, SafetyProfileUpdate,
+    RiskContributionCreate, RiskContributionRead,
+    VerificationEvidenceCreate, VerificationEvidenceRead,
+    RiskReEvaluate,
 )
 
 router = APIRouter(prefix="/risks", tags=["risks"])
@@ -188,6 +194,8 @@ async def update_safety_profile(
 async def list_risks(
     requirement_id: uuid.UUID | None = None,
     project_id: uuid.UUID | None = None,
+    risk_class: str | None = None,
+    needs_reevaluation: bool | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     q = select(Risk)
@@ -198,6 +206,10 @@ async def list_risks(
             select(Requirement.id).where(Requirement.project_id == project_id)
         )).scalars().all()
         q = q.where(Risk.requirement_id.in_(req_ids))
+    if risk_class:
+        q = q.where(Risk.risk_class == risk_class)
+    if needs_reevaluation is not None:
+        q = q.where(Risk.re_evaluation_required == needs_reevaluation)
     result = await db.execute(q)
     return result.scalars().all()
 
@@ -403,3 +415,207 @@ async def upsert_residual(
     await db.commit()
     await db.refresh(residual)
     return residual
+
+
+# ============================================================================
+# §7.1 — Risk contributions (software item / component → hazard analysis)
+# ============================================================================
+
+@router.get("/{risk_id}/contributions", response_model=list[RiskContributionRead])
+async def list_contributions(risk_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    return (await db.execute(
+        select(RiskContribution).where(RiskContribution.risk_id == risk_id)
+    )).scalars().all()
+
+
+@router.post("/{risk_id}/contributions", response_model=RiskContributionRead, status_code=201)
+async def add_contribution(
+    risk_id: uuid.UUID, body: RiskContributionCreate, db: AsyncSession = Depends(get_db),
+):
+    if not await db.get(Risk, risk_id):
+        raise HTTPException(404, "Risk not found")
+    if (body.software_item_id is None) == (body.component_id is None):
+        raise HTTPException(400, "Set exactly one of software_item_id or component_id")
+    contrib = RiskContribution(risk_id=risk_id, **body.model_dump())
+    db.add(contrib)
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(409, f"Contribution already exists or invalid FK: {e}")
+    await db.refresh(contrib)
+    return contrib
+
+
+@router.delete("/contributions/{contribution_id}", status_code=204)
+async def delete_contribution(contribution_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    c = await db.get(RiskContribution, contribution_id)
+    if not c:
+        raise HTTPException(404, "Contribution not found")
+    await db.delete(c)
+    await db.commit()
+
+
+# ============================================================================
+# §7.3 — Verification of risk control measures (closed-loop evidence)
+# ============================================================================
+
+@router.get("/controls/{control_id}/evidence", response_model=list[VerificationEvidenceRead])
+async def list_evidence(control_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    return (await db.execute(
+        select(VerificationEvidence)
+        .where(VerificationEvidence.control_id == control_id)
+        .order_by(VerificationEvidence.verified_at.desc())
+    )).scalars().all()
+
+
+@router.post("/controls/{control_id}/evidence", response_model=VerificationEvidenceRead, status_code=201)
+async def add_evidence(
+    control_id: uuid.UUID, body: VerificationEvidenceCreate, db: AsyncSession = Depends(get_db),
+):
+    control = await db.get(RiskControl, control_id)
+    if not control:
+        raise HTTPException(404, "Control not found")
+
+    # Sanity: at least one of the FK / external_reference must be present
+    # for SYSTEM_TEST / INTEGRATION_TEST / UNIT_TEST / EXTERNAL_REF types.
+    has_ref = any([body.system_test_id, body.integration_test_id,
+                   body.unit_test_id, body.external_reference])
+    needs_ref = body.evidence_type in ("SYSTEM_TEST", "INTEGRATION_TEST",
+                                       "UNIT_TEST", "EXTERNAL_REF")
+    if needs_ref and not has_ref:
+        raise HTTPException(
+            400,
+            f"evidence_type={body.evidence_type} requires a reference "
+            "(test FK or external_reference)",
+        )
+
+    ev = VerificationEvidence(control_id=control_id, **body.model_dump())
+    db.add(ev)
+    await db.flush()
+
+    # §7.3 auto-VERIFY: control flips to VERIFIED when ≥1 PASS evidence
+    # row exists. FAIL evidence rolls it back to IMPLEMENTED if it was
+    # previously VERIFIED — auditor can see the failed evidence inline.
+    if body.result == "PASS":
+        control.implementation_status = "VERIFIED"
+    elif body.result == "FAIL" and control.implementation_status == "VERIFIED":
+        control.implementation_status = "IMPLEMENTED"
+
+    await db.commit()
+    await db.refresh(ev)
+    return ev
+
+
+@router.delete("/evidence/{evidence_id}", status_code=204)
+async def delete_evidence(evidence_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    ev = await db.get(VerificationEvidence, evidence_id)
+    if not ev:
+        raise HTTPException(404, "Evidence not found")
+    control_id = ev.control_id
+    await db.delete(ev)
+    await db.flush()
+    # Recompute control status: still VERIFIED only if ≥1 PASS evidence
+    # remains. Otherwise drop to IMPLEMENTED.
+    has_pass = (await db.execute(
+        select(func.count(VerificationEvidence.id)).where(
+            VerificationEvidence.control_id == control_id,
+            VerificationEvidence.result == "PASS",
+        )
+    )).scalar_one()
+    control = await db.get(RiskControl, control_id)
+    if control and control.implementation_status == "VERIFIED" and has_pass == 0:
+        control.implementation_status = "IMPLEMENTED"
+    await db.commit()
+
+
+# ============================================================================
+# §7.4 — Risk re-evaluation (record outcome) + inbox
+# ============================================================================
+
+@router.get("/needs-reevaluation/{project_id}", response_model=list[RiskRead])
+async def list_needs_reevaluation(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Inbox of risks flagged for §7.4 re-evaluation (typically by a CR
+    against released software, a feedback safety assessment, or a linked
+    requirement edit)."""
+    req_ids = (await db.execute(
+        select(Requirement.id).where(Requirement.project_id == project_id)
+    )).scalars().all()
+    if not req_ids:
+        return []
+    return (await db.execute(
+        select(Risk).where(
+            Risk.requirement_id.in_(req_ids),
+            Risk.re_evaluation_required == True,
+        )
+    )).scalars().all()
+
+
+@router.post("/{risk_id}/re-evaluate", response_model=RiskRead)
+async def record_reevaluation(
+    risk_id: uuid.UUID, body: RiskReEvaluate, db: AsyncSession = Depends(get_db),
+):
+    """Record the outcome of a §7.4 re-evaluation. Clears the re_evaluation_
+    required flag, captures the audit fields, and (optionally) updates the
+    severity/probability and the lifecycle status."""
+    risk = await db.get(Risk, risk_id)
+    if not risk:
+        raise HTTPException(404, "Risk not found")
+    now = datetime.now(timezone.utc)
+    risk.evaluation_notes = (
+        (risk.evaluation_notes + "\n\n— " + now.strftime("%Y-%m-%d") + " —\n" + body.notes)
+        if risk.evaluation_notes else body.notes
+    )
+    risk.last_re_evaluated_at = now
+    risk.last_re_evaluated_by = body.re_evaluated_by
+    risk.re_evaluation_required = False
+    # Triggered_at + reason stay in place as the historical record of the
+    # most recent trigger; cleared at next trigger.
+    if body.severity is not None or body.probability is not None:
+        sev = body.severity or risk.severity
+        prob = body.probability or risk.probability
+        risk.severity = sev
+        risk.probability = prob
+        risk.risk_level = _compute_level(sev, prob)
+    if body.new_status:
+        risk.status = body.new_status
+    await db.commit()
+    await db.refresh(risk)
+    return risk
+
+
+# ============================================================================
+# §7.4 trigger helper — used by other modules (change_control, feedback, …)
+# ============================================================================
+
+async def trigger_risk_reevaluation(
+    db: AsyncSession, risk_ids: list[uuid.UUID], reason: str,
+) -> int:
+    """Mark each risk in risk_ids as needing §7.4 re-evaluation. Returns
+    the count of risks actually flagged (rows where re_evaluation_required
+    was previously False — repeated triggers don't reset the timestamp).
+
+    Callers from outside this module:
+      - change_control.router on CR APPROVED with modifies_released_software
+      - feedback.router on /evaluate with safety_impact_assessment
+      - requirements.router on requirement update (light-weight trigger)
+    """
+    if not risk_ids:
+        return 0
+    rows = (await db.execute(
+        select(Risk).where(Risk.id.in_(risk_ids))
+    )).scalars().all()
+    now = datetime.now(timezone.utc)
+    n = 0
+    for r in rows:
+        if not r.re_evaluation_required:
+            n += 1
+        r.re_evaluation_required = True
+        r.re_evaluation_reason = reason
+        r.re_evaluation_triggered_at = now
+        if r.status == "ACCEPTED":
+            r.status = "RE_EVALUATION_REQUIRED"
+    # Caller is responsible for db.commit() — they're usually inside a
+    # larger transaction (e.g. the CR APPROVED transition).
+    return n
+

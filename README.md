@@ -100,7 +100,7 @@ Loads 5 sample projects (Patient Vital Signs Monitor, Electrosurgical Generator,
 | §6.2.4 CR approval (esign + permission) | `change_control` | ✅ |
 | §6.2.5 User & regulator notification | `release` | ✅ |
 | §6.3.2 Maintenance release lineage | `release` (`parent_release_id`) | ✅ |
-| §7 Risk register (ISO 14971) | `risks` | ✅ (deepening in progress) |
+| §7 Risk register (ISO 14971 + IEC 81001-5-1 ready via `risk_class`) | `risks` | ✅ §7.1 contributions · §7.2 controls + §5.3 link · §7.3 closed-loop evidence · §7.4 auto-trigger + inbox |
 | §8 Configuration management | `config_mgmt` | ✅ |
 | §9 Problem resolution (CAPA) | `capa` | ✅ |
 | **Cybersecurity (IEC 81001-5-1)** | *coming soon — `compliance/cybersecurity/`* | 🔜 |

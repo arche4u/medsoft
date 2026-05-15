@@ -145,18 +145,25 @@ This page lists endpoint groups by IEC clause. For full request/response shapes,
 | PATCH | `/change-control/requests/{id}/transition` | State transitions (with §6.2.3 gate) |
 | POST / DELETE | `/change-control/impacts` | Impact rows |
 
-## §7 — Risk Register (ISO 14971)
+## §7 — Risk Register (ISO 14971 + IEC 62304 §7 + IEC 81001-5-1)
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET / POST / PUT / DELETE | `/risks/` | Risk CRUD |
+| GET / POST / PUT / DELETE | `/risks/` | Risk CRUD. List supports `?risk_class=`, `?needs_reevaluation=` filters. |
+| GET | `/risks/needs-reevaluation/{project_id}` | §7.4 inbox — risks flagged for re-evaluation |
+| POST | `/risks/{id}/re-evaluate` | §7.4 record re-evaluation outcome (clears flag, updates score / status) |
 | PUT | `/risks/{id}/status` | Risk lifecycle transitions |
-| GET / POST / PUT / DELETE | `/risks/{risk_id}/controls` | Control measures |
-| PUT | `/risks/controls/{id}` | Update control (incl. VERIFIED state) |
+| GET / POST / DELETE | `/risks/{risk_id}/contributions` | §7.1 — link risk to SoftwareItem / SWComponent |
+| GET / POST / PUT / DELETE | `/risks/{risk_id}/controls` | §7.2 control measures (includes `component_id` link) |
+| PUT | `/risks/controls/{id}` | Update control (status now auto-managed via §7.3 evidence) |
+| GET / POST | `/risks/controls/{control_id}/evidence` | §7.3 verification evidence (PASS auto-VERIFIES the control) |
+| DELETE | `/risks/evidence/{evidence_id}` | Remove evidence (rolls VERIFIED → IMPLEMENTED if it was the last PASS) |
 | GET / PUT | `/risks/{risk_id}/residual` | Residual risk assessment |
 | GET | `/risks/dashboard/{project_id}` | Dashboard rollups |
 | GET / POST / PUT / DELETE | `/risks/categories` | Risk categories |
-| GET / POST / PUT | `/risks/safety-profile` | Per-project safety profile |
+| GET / POST / PUT | `/risks/safety-profile` | Per-project safety profile (§4.3 RPN methodology) |
+
+**§7.4 auto-trigger:** when a ChangeRequest with `modifies_released_software=true` transitions to APPROVED, the change-control router calls `trigger_risk_reevaluation(db, risk_ids, reason)` over every Risk whose linked Requirement appears in the CR's impact list — flagging them for inbox review. See `compliance/change_control/router.py:transition_change_request`.
 
 ## §8 — Configuration Management
 

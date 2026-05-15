@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -183,6 +184,40 @@ async def transition_change_request(
         current_user.user_id,
         f"Status changed to {body.new_status.value}",
     )
+
+    # IEC 62304 §7.4 — risk management of software changes.
+    # On APPROVED transition of a CR that modifies released software, flag
+    # every Risk whose linked Requirement is in the CR's impact list for
+    # re-evaluation. QA/RA then reviews each flagged risk via the §7 inbox
+    # and records the outcome (either confirms still-valid or updates the
+    # score / status). Auto-flagging is the audit trail that says "we
+    # did NOT forget to consider the safety impact of this change."
+    if (body.new_status == ChangeRequestState.APPROVED
+            and cr.modifies_released_software):
+        from app.modules.compliance.risk.risks.router import trigger_risk_reevaluation
+        from app.modules.compliance.risk.risks.model import Risk
+        impacted_req_ids = (await db.execute(
+            select(ChangeImpact.impacted_requirement_id).where(
+                ChangeImpact.change_request_id == cr_id,
+                ChangeImpact.impacted_requirement_id.isnot(None),
+            )
+        )).scalars().all()
+        if impacted_req_ids:
+            risk_ids = (await db.execute(
+                select(Risk.id).where(Risk.requirement_id.in_(impacted_req_ids))
+            )).scalars().all()
+            n_flagged = await trigger_risk_reevaluation(
+                db, risk_ids,
+                reason=f"CR '{cr.title}' approved with modifies_released_software=true on "
+                       f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
+            )
+            if n_flagged:
+                await audit(
+                    db, "ChangeRequest", cr.id, AuditAction.UPDATE,
+                    current_user.user_id,
+                    f"§7.4 auto-flagged {n_flagged} risk(s) for re-evaluation",
+                )
+
     await db.commit()
     await db.refresh(cr)
     return cr

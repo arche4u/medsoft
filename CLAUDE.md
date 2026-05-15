@@ -281,7 +281,12 @@ All routes are prefixed with `/api/v1`. Interactive Swagger at `http://localhost
 | §6.2.5 | `compliance/release` (`PATCH /notify`) | `/release` |
 | §6.3.1 | existing §5 modules (re-run) | various |
 | §6.3.2 | `compliance/release` (`parent_release_id`) | `/release` |
-| §7 / ISO 14971 | `compliance/risk/risks` | `/risks` |
+| §7.1 software-contribution-to-hazards | `compliance/risk/risks/RiskContribution` | `/risks` (Contributions section) |
+| §7.2 risk control measures + §5.3 component link | `compliance/risk/risks/RiskControl.component_id` | `/risks` (Controls tab) |
+| §7.3 closed-loop verification evidence | `compliance/risk/risks/VerificationEvidence` | `/risks` (Evidence sub-list) |
+| §7.4 auto-trigger on CR APPROVED + modifies_released_software | `compliance/change_control/router → risks/router.trigger_risk_reevaluation` | `/risks` (Re-evaluation Inbox) |
+| Cyber-ready risk register (IEC 81001-5-1 / AAMI TIR57) | `compliance/risk/risks/Risk.risk_class` | `/risks` (class filter) |
+| §7 / ISO 14971 (overall) | `compliance/risk/risks` | `/risks` |
 | §8 | `compliance/config/config_mgmt` | `/config-mgmt` |
 | §9 | `compliance/problems/capa` | `/capa` |
 | DHF | `compliance/dhf` | `/dhf` |
@@ -415,8 +420,8 @@ alembic downgrade -1                          # rollback one step
 | 4 | ✅ Complete | Auth (JWT), RBAC, Users, Training, Electronic Signatures |
 | 5 | ✅ Complete | AI Requirements Generation, Knowledge Base, IEC 62304 §4.3 + §5.1–§5.8 deep |
 | 6 | ✅ Complete | Module restructure (platform / compliance) · §6 Maintenance: Feedback Intake, escalation chains, §6.2.3 gate, §6.2.5 notifications, §6.3.2 lineage · §6.2.1.1 Monitor view · DHF §6 inclusion · seed_section6 · full docs suite (developer + user) with mkdocs-material |
-| 7 | 🔜 Next | §7 deepening — close the §7.3 verification loop, §7.4 risk re-eval triggers, formalize re-evaluation workflow. Will become the central cross-cutting layer for software + cyber + system risk (ISO 14971 + AAMI TIR57). |
-| 8 | 🔜 After §7 | Cybersecurity (IEC 81001-5-1) — own top-level sidebar group: SBOM, Threat Model, Vulnerability Intake, Cyber Plan. SOUP register lands here as SBOM's foundation. |
+| 7 | ✅ Complete | §7 Software Risk Management deepening: `risk_class` discriminator (SAFETY / SECURITY / SAFETY_SECURITY) for IEC 81001-5-1 cyber-readiness · §7.1 RiskContribution table (risk ↔ SoftwareItem / SWComponent) · §7.2 RiskControl gains `component_id` link to §5.3 · §7.3 closed-loop VerificationEvidence sub-table (PASS auto-flips control to VERIFIED) · §7.4 auto-trigger from CR APPROVED with `modifies_released_software` flags impacted risks for re-evaluation · re-evaluation inbox + outcome endpoint · seed_section7 with realistic data · DHF §7 inclusion (full risk file with contributions + evidence + audit) · docs updated. |
+| 8 | 🔜 Next | Cybersecurity (IEC 81001-5-1) — own top-level sidebar group: SBOM (built on a SOUP register), Threat Model (STRIDE per component), Vulnerability Intake (CVE entries that FK into the §7 risks table with `risk_class=SECURITY`), Cybersecurity Plan template. Risk integration via §7 is already in place. |
 
 ---
 

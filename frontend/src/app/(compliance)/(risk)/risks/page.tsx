@@ -4,7 +4,9 @@ import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  api, Project, Requirement, SystemTestCase, Risk, RiskControl, ResidualRisk, RiskDashboard, SafetyProfile,
+  api, Project, Requirement, SystemTestCase, IntegrationTestCase, SoftwareUnit, SoftwareItem,
+  SWComponentTreeNode, Risk, RiskClass, RiskControl, RiskContribution, VerificationEvidence,
+  ResidualRisk, RiskDashboard, SafetyProfile,
 } from "@/lib/api";
 
 type RiskLevel = "HIGH" | "MEDIUM" | "LOW";
@@ -14,6 +16,33 @@ const LEVEL_META: Record<RiskLevel, { label: string; color: string; bg: string; 
   MEDIUM: { label: "Medium", color: "#e65100", bg: "#fff3e0", border: "#ffcc80" },
   LOW:    { label: "Low",    color: "#2e7d32", bg: "#e8f5e9", border: "#a5d6a7" },
 };
+
+// IEC 81001-5-1 / AAMI TIR57 — three fixed risk classes per the standard.
+const RISK_CLASSES: RiskClass[] = ["SAFETY", "SECURITY", "SAFETY_SECURITY"];
+const RISK_CLASS_META: Record<RiskClass, { label: string; short: string; color: string; bg: string; border: string }> = {
+  SAFETY:          { label: "Safety",          short: "Safety",      color: "#b71c1c", bg: "#ffebee", border: "#ef9a9a" },
+  SECURITY:        { label: "Security",        short: "Security",    color: "#1565c0", bg: "#e3f2fd", border: "#90caf9" },
+  SAFETY_SECURITY: { label: "Safety + Security", short: "Safety+Sec", color: "#6a1b9a", bg: "#f3e5f5", border: "#ce93d8" },
+};
+
+const EVIDENCE_TYPE_META: Record<VerificationEvidence["evidence_type"], { label: string; color: string }> = {
+  SYSTEM_TEST:      { label: "System Test",      color: "#2e7d32" },
+  INTEGRATION_TEST: { label: "Integration Test", color: "#1565c0" },
+  UNIT_TEST:        { label: "Unit Test",        color: "#6a1b9a" },
+  REVIEW:           { label: "Review",           color: "#455a64" },
+  INSPECTION:       { label: "Inspection",       color: "#37474f" },
+  ANALYSIS:         { label: "Analysis",         color: "#e65100" },
+  EXTERNAL_REF:     { label: "External Ref",     color: "#5d4037" },
+};
+
+// Build a flat {id → name} map by walking the §5.3 SWComponent tree.
+function flattenComponentTree(nodes: SWComponentTreeNode[], acc: { id: string; name: string }[] = []): { id: string; name: string }[] {
+  for (const n of nodes) {
+    acc.push({ id: n.id, name: n.name });
+    if (n.children?.length) flattenComponentTree(n.children, acc);
+  }
+  return acc;
+}
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   OPEN:                   { label: "Open",             color: "#546e7a", bg: "#eceff1" },
@@ -207,19 +236,223 @@ function DashboardTab({ projectId }: { projectId: string }) {
   );
 }
 
-// ── Risk Controls Panel ───────────────────────────────────────────────────────
-function ControlsPanel({ risk, reqs, systemTests, onReload }: {
-  risk: Risk; reqs: Requirement[]; systemTests: SystemTestCase[]; onReload: () => void;
+// ── Verification Evidence row + modal (§7.3) ─────────────────────────────────
+function EvidenceModal({ control, systemTests, integrationTests, units, onClose, onSaved }: {
+  control: RiskControl;
+  systemTests: SystemTestCase[]; integrationTests: IntegrationTestCase[]; units: SoftwareUnit[];
+  onClose: () => void; onSaved: () => void;
 }) {
-  const [showAdd, setShowAdd] = useState(false);
-  const [cType, setCType]     = useState("INHERENT_SAFETY");
-  const [cDesc, setCDesc]     = useState("");
-  const [cReqId, setCReqId]   = useState("");
-  const [cTcId, setCTcId]     = useState("");
-  const [cStatus, setCStatus] = useState("PROPOSED");
-  const [cNotes, setCNotes]   = useState("");
+  const [evType, setEvType]   = useState<VerificationEvidence["evidence_type"]>("SYSTEM_TEST");
+  const [stId, setStId]       = useState("");
+  const [itId, setItId]       = useState("");
+  const [utId, setUtId]       = useState("");
+  const [extRef, setExtRef]   = useState("");
+  const [result, setResult]   = useState<"PASS" | "FAIL">("PASS");
+  const [notes, setNotes]     = useState("");
+  const [verBy, setVerBy]     = useState("");
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState("");
+
+  // Flatten units → unit test cases (UnitTestCase comes nested under SoftwareUnit).
+  const unitTestCases = units.flatMap(u =>
+    u.test_cases.map(tc => ({ id: tc.id, label: `${u.name} / ${tc.name}` }))
+  );
+
+  async function handleSubmit() {
+    setSaving(true); setError("");
+    try {
+      const payload: Parameters<typeof api.risks.evidence.add>[1] = {
+        evidence_type: evType,
+        result, notes: notes.trim() || null,
+        verified_by: verBy.trim() || null,
+      };
+      if (evType === "SYSTEM_TEST"      && stId)    payload.system_test_id      = stId;
+      if (evType === "INTEGRATION_TEST" && itId)    payload.integration_test_id = itId;
+      if (evType === "UNIT_TEST"        && utId)    payload.unit_test_id        = utId;
+      if (evType === "EXTERNAL_REF"     && extRef.trim()) payload.external_reference = extRef.trim();
+      await api.risks.evidence.add(control.id, payload);
+      onSaved(); onClose();
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div style={modalOverlay} onClick={onClose}>
+      <div style={modalCard} onClick={e => e.stopPropagation()}>
+        <h3 style={{ marginTop: 0, fontSize: 16 }}>Add Verification Evidence (§7.3)</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <label style={labelStyle}>Evidence Type</label>
+            <select value={evType} onChange={e => setEvType(e.target.value as VerificationEvidence["evidence_type"])}
+              style={inputStyle}>
+              {(Object.keys(EVIDENCE_TYPE_META) as VerificationEvidence["evidence_type"][]).map(k => (
+                <option key={k} value={k}>{EVIDENCE_TYPE_META[k].label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Result</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              {(["PASS", "FAIL"] as const).map(r => (
+                <button key={r} type="button" onClick={() => setResult(r)} style={{
+                  flex: 1, padding: "6px 12px", borderRadius: 4, cursor: "pointer",
+                  border: `1px solid ${r === "PASS" ? "#2e7d32" : "#b71c1c"}`,
+                  background: result === r ? (r === "PASS" ? "#e8f5e9" : "#ffebee") : "#fff",
+                  color: r === "PASS" ? "#2e7d32" : "#b71c1c", fontWeight: 700, fontSize: 12,
+                }}>{r}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {evType === "SYSTEM_TEST" && (
+          <div style={{ marginBottom: 10 }}>
+            <label style={labelStyle}>System Test</label>
+            <select value={stId} onChange={e => setStId(e.target.value)} style={inputStyle}>
+              <option value="">— select —</option>
+              {systemTests.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+        )}
+        {evType === "INTEGRATION_TEST" && (
+          <div style={{ marginBottom: 10 }}>
+            <label style={labelStyle}>Integration Test</label>
+            <select value={itId} onChange={e => setItId(e.target.value)} style={inputStyle}>
+              <option value="">— select —</option>
+              {integrationTests.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+        )}
+        {evType === "UNIT_TEST" && (
+          <div style={{ marginBottom: 10 }}>
+            <label style={labelStyle}>Unit Test</label>
+            <select value={utId} onChange={e => setUtId(e.target.value)} style={inputStyle}>
+              <option value="">— select —</option>
+              {unitTestCases.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+        )}
+        {evType === "EXTERNAL_REF" && (
+          <div style={{ marginBottom: 10 }}>
+            <label style={labelStyle}>External Reference (URL / doc ID)</label>
+            <input value={extRef} onChange={e => setExtRef(e.target.value)}
+              placeholder="e.g. https://… or DOC-123" style={inputStyle} />
+          </div>
+        )}
+
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Notes</label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+            style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Verified By</label>
+          <input value={verBy} onChange={e => setVerBy(e.target.value)} style={inputStyle} />
+        </div>
+
+        {result === "PASS" && (
+          <p style={{ fontSize: 11, color: "#1b5e20", margin: "0 0 8px", fontStyle: "italic" }}>
+            Adding PASS will mark this control VERIFIED.
+          </p>
+        )}
+        {error && <p style={{ color: "red", fontSize: 12, margin: "0 0 8px" }}>{error}</p>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" onClick={onClose} style={{ ...btnStyle, background: "#757575" }}>Cancel</button>
+          <button type="button" onClick={handleSubmit} disabled={saving} style={btnStyle}>
+            {saving ? "Saving…" : "Add Evidence"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EvidenceTable({ control, systemTestById, integrationTestById, unitTestById, onReload }: {
+  control: RiskControl;
+  systemTestById: Record<string, SystemTestCase>;
+  integrationTestById: Record<string, IntegrationTestCase>;
+  unitTestById: Record<string, { label: string }>;
+  onReload: () => void;
+}) {
+  async function handleDelete(ev: VerificationEvidence) {
+    if (!confirm("Delete this evidence row?")) return;
+    await api.risks.evidence.delete(ev.id);
+    onReload();
+  }
+  if (!control.evidence.length) {
+    return <p style={{ color: "#aaa", fontSize: 11, margin: "4px 0 0" }}>No verification evidence recorded.</p>;
+  }
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
+      <thead>
+        <tr style={{ background: "#f5f5f5" }}>
+          <th style={{ ...thStyle, fontSize: 10, padding: "4px 6px" }}>Type</th>
+          <th style={{ ...thStyle, fontSize: 10, padding: "4px 6px" }}>Reference</th>
+          <th style={{ ...thStyle, fontSize: 10, padding: "4px 6px", width: 50 }}>Result</th>
+          <th style={{ ...thStyle, fontSize: 10, padding: "4px 6px" }}>Verified By</th>
+          <th style={{ ...thStyle, fontSize: 10, padding: "4px 6px", width: 90 }}>Date</th>
+          <th style={{ ...thStyle, fontSize: 10, padding: "4px 6px", width: 30 }}></th>
+        </tr>
+      </thead>
+      <tbody>
+        {control.evidence.map(ev => {
+          const meta = EVIDENCE_TYPE_META[ev.evidence_type];
+          let refLabel = "—";
+          if (ev.system_test_id      && systemTestById[ev.system_test_id])           refLabel = systemTestById[ev.system_test_id].name;
+          else if (ev.integration_test_id && integrationTestById[ev.integration_test_id]) refLabel = integrationTestById[ev.integration_test_id].name;
+          else if (ev.unit_test_id        && unitTestById[ev.unit_test_id])               refLabel = unitTestById[ev.unit_test_id].label;
+          else if (ev.external_reference) refLabel = ev.external_reference;
+          else if (ev.notes)              refLabel = ev.notes.slice(0, 60);
+          const date = ev.verified_at ? new Date(ev.verified_at).toLocaleDateString() : "—";
+          const resultColor = ev.result === "PASS" ? "#2e7d32" : "#b71c1c";
+          return (
+            <tr key={ev.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
+              <td style={{ ...tdStyle, padding: "4px 6px" }}>
+                <span style={{ fontSize: 10, color: meta.color, fontWeight: 700 }}>{meta.label}</span>
+              </td>
+              <td style={{ ...tdStyle, padding: "4px 6px" }}>{refLabel}</td>
+              <td style={{ ...tdStyle, padding: "4px 6px", color: resultColor, fontWeight: 700 }}>{ev.result}</td>
+              <td style={{ ...tdStyle, padding: "4px 6px", color: "#555" }}>{ev.verified_by ?? "—"}</td>
+              <td style={{ ...tdStyle, padding: "4px 6px", color: "#888" }}>{date}</td>
+              <td style={{ ...tdStyle, padding: "4px 6px", textAlign: "right" }}>
+                <button type="button" onClick={() => handleDelete(ev)}
+                  style={{ background: "none", border: "none", color: "#c62828", cursor: "pointer", fontSize: 12 }}>✕</button>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// ── Risk Controls Panel ───────────────────────────────────────────────────────
+function ControlsPanel({ risk, reqs, systemTests, integrationTests, units, componentMap, onReload }: {
+  risk: Risk; reqs: Requirement[]; systemTests: SystemTestCase[];
+  integrationTests: IntegrationTestCase[]; units: SoftwareUnit[];
+  componentMap: Record<string, string>;
+  onReload: () => void;
+}) {
+  const [showAdd, setShowAdd]   = useState(false);
+  const [cType, setCType]       = useState("INHERENT_SAFETY");
+  const [cDesc, setCDesc]       = useState("");
+  const [cReqId, setCReqId]     = useState("");
+  const [cTcId, setCTcId]       = useState("");
+  const [cCompId, setCCompId]   = useState("");
+  const [cStatus, setCStatus]   = useState("PROPOSED");
+  const [cNotes, setCNotes]     = useState("");
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState("");
+
+  // Edit-control state.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [eDesc, setEDesc]         = useState("");
+  const [eCompId, setECompId]     = useState("");
+  const [eReqId, setEReqId]       = useState("");
+  const [eTcId, setETcId]         = useState("");
+
+  // Evidence modal state.
+  const [evCtrl, setEvCtrl] = useState<RiskControl | null>(null);
 
   async function handleAdd() {
     if (!cDesc.trim()) { setError("Description is required"); return; }
@@ -228,12 +461,32 @@ function ControlsPanel({ risk, reqs, systemTests, onReload }: {
       await api.risks.controls.create(risk.id, {
         control_type: cType, description: cDesc,
         requirement_id: cReqId || null, system_test_id: cTcId || null,
+        component_id: cCompId || null,
         implementation_status: cStatus, verification_notes: cNotes || null,
       });
-      setCDesc(""); setCReqId(""); setCTcId(""); setCNotes(""); setShowAdd(false);
+      setCDesc(""); setCReqId(""); setCTcId(""); setCCompId(""); setCNotes(""); setShowAdd(false);
       onReload();
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
+  }
+
+  function startEdit(ctrl: RiskControl) {
+    setEditingId(ctrl.id);
+    setEDesc(ctrl.description);
+    setECompId(ctrl.component_id ?? "");
+    setEReqId(ctrl.requirement_id ?? "");
+    setETcId(ctrl.system_test_id ?? "");
+  }
+
+  async function saveEdit(ctrl: RiskControl) {
+    await api.risks.controls.update(ctrl.id, {
+      description: eDesc,
+      component_id: eCompId || null,
+      requirement_id: eReqId || null,
+      system_test_id: eTcId || null,
+    });
+    setEditingId(null);
+    onReload();
   }
 
   async function handleUpdateStatus(ctrl: RiskControl, status: string) {
@@ -249,6 +502,9 @@ function ControlsPanel({ risk, reqs, systemTests, onReload }: {
 
   const reqById = Object.fromEntries(reqs.map(r => [r.id, r]));
   const tcById  = Object.fromEntries(systemTests.map(t => [t.id, t]));
+  const itById  = Object.fromEntries(integrationTests.map(t => [t.id, t]));
+  const unitTestById: Record<string, { label: string }> = {};
+  for (const u of units) for (const tc of u.test_cases) unitTestById[tc.id] = { label: `${u.name} / ${tc.name}` };
 
   return (
     <div style={{ padding: "10px 14px 12px", background: "#f8faff", borderTop: "1px solid #c5cae9" }}>
@@ -265,8 +521,10 @@ function ControlsPanel({ risk, reqs, systemTests, onReload }: {
       {risk.controls.map(ctrl => {
         const meta = CONTROL_TYPE_META[ctrl.control_type] ?? { label: ctrl.control_type, short: ctrl.control_type, color: "#546e7a" };
         const impl = IMPL_STATUS_META[ctrl.implementation_status] ?? { label: ctrl.implementation_status, color: "#546e7a" };
-        const linkedReq = ctrl.requirement_id ? reqById[ctrl.requirement_id] : null;
-        const linkedTc  = ctrl.system_test_id ? tcById[ctrl.system_test_id] : null;
+        const linkedReq  = ctrl.requirement_id ? reqById[ctrl.requirement_id] : null;
+        const linkedTc   = ctrl.system_test_id ? tcById[ctrl.system_test_id] : null;
+        const linkedComp = ctrl.component_id ? componentMap[ctrl.component_id] : null;
+        const isEditing  = editingId === ctrl.id;
         return (
           <div key={ctrl.id} style={{ marginBottom: 6, padding: "8px 10px", background: "#fff", border: "1px solid #e8eaf6", borderRadius: 6 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -281,6 +539,10 @@ function ControlsPanel({ risk, reqs, systemTests, onReload }: {
                   <option key={k} value={k}>{v.label}</option>
                 ))}
               </select>
+              <button type="button" onClick={() => isEditing ? setEditingId(null) : startEdit(ctrl)}
+                style={{ fontSize: 11, padding: "1px 8px", borderRadius: 4, cursor: "pointer",
+                  background: isEditing ? "#e3f2fd" : "#f5f5f5", border: `1px solid ${isEditing ? "#1565c0" : "#ddd"}`,
+                  color: isEditing ? "#1565c0" : "#555" }}>{isEditing ? "Cancel" : "Edit"}</button>
               <button type="button" onClick={() => handleDelete(ctrl)}
                 style={{ background: "none", border: "none", color: "#c62828", cursor: "pointer", fontSize: 14, padding: "0 2px" }}>✕</button>
             </div>
@@ -297,10 +559,73 @@ function ControlsPanel({ risk, reqs, systemTests, onReload }: {
                   ST: {linkedTc.name.slice(0, 40)}
                 </a>
               )}
+              {linkedComp && (
+                <span style={{ fontSize: 11, color: "#5e35b1", background: "#ede7f6", padding: "1px 7px", borderRadius: 4, fontFamily: "monospace" }}>
+                  §5.3 {linkedComp.slice(0, 40)}
+                </span>
+              )}
+            </div>
+
+            {isEditing && (
+              <div style={{ marginTop: 8, padding: 8, background: "#f5f7fb", border: "1px solid #c5cae9", borderRadius: 4 }}>
+                <div style={{ marginBottom: 6 }}>
+                  <label style={labelStyle}>Description</label>
+                  <input value={eDesc} onChange={e => setEDesc(e.target.value)} style={inputStyle} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 6 }}>
+                  <div>
+                    <label style={labelStyle}>§5.3 Component</label>
+                    <select value={eCompId} onChange={e => setECompId(e.target.value)} style={inputStyle}>
+                      <option value="">— none</option>
+                      {Object.entries(componentMap).map(([id, name]) => (
+                        <option key={id} value={id}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Requirement</label>
+                    <select value={eReqId} onChange={e => setEReqId(e.target.value)} style={inputStyle}>
+                      <option value="">— none</option>
+                      {reqs.filter(r => r.type === "SOFTWARE" || r.type === "SYSTEM").map(r => (
+                        <option key={r.id} value={r.id}>{r.readable_id} {r.title.slice(0, 40)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>System Test</label>
+                    <select value={eTcId} onChange={e => setETcId(e.target.value)} style={inputStyle}>
+                      <option value="">— none</option>
+                      {systemTests.map(t => <option key={t.id} value={t.id}>{t.name.slice(0, 50)}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <button type="button" onClick={() => saveEdit(ctrl)} style={{ ...btnStyle, fontSize: 12, padding: "4px 12px" }}>Save</button>
+              </div>
+            )}
+
+            <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px dashed #e0e0e0" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, color: "#3949ab", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Verification Evidence (§7.3)
+                </span>
+                <button type="button" onClick={() => setEvCtrl(ctrl)} style={{
+                  marginLeft: "auto", fontSize: 10, padding: "1px 8px", borderRadius: 10,
+                  border: "1px solid #7986cb", background: "#e8eaf6", color: "#3949ab", cursor: "pointer",
+                }}>+ Evidence</button>
+              </div>
+              <EvidenceTable control={ctrl}
+                systemTestById={tcById} integrationTestById={itById} unitTestById={unitTestById}
+                onReload={onReload} />
             </div>
           </div>
         );
       })}
+
+      {evCtrl && (
+        <EvidenceModal control={evCtrl}
+          systemTests={systemTests} integrationTests={integrationTests} units={units}
+          onClose={() => setEvCtrl(null)} onSaved={onReload} />
+      )}
 
       {risk.controls.length === 0 && !showAdd && (
         <p style={{ color: "#aaa", fontSize: 12, margin: "4px 0" }}>No controls defined. Add at least one ISO 14971 §6.2 control.</p>
@@ -332,7 +657,16 @@ function ControlsPanel({ risk, reqs, systemTests, onReload }: {
               placeholder="Describe the control measure…"
               style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <div>
+              <label style={labelStyle}>§5.3 Component (optional)</label>
+              <select value={cCompId} onChange={e => setCCompId(e.target.value)} style={inputStyle}>
+                <option value="">— none</option>
+                {Object.entries(componentMap).map(([id, name]) => (
+                  <option key={id} value={id}>{name.slice(0, 50)}</option>
+                ))}
+              </select>
+            </div>
             <div>
               <label style={labelStyle}>Link to Requirement (optional)</label>
               <select value={cReqId} onChange={e => setCReqId(e.target.value)} style={inputStyle}>
@@ -459,31 +793,317 @@ function ResidualPanel({ risk, onReload }: { risk: Risk; onReload: () => void })
   );
 }
 
+// ── Risk Contributions Panel (§7.1) ───────────────────────────────────────────
+function ContributionsPanel({ risk, componentMap, softwareItemMap, onReload }: {
+  risk: Risk;
+  componentMap: Record<string, string>;
+  softwareItemMap: Record<string, string>;
+  onReload: () => void;
+}) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [kind, setKind]       = useState<"SW_ITEM" | "COMPONENT">("SW_ITEM");
+  const [targetId, setTargetId] = useState("");
+  const [notes, setNotes]     = useState("");
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState("");
+
+  async function handleAdd() {
+    if (!targetId) { setError("Select a target"); return; }
+    setSaving(true); setError("");
+    try {
+      const payload = kind === "SW_ITEM"
+        ? { software_item_id: targetId, contribution_notes: notes.trim() || undefined }
+        : { component_id: targetId, contribution_notes: notes.trim() || undefined };
+      await api.risks.contributions.add(risk.id, payload);
+      setShowAdd(false); setTargetId(""); setNotes("");
+      onReload();
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  async function handleDelete(c: RiskContribution) {
+    if (!confirm("Delete this contribution?")) return;
+    await api.risks.contributions.delete(c.id);
+    onReload();
+  }
+
+  return (
+    <div style={{ padding: "8px 14px 10px", background: "#f1f8e9", borderTop: "1px solid #c5e1a5" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: "#33691e", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          Contributions (§7.1) — {risk.contributions.length}
+        </span>
+        <button type="button" onClick={() => setShowAdd(v => !v)} style={{
+          fontSize: 11, padding: "1px 10px", borderRadius: 10, border: "1px solid #689f38",
+          background: showAdd ? "#558b2f" : "#dcedc8", color: showAdd ? "#fff" : "#33691e", cursor: "pointer",
+        }}>{showAdd ? "Cancel" : "+ Add"}</button>
+      </div>
+
+      {risk.contributions.length === 0 && !showAdd && (
+        <p style={{ color: "#9e9d24", fontSize: 11, margin: "2px 0 0" }}>
+          No software item / component contributions linked yet.
+        </p>
+      )}
+
+      {risk.contributions.map(c => {
+        const isItem = !!c.software_item_id;
+        const name = isItem
+          ? (softwareItemMap[c.software_item_id!] ?? c.software_item_id)
+          : (componentMap[c.component_id!] ?? c.component_id);
+        return (
+          <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px",
+            background: "#fff", border: "1px solid #c5e1a5", borderRadius: 4, marginBottom: 4 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 3,
+              background: isItem ? "#e3f2fd" : "#ede7f6", color: isItem ? "#1565c0" : "#5e35b1" }}>
+              {isItem ? "SW Item" : "§5.3"}
+            </span>
+            <span style={{ fontSize: 12, flex: 1 }}>{name}</span>
+            {c.contribution_notes && (
+              <span style={{ fontSize: 11, color: "#666", fontStyle: "italic" }}>
+                {c.contribution_notes.length > 80 ? c.contribution_notes.slice(0, 80) + "…" : c.contribution_notes}
+              </span>
+            )}
+            <button type="button" onClick={() => handleDelete(c)}
+              style={{ background: "none", border: "none", color: "#c62828", cursor: "pointer", fontSize: 13 }}>✕</button>
+          </div>
+        );
+      })}
+
+      {showAdd && (
+        <div style={{ padding: 8, background: "#fff", border: "1px solid #c5e1a5", borderRadius: 4, marginTop: 4 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            {(["SW_ITEM", "COMPONENT"] as const).map(k => (
+              <button key={k} type="button" onClick={() => { setKind(k); setTargetId(""); }}
+                style={{
+                  flex: 1, padding: "5px 8px", borderRadius: 4, cursor: "pointer", fontSize: 11, fontWeight: 600,
+                  border: `1px solid ${kind === k ? "#558b2f" : "#ddd"}`,
+                  background: kind === k ? "#dcedc8" : "#fafafa",
+                  color: kind === k ? "#33691e" : "#555",
+                }}>{k === "SW_ITEM" ? "Software Item" : "§5.3 SW Component"}</button>
+            ))}
+          </div>
+          <div style={{ marginBottom: 6 }}>
+            <label style={labelStyle}>Target</label>
+            <select value={targetId} onChange={e => setTargetId(e.target.value)} style={inputStyle}>
+              <option value="">— select —</option>
+              {kind === "SW_ITEM"
+                ? Object.entries(softwareItemMap).map(([id, name]) => <option key={id} value={id}>{name}</option>)
+                : Object.entries(componentMap).map(([id, name]) => <option key={id} value={id}>{name}</option>)
+              }
+            </select>
+          </div>
+          <div style={{ marginBottom: 6 }}>
+            <label style={labelStyle}>Contribution Notes (optional)</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+              placeholder="How does this item/component contribute to the hazard?"
+              style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
+          </div>
+          {error && <p style={{ color: "red", fontSize: 11, margin: "0 0 6px" }}>{error}</p>}
+          <button type="button" onClick={handleAdd} disabled={saving}
+            style={{ ...btnStyle, fontSize: 12, padding: "4px 12px", background: "#558b2f" }}>
+            {saving ? "Saving…" : "Add Contribution"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Re-evaluation modal (§7) ──────────────────────────────────────────────────
+function ReevaluateModal({ risk, onClose, onSaved }: { risk: Risk; onClose: () => void; onSaved: () => void }) {
+  const [notes, setNotes]   = useState("");
+  const [by, setBy]         = useState("");
+  const [sev, setSev]       = useState<number | "">("");
+  const [prob, setProb]     = useState<number | "">("");
+  const [newStatus, setNS]  = useState<"" | "OPEN" | "IN_CONTROL" | "ACCEPTED" | "CLOSED">("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState("");
+
+  async function handleSubmit() {
+    if (!notes.trim()) { setError("Notes are required"); return; }
+    setSaving(true); setError("");
+    try {
+      await api.risks.recordReevaluation(risk.id, {
+        notes: notes.trim(),
+        re_evaluated_by: by.trim() || null,
+        ...(sev  !== "" ? { severity:  +sev } : {}),
+        ...(prob !== "" ? { probability: +prob } : {}),
+        ...(newStatus ? { new_status: newStatus } : {}),
+      });
+      onSaved(); onClose();
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div style={modalOverlay} onClick={onClose}>
+      <div style={modalCard} onClick={e => e.stopPropagation()}>
+        <h3 style={{ marginTop: 0, fontSize: 16 }}>Re-evaluate Risk</h3>
+        <p style={{ fontSize: 12, color: "#666", margin: "0 0 12px" }}>
+          {risk.hazard} → {risk.harm}
+        </p>
+        {risk.re_evaluation_reason && (
+          <div style={{ padding: "6px 10px", background: "#fff3e0", borderLeft: "3px solid #e65100",
+            fontSize: 12, color: "#555", marginBottom: 10, borderRadius: "0 4px 4px 0" }}>
+            <b>Trigger:</b> {risk.re_evaluation_reason}
+          </div>
+        )}
+        <div style={{ marginBottom: 8 }}>
+          <label style={labelStyle}>Re-evaluation Notes *</label>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+            placeholder="Document the re-evaluation outcome…"
+            style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <label style={labelStyle}>Re-evaluated By</label>
+          <input value={by} onChange={e => setBy(e.target.value)} style={inputStyle} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+          <div>
+            <label style={labelStyle}>New Severity (1–5)</label>
+            <input type="range" min={1} max={5} value={sev === "" ? risk.severity : sev}
+              onChange={e => setSev(+e.target.value)} style={{ width: "100%" }} />
+            <div style={{ fontSize: 11, color: "#555", textAlign: "center" }}>
+              {sev === "" ? <span style={{ color: "#aaa" }}>unchanged ({risk.severity})</span> : sev}
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>New Probability (1–5)</label>
+            <input type="range" min={1} max={5} value={prob === "" ? risk.probability : prob}
+              onChange={e => setProb(+e.target.value)} style={{ width: "100%" }} />
+            <div style={{ fontSize: 11, color: "#555", textAlign: "center" }}>
+              {prob === "" ? <span style={{ color: "#aaa" }}>unchanged ({risk.probability})</span> : prob}
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>New Status</label>
+            <select value={newStatus} onChange={e => setNS(e.target.value as typeof newStatus)} style={inputStyle}>
+              <option value="">— unchanged —</option>
+              <option value="OPEN">Open</option>
+              <option value="IN_CONTROL">In Control</option>
+              <option value="ACCEPTED">Accepted</option>
+              <option value="CLOSED">Closed</option>
+            </select>
+          </div>
+        </div>
+        {error && <p style={{ color: "red", fontSize: 12, margin: "0 0 8px" }}>{error}</p>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" onClick={onClose} style={{ ...btnStyle, background: "#757575" }}>Cancel</button>
+          <button type="button" onClick={handleSubmit} disabled={saving} style={btnStyle}>
+            {saving ? "Saving…" : "Record Re-evaluation"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Re-evaluation Inbox tab ───────────────────────────────────────────────────
+function ReevalInboxTab({ projectId, onChanged }: { projectId: string; onChanged: () => void }) {
+  const [list, setList]   = useState<Risk[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [active, setActive]   = useState<Risk | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try { setList(await api.risks.needsReevaluation(projectId)); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { load(); }, [projectId]);
+
+  if (loading) return <p style={{ color: "#888" }}>Loading inbox…</p>;
+  if (list.length === 0) {
+    return (
+      <div style={{ ...sectionCard, textAlign: "center", color: "#2e7d32" }}>
+        <div style={{ fontSize: 32, fontWeight: 700, color: "#2e7d32" }}>✓</div>
+        <div style={{ fontSize: 14, color: "#555", marginTop: 4 }}>
+          No risks awaiting re-evaluation. All linked changes have been assessed.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: "#666", margin: "0 0 16px" }}>
+        Risks below need ISO 14971 §7 re-evaluation following a change. Record an outcome to clear them from this inbox.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {list.map(r => {
+          const lvl = LEVEL_META[r.risk_level as RiskLevel] ?? LEVEL_META.HIGH;
+          const cls = RISK_CLASS_META[r.risk_class];
+          const triggered = r.re_evaluation_triggered_at ? new Date(r.re_evaluation_triggered_at).toLocaleString() : null;
+          return (
+            <div key={r.id} style={{ ...sectionCard, borderLeft: "4px solid #e65100" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                <span style={{ background: lvl.color, color: "#fff", borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 700 }}>
+                  {r.risk_level}
+                </span>
+                <span style={{ background: cls.color, color: "#fff", borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 700 }}>
+                  {cls.short}
+                </span>
+                <span style={{ fontFamily: "monospace", fontSize: 11, color: "#999" }}>
+                  #{r.id.slice(0, 8)}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#37474f", flex: 1 }}>{r.hazard}</span>
+                <button type="button" onClick={() => setActive(r)} style={{
+                  padding: "4px 14px", borderRadius: 4, border: "none", cursor: "pointer",
+                  background: "#e65100", color: "#fff", fontSize: 12, fontWeight: 700,
+                }}>Re-evaluate</button>
+              </div>
+              {r.re_evaluation_reason && (
+                <div style={{ padding: "5px 9px", background: "#fff3e0", borderLeft: "3px solid #e65100",
+                  fontSize: 12, color: "#555", borderRadius: "0 4px 4px 0", marginBottom: 4 }}>
+                  {r.re_evaluation_reason}
+                </div>
+              )}
+              {triggered && (
+                <div style={{ fontSize: 11, color: "#888" }}>Triggered at {triggered}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {active && (
+        <ReevaluateModal risk={active}
+          onClose={() => setActive(null)}
+          onSaved={() => { load(); onChanged(); }} />
+      )}
+    </div>
+  );
+}
+
 // ── Risk row ──────────────────────────────────────────────────────────────────
-function RiskRow({ risk, req, reqs, systemTests, isLast, onDelete, onUpdate }: {
+function RiskRow({ risk, req, reqs, systemTests, integrationTests, units, componentMap, softwareItemMap, isLast, onDelete, onUpdate }: {
   risk: Risk; req?: Requirement; reqs: Requirement[]; systemTests: SystemTestCase[];
+  integrationTests: IntegrationTestCase[]; units: SoftwareUnit[];
+  componentMap: Record<string, string>; softwareItemMap: Record<string, string>;
   isLast: boolean; onDelete: (id: string) => void; onUpdate: (updated: Risk) => void;
 }) {
-  const [editing,      setEditing]      = useState(false);
-  const [showControls, setShowControls] = useState(false);
-  const [showResidual, setShowResidual] = useState(false);
-  const [statusErr,    setStatusErr]    = useState("");
-  const [statusSaving, setStatusSaving] = useState(false);
+  const [editing,           setEditing]           = useState(false);
+  const [showControls,      setShowControls]      = useState(false);
+  const [showResidual,      setShowResidual]      = useState(false);
+  const [showContributions, setShowContributions] = useState(false);
+  const [showReeval,        setShowReeval]        = useState(false);
+  const [statusErr,         setStatusErr]         = useState("");
+  const [statusSaving,      setStatusSaving]      = useState(false);
 
   // Edit form state
-  const [hazard,  setHazard]  = useState(risk.hazard);
-  const [hazSit,  setHazSit]  = useState(risk.hazardous_situation);
-  const [harm,    setHarm]    = useState(risk.harm);
-  const [sev,     setSev]     = useState(risk.severity);
-  const [prob,    setProb]    = useState(risk.probability);
-  const [mit,     setMit]     = useState(risk.mitigation ?? "");
-  const [notes,   setNotes]   = useState(risk.evaluation_notes ?? "");
-  const [saving,  setSaving]  = useState(false);
-  const [error,   setError]   = useState("");
+  const [hazard,    setHazard]   = useState(risk.hazard);
+  const [hazSit,    setHazSit]   = useState(risk.hazardous_situation);
+  const [harm,      setHarm]     = useState(risk.harm);
+  const [sev,       setSev]      = useState(risk.severity);
+  const [prob,      setProb]     = useState(risk.probability);
+  const [mit,       setMit]      = useState(risk.mitigation ?? "");
+  const [notes,     setNotes]    = useState(risk.evaluation_notes ?? "");
+  const [riskClass, setRiskClass] = useState<RiskClass>(risk.risk_class);
+  const [saving,    setSaving]   = useState(false);
+  const [error,     setError]    = useState("");
 
   const level = risk.risk_level as RiskLevel;
   const levelMeta  = LEVEL_META[level] ?? LEVEL_META.HIGH;
   const statusMeta = STATUS_META[risk.status] ?? STATUS_META.OPEN;
+  const classMeta  = RISK_CLASS_META[risk.risk_class];
 
   async function handleSaveEdit(e: React.FormEvent) {
     e.preventDefault();
@@ -494,6 +1114,7 @@ function RiskRow({ risk, req, reqs, systemTests, isLast, onDelete, onUpdate }: {
         severity: sev, probability: prob,
         mitigation: mit.trim() || null,
         evaluation_notes: notes.trim() || null,
+        risk_class: riskClass,
       });
       onUpdate(updated); setEditing(false);
     } catch (e: any) { setError(e.message); }
@@ -514,12 +1135,19 @@ function RiskRow({ risk, req, reqs, systemTests, isLast, onDelete, onUpdate }: {
       {/* Re-evaluation alert */}
       {risk.re_evaluation_required && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 14px",
-          background: "#fff3e0", borderBottom: "1px solid #ffcc80", fontSize: 12 }}>
+          background: "#fff3e0", borderBottom: "1px solid #ffcc80", fontSize: 12, flexWrap: "wrap" }}>
           <span style={{ fontSize: 14 }}>⚠</span>
           <span style={{ color: "#e65100", fontWeight: 600 }}>Re-evaluation required</span>
-          <span style={{ color: "#666" }}>— a linked requirement was changed.</span>
-          <button type="button" onClick={() => handleStatus("IN_CONTROL")}
+          <span style={{ color: "#666" }}>
+            — {risk.re_evaluation_reason ?? "a linked artifact was changed."}
+          </span>
+          <button type="button" onClick={() => setShowReeval(true)}
             style={{ marginLeft: "auto", fontSize: 11, padding: "2px 10px", borderRadius: 4, border: "1px solid #e65100",
+              background: "#e65100", color: "#fff", cursor: "pointer", fontWeight: 700 }}>
+            Re-evaluate
+          </button>
+          <button type="button" onClick={() => handleStatus("IN_CONTROL")}
+            style={{ fontSize: 11, padding: "2px 10px", borderRadius: 4, border: "1px solid #e65100",
               background: "#fff", color: "#e65100", cursor: "pointer" }}>
             Acknowledge
           </button>
@@ -531,6 +1159,9 @@ function RiskRow({ risk, req, reqs, systemTests, isLast, onDelete, onUpdate }: {
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
           <span style={{ background: levelMeta.color, color: "#fff", borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 700 }}>
             {level}
+          </span>
+          <span style={{ background: classMeta.color, color: "#fff", borderRadius: 3, padding: "1px 8px", fontSize: 11, fontWeight: 700 }}>
+            {classMeta.short}
           </span>
           <span style={{ fontSize: 11, color: "#999" }}>S={risk.severity}×P={risk.probability}={risk.severity*risk.probability}</span>
           <span style={{ background: statusMeta.bg, color: statusMeta.color, borderRadius: 10, padding: "1px 9px", fontSize: 11, fontWeight: 600 }}>
@@ -544,7 +1175,13 @@ function RiskRow({ risk, req, reqs, systemTests, isLast, onDelete, onUpdate }: {
             </a>
           )}
 
-          <div style={{ display: "flex", gap: 4, marginLeft: req ? 0 : "auto" }}>
+          <div style={{ display: "flex", gap: 4, marginLeft: req ? 0 : "auto", flexWrap: "wrap" }}>
+            <button type="button" onClick={() => setShowContributions(v => !v)}
+              style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, cursor: "pointer",
+                background: showContributions ? "#dcedc8" : "#f5f5f5", border: "1px solid #c5e1a5",
+                color: showContributions ? "#33691e" : "#555" }}>
+              §7.1 Contributions ({risk.contributions.length})
+            </button>
             <button type="button" onClick={() => setShowControls(v => !v)}
               style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, cursor: "pointer",
                 background: showControls ? "#e8eaf6" : "#f5f5f5", border: "1px solid #c5cae9",
@@ -578,6 +1215,13 @@ function RiskRow({ risk, req, reqs, systemTests, isLast, onDelete, onUpdate }: {
         {risk.evaluation_notes && (
           <div style={{ marginTop: 6, padding: "5px 9px", background: "#f9fbe7", borderLeft: "3px solid #cddc39", borderRadius: "0 4px 4px 0", fontSize: 12, color: "#555" }}>
             {risk.evaluation_notes}
+          </div>
+        )}
+
+        {risk.last_re_evaluated_at && (
+          <div style={{ marginTop: 4, fontSize: 11, color: "#888" }}>
+            Last re-evaluated {new Date(risk.last_re_evaluated_at).toLocaleString()}
+            {risk.last_re_evaluated_by ? ` by ${risk.last_re_evaluated_by}` : ""}
           </div>
         )}
 
@@ -616,6 +1260,11 @@ function RiskRow({ risk, req, reqs, systemTests, isLast, onDelete, onUpdate }: {
             <label style={{ fontSize: 13 }}>Probability (1–5):
               <input type="number" min={1} max={5} value={prob} onChange={e => setProb(+e.target.value)}
                 style={{ ...inputStyle, width: 60, marginLeft: 8 }} /></label>
+            <label style={{ fontSize: 13 }}>Risk Class:
+              <select value={riskClass} onChange={e => setRiskClass(e.target.value as RiskClass)}
+                style={{ ...inputStyle, width: "auto", marginLeft: 8 }}>
+                {RISK_CLASSES.map(c => <option key={c} value={c}>{RISK_CLASS_META[c].label}</option>)}
+              </select></label>
             <span style={{ fontSize: 13 }}>
               Preview: <b style={{ color: LEVEL_META[computeLevel(sev, prob)].color }}>{computeLevel(sev, prob)}</b>
               <span style={{ color: "#888", marginLeft: 4 }}>(score: {sev * prob})</span>
@@ -641,22 +1290,41 @@ function RiskRow({ risk, req, reqs, systemTests, isLast, onDelete, onUpdate }: {
         </form>
       )}
 
+      {/* Contributions panel (§7.1) */}
+      {showContributions && (
+        <ContributionsPanel risk={risk}
+          componentMap={componentMap} softwareItemMap={softwareItemMap}
+          onReload={() => onUpdate(risk)} />
+      )}
+
       {/* Controls panel */}
       {showControls && (
-        <ControlsPanel risk={risk} reqs={reqs} systemTests={systemTests} onReload={() => onUpdate(risk)} />
+        <ControlsPanel risk={risk} reqs={reqs} systemTests={systemTests}
+          integrationTests={integrationTests} units={units}
+          componentMap={componentMap}
+          onReload={() => onUpdate(risk)} />
       )}
 
       {/* Residual risk panel */}
       {showResidual && (
         <ResidualPanel risk={risk} onReload={() => onUpdate(risk)} />
       )}
+
+      {/* Re-evaluation modal */}
+      {showReeval && (
+        <ReevaluateModal risk={risk}
+          onClose={() => setShowReeval(false)}
+          onSaved={() => onUpdate(risk)} />
+      )}
     </div>
   );
 }
 
 // ── Risk level group ──────────────────────────────────────────────────────────
-function RiskGroup({ level, risks, reqs, systemTests, onDelete, onUpdate }: {
+function RiskGroup({ level, risks, reqs, systemTests, integrationTests, units, componentMap, softwareItemMap, onDelete, onUpdate }: {
   level: RiskLevel; risks: Risk[]; reqs: Requirement[]; systemTests: SystemTestCase[];
+  integrationTests: IntegrationTestCase[]; units: SoftwareUnit[];
+  componentMap: Record<string, string>; softwareItemMap: Record<string, string>;
   onDelete: (id: string) => void; onUpdate: (updated: Risk) => void;
 }) {
   const [open, setOpen] = useState(true);
@@ -688,6 +1356,8 @@ function RiskGroup({ level, risks, reqs, systemTests, onDelete, onUpdate }: {
           {risks.map((r, i) => (
             <RiskRow key={r.id} risk={r} req={reqById[r.requirement_id]}
               reqs={reqs} systemTests={systemTests}
+              integrationTests={integrationTests} units={units}
+              componentMap={componentMap} softwareItemMap={softwareItemMap}
               isLast={i === risks.length - 1}
               onDelete={onDelete} onUpdate={onUpdate} />
           ))}
@@ -912,46 +1582,69 @@ function SafetyClassificationTab({ projectId }: { projectId: string }) {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+type TabKey = "dashboard" | "inbox" | "register" | "classification";
+
 function RisksPageInner() {
   const params    = useSearchParams();
   const lvlParam  = params.get("level") ?? "ALL";
+  const clsParam  = (params.get("class") ?? "ALL").toUpperCase();
 
-  const [projects,   setProjects]   = useState<Project[]>([]);
-  const [reqs,       setReqs]       = useState<Requirement[]>([]);
-  const [systemTests, setSystemTests] = useState<SystemTestCase[]>([]);
-  const [risks,      setRisks]      = useState<Risk[]>([]);
-  const [projectId,  setProjectId]  = useActiveProject();
-  const [filter,     setFilter]     = useState<string>(lvlParam);
-  const [activeTab,  setActiveTab]  = useState<"dashboard" | "register" | "classification">("register");
-  const [showForm,   setShowForm]   = useState(false);
+  const [projects,         setProjects]         = useState<Project[]>([]);
+  const [reqs,             setReqs]             = useState<Requirement[]>([]);
+  const [systemTests,      setSystemTests]      = useState<SystemTestCase[]>([]);
+  const [integrationTests, setIntegrationTests] = useState<IntegrationTestCase[]>([]);
+  const [units,            setUnits]            = useState<SoftwareUnit[]>([]);
+  const [components,       setComponents]       = useState<{ id: string; name: string }[]>([]);
+  const [softwareItems,    setSoftwareItems]    = useState<SoftwareItem[]>([]);
+  const [risks,            setRisks]            = useState<Risk[]>([]);
+  const [projectId,        setProjectId]        = useActiveProject();
+  const [filter,           setFilter]           = useState<string>(lvlParam);
+  const initialClassFilter: "ALL" | RiskClass =
+    (RISK_CLASSES as string[]).includes(clsParam) ? (clsParam as RiskClass) : "ALL";
+  const [classFilter,      setClassFilter]      = useState<"ALL" | RiskClass>(initialClassFilter);
+  const [activeTab,        setActiveTab]        = useState<TabKey>("register");
+  const [showForm,         setShowForm]         = useState(false);
 
   // Add-risk form
-  const [reqId,      setReqId]      = useState("");
-  const [hazard,     setHazard]     = useState("");
-  const [hazSit,     setHazSit]     = useState("");
-  const [harm,       setHarm]       = useState("");
-  const [severity,   setSeverity]   = useState(1);
-  const [prob,       setProb]       = useState(1);
-  const [mitigation, setMitigation] = useState("");
-  const [formError,  setFormError]  = useState("");
-  const [saving,     setSaving]     = useState(false);
+  const [reqId,           setReqId]      = useState("");
+  const [hazard,          setHazard]     = useState("");
+  const [hazSit,          setHazSit]     = useState("");
+  const [harm,            setHarm]       = useState("");
+  const [severity,        setSeverity]   = useState(1);
+  const [prob,            setProb]       = useState(1);
+  const [mitigation,      setMitigation] = useState("");
+  const [newRiskClass,    setNewRiskClass] = useState<RiskClass>("SAFETY");
+  const [formError,       setFormError]  = useState("");
+  const [saving,          setSaving]     = useState(false);
 
   useEffect(() => { api.projects.list().then(setProjects); }, []);
 
   const reload = async () => {
     if (!projectId) return;
-    const [r, rk, tc] = await Promise.all([
+    const [r, rk, tc, it, un, tree, si] = await Promise.all([
       api.requirements.list(projectId),
       api.risks.list(undefined, projectId),
       api.systemTesting.list(projectId),
+      api.integrationTests.list(projectId).catch(() => []),
+      api.units.list(projectId).catch(() => []),
+      api.architecture.tree(projectId).catch(() => []),
+      api.softwareItems.list(projectId).catch(() => []),
     ]);
     setReqs(r);
     setRisks(rk);
     setSystemTests(tc);
+    setIntegrationTests(it);
+    setUnits(un);
+    setComponents(flattenComponentTree(tree));
+    setSoftwareItems(si);
   };
 
   useEffect(() => {
-    if (!projectId) { setReqs([]); setRisks([]); setSystemTests([]); return; }
+    if (!projectId) {
+      setReqs([]); setRisks([]); setSystemTests([]); setIntegrationTests([]);
+      setUnits([]); setComponents([]); setSoftwareItems([]);
+      return;
+    }
     reload();
   }, [projectId]);
 
@@ -963,8 +1656,10 @@ function RisksPageInner() {
       await api.risks.create({
         requirement_id: reqId, hazard, hazardous_situation: hazSit, harm,
         severity, probability: prob, mitigation: mitigation.trim() || undefined,
+        risk_class: newRiskClass,
       });
       setHazard(""); setHazSit(""); setHarm(""); setSeverity(1); setProb(1); setMitigation(""); setReqId("");
+      setNewRiskClass("SAFETY");
       await reload();
     } catch (e: any) { setFormError(e.message); }
     finally { setSaving(false); }
@@ -975,13 +1670,17 @@ function RisksPageInner() {
     await reload();
   }
 
-  function handleUpdate(updated: Risk) {
-    // Re-fetch to get latest controls/residual from server
-    api.risks.list(undefined, projectId).then(setRisks);
+  function handleUpdate(_updated: Risk) {
+    // Re-fetch to get latest controls / residual / contributions / evidence from server
+    reload();
   }
 
+  const componentMap     = Object.fromEntries(components.map(c => [c.id, c.name])) as Record<string, string>;
+  const softwareItemMap  = Object.fromEntries(softwareItems.map(s => [s.id, s.name])) as Record<string, string>;
+
   const LEVELS: RiskLevel[] = ["HIGH", "MEDIUM", "LOW"];
-  const grouped = Object.fromEntries(LEVELS.map(l => [l, risks.filter(r => r.risk_level === l)])) as Record<RiskLevel, Risk[]>;
+  const classFiltered = classFilter === "ALL" ? risks : risks.filter(r => r.risk_class === classFilter);
+  const grouped = Object.fromEntries(LEVELS.map(l => [l, classFiltered.filter(r => r.risk_level === l)])) as Record<RiskLevel, Risk[]>;
   const displayLevels = filter === "ALL" ? LEVELS : [filter as RiskLevel];
   const totalShown = displayLevels.reduce((n, l) => n + grouped[l].length, 0);
   const previewLevel = computeLevel(severity, prob);
@@ -1010,10 +1709,31 @@ function RisksPageInner() {
         {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
 
+      {/* Risk-class chip filter — IEC 81001-5-1 / AAMI TIR57 */}
+      {projectId && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: "#888", marginRight: 4, fontWeight: 600 }}>RISK CLASS:</span>
+          {(["ALL", ...RISK_CLASSES] as const).map(c => {
+            const count = c === "ALL" ? risks.length : risks.filter(r => r.risk_class === c).length;
+            const color = c === "ALL" ? "#37474f" : RISK_CLASS_META[c].color;
+            const label = c === "ALL" ? "All" : RISK_CLASS_META[c].label;
+            return (
+              <button key={c} type="button" onClick={() => setClassFilter(c)} style={{
+                padding: "4px 12px", borderRadius: 16, border: `1px solid ${classFilter === c ? color : "#ddd"}`,
+                cursor: "pointer", fontSize: 12, fontWeight: 600,
+                background: classFilter === c ? color : "#fff",
+                color: classFilter === c ? "#fff" : color,
+              }}>{label} <span style={{ opacity: 0.75 }}>({count})</span></button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Tabs */}
       <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: "2px solid #e0e0e0" }}>
         {([
           { key: "dashboard",      label: "Dashboard" },
+          { key: "inbox",          label: `Re-eval Inbox${reEvalCount > 0 ? ` (${reEvalCount})` : ""}` },
           { key: "register",       label: `Risk Register${risks.length > 0 ? ` (${risks.length})` : ""}` },
           { key: "classification", label: "Safety Classification" },
         ] as const).map(t => (
@@ -1030,6 +1750,12 @@ function RisksPageInner() {
       {activeTab === "dashboard" && (
         projectId ? <DashboardTab projectId={projectId} />
           : <p style={{ color: "#888" }}>Select a project to view the dashboard.</p>
+      )}
+
+      {/* Re-evaluation Inbox */}
+      {activeTab === "inbox" && (
+        projectId ? <ReevalInboxTab projectId={projectId} onChanged={reload} />
+          : <p style={{ color: "#888" }}>Select a project.</p>
       )}
 
       {/* Safety Classification */}
@@ -1061,6 +1787,11 @@ function RisksPageInner() {
                   <label style={{ fontSize: 13 }}>Probability (1–5):
                     <input type="number" min={1} max={5} value={prob} onChange={e => setProb(+e.target.value)}
                       style={{ ...inputStyle, width: 60, marginLeft: 8 }} /></label>
+                  <label style={{ fontSize: 13 }}>Risk Class:
+                    <select value={newRiskClass} onChange={e => setNewRiskClass(e.target.value as RiskClass)}
+                      style={{ ...inputStyle, width: "auto", marginLeft: 8 }}>
+                      {RISK_CLASSES.map(c => <option key={c} value={c}>{RISK_CLASS_META[c].label}</option>)}
+                    </select></label>
                   <span style={{ fontSize: 13 }}>
                     Level: <b style={{ color: LEVEL_META[previewLevel].color }}>{previewLevel}</b>
                     <span style={{ color: "#888", marginLeft: 4 }}>(score: {severity * prob})</span>
@@ -1099,11 +1830,13 @@ function RisksPageInner() {
           ) : risks.length === 0 ? (
             <p style={{ color: "#888" }}>No risks yet. Use the ISO 14971 hazard analysis form above.</p>
           ) : totalShown === 0 ? (
-            <p style={{ color: "#aaa" }}>No {filter} risks.</p>
+            <p style={{ color: "#aaa" }}>No {filter}{classFilter !== "ALL" ? ` ${RISK_CLASS_META[classFilter].label}` : ""} risks.</p>
           ) : (
             <div>
               {displayLevels.map(l => grouped[l].length > 0 && (
                 <RiskGroup key={l} level={l} risks={grouped[l]} reqs={reqs} systemTests={systemTests}
+                  integrationTests={integrationTests} units={units}
+                  componentMap={componentMap} softwareItemMap={softwareItemMap}
                   onDelete={handleDelete} onUpdate={handleUpdate} />
               ))}
             </div>
@@ -1130,3 +1863,12 @@ const btnStyle: React.CSSProperties    = { padding: "8px 18px", background: "#15
 const labelStyle: React.CSSProperties  = { display: "block", fontSize: 11, color: "#666", marginBottom: 3, fontWeight: 600 };
 const thStyle: React.CSSProperties     = { padding: "6px 10px", textAlign: "left" as const, fontWeight: 600, fontSize: 12, color: "#555", borderBottom: "1px solid #e0e0e0" };
 const tdStyle: React.CSSProperties     = { padding: "6px 10px", verticalAlign: "top" as const };
+const modalOverlay: React.CSSProperties = {
+  position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
+  display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+};
+const modalCard: React.CSSProperties = {
+  background: "#fff", borderRadius: 8, padding: "1.25rem 1.5rem",
+  width: "100%", maxWidth: 540, maxHeight: "90vh", overflowY: "auto",
+  boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
+};

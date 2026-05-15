@@ -51,6 +51,16 @@ def _compute_level(severity: int, probability: int) -> str:
 # VERIFIED    → verification test passed
 
 
+# ── Risk class discriminator (IEC 62304 §7 + IEC 81001-5-1 + AAMI TIR57) ─────
+# A single risk register hosts software-safety, cybersecurity, and combined
+# safety-security risks under one ISO 14971 file. The class field lets the
+# UI filter / tab and lets reports separate the two without forking schema.
+# SAFETY            classical software-safety risk (default; back-compat)
+# SECURITY          cybersecurity risk (IEC 81001-5-1 / AAMI TIR57)
+# SAFETY_SECURITY   risk where a security vulnerability could cause a safety
+#                    hazard (the bridge case AAMI TIR57 emphasises)
+
+
 class Risk(Base):
     __tablename__ = "risks"
 
@@ -61,6 +71,11 @@ class Risk(Base):
     category_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("risk_categories.id", ondelete="SET NULL"), nullable=True
     )
+    # ── Cyber-ready risk class discriminator ─────────────────────────────────
+    # SAFETY / SECURITY / SAFETY_SECURITY. Default SAFETY for back-compat —
+    # every pre-existing row is implicitly a safety risk.
+    risk_class: Mapped[str] = mapped_column(String(20), nullable=False, default="SAFETY")
+
     # ISO 14971 hazard analysis fields
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     hazard: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -76,6 +91,15 @@ class Risk(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="OPEN")
     evaluation_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     re_evaluation_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # ── §7.4 re-evaluation audit fields ──────────────────────────────────────
+    # When `re_evaluation_required=True` is set programmatically (by feedback
+    # safety assessment, CR that modifies released software, or linked
+    # requirement edit), record WHY so QA / RA can see what triggered the
+    # re-evaluation without grepping audit logs.
+    re_evaluation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    re_evaluation_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_re_evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_re_evaluated_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     requirement: Mapped["Requirement"] = relationship(back_populates="risks")
     controls: Mapped[list["RiskControl"]] = relationship(
@@ -84,10 +108,15 @@ class Risk(Base):
     residual_risk: Mapped["ResidualRisk | None"] = relationship(
         "ResidualRisk", back_populates="risk", uselist=False, cascade="all, delete-orphan", lazy="selectin"
     )
+    contributions: Mapped[list["RiskContribution"]] = relationship(
+        "RiskContribution", back_populates="risk", cascade="all, delete-orphan", lazy="selectin"
+    )
 
 
 class RiskControl(Base, TimestampMixin):
-    """ISO 14971 risk control measure — links a risk to a requirement and/or test case."""
+    """ISO 14971 risk control measure — links a risk to a requirement, a
+    §5.3 SWComponent (where the control lives in code), and zero-or-more
+    pieces of verification evidence (§7.3 closed loop)."""
     __tablename__ = "risk_controls"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -102,10 +131,93 @@ class RiskControl(Base, TimestampMixin):
     system_test_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("system_test_cases.id", ondelete="SET NULL"), nullable=True
     )
+    # §7.2 — link to the §5.3 SWComponent that implements this control. Lets
+    # auditors trace "where in the architecture does this control actually
+    # live" in one click.
+    component_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sw_components.id", ondelete="SET NULL"), nullable=True
+    )
     implementation_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PROPOSED")
     verification_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     risk: Mapped["Risk"] = relationship("Risk", back_populates="controls")
+    evidence: Mapped[list["VerificationEvidence"]] = relationship(
+        "VerificationEvidence", back_populates="control",
+        cascade="all, delete-orphan", lazy="selectin",
+        order_by="VerificationEvidence.verified_at.desc()",
+    )
+
+
+# ── §7.1 — Analysis of software contributing to hazardous situations ────────
+class RiskContribution(Base):
+    """Many-to-many: which §4.3 SoftwareItem and/or §5.3 SWComponent
+    contributes to this hazard? Per IEC 62304 §7.1 the manufacturer must
+    document software contributions to hazardous situations; the FK lets
+    auditors answer 'which software items are implicated by this risk?'
+    and 'which risks does this software item carry?' in either direction.
+
+    Exactly one of `software_item_id` / `component_id` is set per row.
+    """
+    __tablename__ = "risk_contributions"
+    __table_args__ = (
+        UniqueConstraint("risk_id", "software_item_id", name="uq_risk_contrib_si"),
+        UniqueConstraint("risk_id", "component_id",     name="uq_risk_contrib_comp"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    risk_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("risks.id", ondelete="CASCADE"), nullable=False
+    )
+    software_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("software_items.id", ondelete="CASCADE"), nullable=True
+    )
+    component_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sw_components.id", ondelete="CASCADE"), nullable=True
+    )
+    contribution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+
+    risk: Mapped["Risk"] = relationship("Risk", back_populates="contributions")
+
+
+# ── §7.3 — Verification of risk control measures ────────────────────────────
+class VerificationEvidence(Base):
+    """One piece of verification evidence for a RiskControl. Multiple
+    evidence rows are allowed per control (e.g. a SYSTEM_TEST run + a
+    separate REVIEW signoff). A control's `implementation_status` flips to
+    VERIFIED when at least one PASS evidence row is present (enforced in
+    the router on POST / DELETE)."""
+    __tablename__ = "verification_evidences"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    control_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("risk_controls.id", ondelete="CASCADE"), nullable=False
+    )
+    # Evidence type — drives which FK column(s) carry the reference.
+    # SYSTEM_TEST / INTEGRATION_TEST / UNIT_TEST / REVIEW / INSPECTION /
+    # ANALYSIS / EXTERNAL_REF
+    evidence_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    # One of these is set (or none, for pure narrative evidence).
+    system_test_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("system_test_cases.id", ondelete="SET NULL"), nullable=True
+    )
+    integration_test_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("integration_test_cases.id", ondelete="SET NULL"), nullable=True
+    )
+    unit_test_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("unit_test_cases.id", ondelete="SET NULL"), nullable=True
+    )
+    external_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    result: Mapped[str] = mapped_column(String(10), nullable=False, default="PASS")  # PASS / FAIL
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verified_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    verified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default="now()"
+    )
+
+    control: Mapped["RiskControl"] = relationship("RiskControl", back_populates="evidence")
 
 
 class ResidualRisk(Base, TimestampMixin):
