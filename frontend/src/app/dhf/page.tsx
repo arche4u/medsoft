@@ -1,12 +1,14 @@
 "use client";
 import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useRef, useState } from "react";
-import { api, Project, DHFDocument } from "@/lib/api";
+import { api, Project, DHFDocument, Release } from "@/lib/api";
 
 export default function DHFPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useActiveProject();
   const [documents, setDocuments] = useState<DHFDocument[]>([]);
+  const [releases, setReleases] = useState<Release[]>([]);
+  const [boundReleaseId, setBoundReleaseId] = useState("");
   const [selected, setSelected] = useState<DHFDocument | null>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
@@ -17,14 +19,24 @@ export default function DHFPage() {
     api.dhf.list().then(setDocuments);
   }, []);
 
+  // Load releases for the active project so the user can bind the next DHF
+  // generation to a specific release version.
+  useEffect(() => {
+    if (!projectId) { setReleases([]); return; }
+    api.release.list(projectId).then(setReleases).catch(() => setReleases([]));
+  }, [projectId]);
+
   const handleProjectChange = (pid: string) => {
     setProjectId(pid);
     setSelected(null);
     setParsedContent(null);
+    setBoundReleaseId("");
     if (pid) {
       api.dhf.list(pid).then(setDocuments);
+      api.release.list(pid).then(setReleases);
     } else {
       api.dhf.list().then(setDocuments);
+      setReleases([]);
     }
   };
 
@@ -33,7 +45,7 @@ export default function DHFPage() {
     setGenerating(true);
     setError("");
     try {
-      const doc = await api.dhf.generate(projectId);
+      const doc = await api.dhf.generate(projectId, boundReleaseId || undefined);
       setDocuments(prev => [doc, ...prev]);
       await viewDocument(doc);
     } catch (e: unknown) {
@@ -72,14 +84,24 @@ export default function DHFPage() {
     const summary = parsedContent.summary as Record<string, number> | undefined;
 
     const SECTIONS: Array<{ key: string; title: string; columns: Array<{ id: string; label: string }> }> = [
-      { key: "requirements",            title: "Requirements",                  columns: [{ id: "readable_id", label: "ID" }, { id: "type", label: "Type" }, { id: "title", label: "Title" }, { id: "description", label: "Description" }] },
-      { key: "design_elements",         title: "Design Elements",               columns: [{ id: "readable_id", label: "ID" }, { id: "type", label: "Type" }, { id: "title", label: "Title" }, { id: "description", label: "Description" }, { id: "diagram_source", label: "Diagram" }] },
+      { key: "software_items",          title: "§4.3 Software Items (safety classification)", columns: [{ id: "name", label: "Name" }, { id: "item_type", label: "Type" }, { id: "safety_class", label: "Class" }, { id: "status", label: "Status" }, { id: "classification_justification", label: "Justification" }] },
+      { key: "requirements",            title: "§5.2 Requirements",             columns: [{ id: "readable_id", label: "ID" }, { id: "type", label: "Type" }, { id: "title", label: "Title" }, { id: "description", label: "Description" }] },
+      { key: "design_elements",         title: "§5.4 Design Elements",          columns: [{ id: "readable_id", label: "ID" }, { id: "component_id", label: "Component" }, { id: "title", label: "Title" }, { id: "description", label: "Description" }, { id: "diagram_source", label: "Diagram" }] },
       { key: "requirement_design_links",title: "Requirement → Design Links",    columns: [{ id: "requirement_id", label: "Requirement ID" }, { id: "design_element_id", label: "Design Element ID" }] },
-      { key: "testcases",               title: "Test Cases",                    columns: [{ id: "title", label: "Title" }, { id: "description", label: "Description" }] },
-      { key: "test_results",            title: "Test Results",                  columns: [{ id: "status", label: "Status" }, { id: "executed_at", label: "Executed At" }, { id: "notes", label: "Notes" }] },
-      { key: "risks",                   title: "Risk Register",                 columns: [{ id: "hazard", label: "Hazard" }, { id: "harm", label: "Harm" }, { id: "severity", label: "Sev" }, { id: "probability", label: "Prob" }, { id: "risk_level", label: "Level" }] },
-      { key: "validation_records",      title: "Validation Records",            columns: [{ id: "description", label: "Description" }, { id: "status", label: "Status" }] },
-      { key: "traceability",            title: "Traceability Links (Req → Test)",columns: [{ id: "requirement_id", label: "Requirement ID" }, { id: "testcase_id", label: "Test Case ID" }] },
+      { key: "software_units",          title: "§5.5 Software Units",           columns: [{ id: "name", label: "Name" }, { id: "programming_language", label: "Language" }, { id: "safety_class", label: "Class" }, { id: "status", label: "Status" }, { id: "test_count", label: "Tests" }] },
+      { key: "unit_test_cases",         title: "§5.5 Unit Tests",               columns: [{ id: "name", label: "Name" }, { id: "test_type", label: "Type" }, { id: "expected_result", label: "Expected" }, { id: "latest_result", label: "Latest" }] },
+      { key: "integration_tests",       title: "§5.6 Integration Tests",        columns: [{ id: "name", label: "Name" }, { id: "test_type", label: "Type" }, { id: "safety_relevance", label: "Safety" }, { id: "latest_result", label: "Latest" }] },
+      { key: "system_tests",            title: "§5.7 System Tests",             columns: [{ id: "name", label: "Name" }, { id: "test_type", label: "Type" }, { id: "safety_relevance", label: "Safety" }, { id: "latest_result", label: "Latest" }] },
+      { key: "testcases",               title: "Test Cases (V&V register)",     columns: [{ id: "title", label: "Title" }, { id: "description", label: "Description" }] },
+      { key: "test_results",            title: "Test Executions",               columns: [{ id: "status", label: "Status" }, { id: "executed_at", label: "Executed At" }, { id: "notes", label: "Notes" }] },
+      { key: "releases",                title: "§5.8 Releases",                 columns: [{ id: "version", label: "Version" }, { id: "status", label: "Status" }, { id: "item_count", label: "Items" }, { id: "has_snapshot", label: "Snapshot" }, { id: "artifact_count", label: "Artifacts" }] },
+      { key: "release_artifacts",       title: "§5.8 Release Artifacts",        columns: [{ id: "version", label: "Version" }, { id: "artifact_type", label: "Type" }, { id: "reference_id", label: "Reference" }, { id: "label", label: "Label" }] },
+      { key: "plans",                   title: "§6/§7/§8/§9 Plans",             columns: [{ id: "plan_type", label: "Type" }, { id: "title", label: "Title" }, { id: "version", label: "Version" }, { id: "status", label: "Status" }, { id: "approved_by", label: "Approved by" }] },
+      { key: "risks",                   title: "§7 Risk Register (ISO 14971)",  columns: [{ id: "hazard", label: "Hazard" }, { id: "harm", label: "Harm" }, { id: "severity", label: "Sev" }, { id: "probability", label: "Prob" }, { id: "risk_level", label: "Level" }] },
+      { key: "problem_reports",         title: "§9 Problem Reports / CAPA",     columns: [{ id: "title", label: "Title" }, { id: "severity", label: "Severity" }, { id: "status", label: "Status" }, { id: "source", label: "Source" }] },
+      { key: "validation_records",      title: "Validation Records (V-model: USER reqs)", columns: [{ id: "description", label: "Description" }, { id: "status", label: "Status" }] },
+      { key: "electronic_signatures",   title: "Electronic Signatures (21 CFR Part 11)", columns: [{ id: "meaning", label: "Meaning" }, { id: "user_id", label: "User" }, { id: "signed_at", label: "Signed at" }, { id: "comments", label: "Comments" }] },
+      { key: "traceability",            title: "Traceability Links (Req → Test)", columns: [{ id: "requirement_id", label: "Requirement ID" }, { id: "testcase_id", label: "Test Case ID" }] },
     ];
 
     const RISK_COLORS: Record<string, string> = { HIGH: "#ffeaea", MEDIUM: "#fff8e1", LOW: "#f0fdf4" };
@@ -88,13 +110,22 @@ export default function DHFPage() {
     const summaryHtml = summary ? `
       <div class="summary-grid">
         ${[
-          ["Requirements", summary.total_requirements, "#1565c0"],
-          ["Design Elements", summary.total_design_elements, "#2e7d32"],
-          ["Test Cases", summary.total_testcases, "#e65100"],
-          ["Risks", summary.total_risks, "#b71c1c"],
-          ["Validations", summary.total_validations, "#6a1b9a"],
-          ["Test Executions", summary.total_executions, "#00695c"],
-          ["SDP", summary.sdp_present ? "✓" : "—", summary.sdp_present ? "#15803d" : "#9ca3af"],
+          ["Requirements",       summary.total_requirements,            "#1565c0"],
+          ["Software Items §4.3",summary.total_software_items,          "#4a148c"],
+          ["Arch Components",    summary.total_architecture_components, "#0277bd"],
+          ["Design Elements",    summary.total_design_elements,         "#2e7d32"],
+          ["Software Units",     summary.total_software_units,          "#00695c"],
+          ["Integration Tests",  summary.total_integration_tests,       "#5d4037"],
+          ["System Tests",       summary.total_system_tests,            "#ad1457"],
+          ["Test Cases",         summary.total_testcases,               "#e65100"],
+          ["Risks",              summary.total_risks,                   "#b71c1c"],
+          ["Validations",        summary.total_validations,             "#6a1b9a"],
+          ["Releases",           summary.total_releases,                "#1976d2"],
+          ["Plans",              summary.total_plans,                   "#7b1fa2"],
+          ["CM Config Items",    summary.total_cm_config_items,         "#33691e"],
+          ["Problem Reports §9", summary.total_problem_reports,         "#bf360c"],
+          ["E-Signatures",       summary.total_esignatures,             "#01579b"],
+          ["SDP",                summary.sdp_present ? "✓" : "—",       summary.sdp_present ? "#15803d" : "#9ca3af"],
         ].map(([label, value, color]) => `
           <div class="stat-card" style="border-top: 3px solid ${color}">
             <div class="stat-value" style="color:${color}">${value ?? 0}</div>
@@ -134,6 +165,53 @@ export default function DHFPage() {
         </table>
       </div>` : "";
 
+    // Traceability matrix — a dedicated section (FDA 21 CFR 820.30 / EU MDR
+    // / IEC 62304 §5.2.6). One row per requirement listing every downstream
+    // verification artifact so auditors can see coverage at a glance.
+    type TraceRow = {
+      readable_id?: string; type?: string; title?: string;
+      design_element_ids?: string[]; testcase_ids?: string[];
+      system_test_ids?: string[]; integration_test_ids?: string[];
+      software_unit_ids?: string[]; risk_ids?: string[]; validation_ids?: string[];
+    };
+    const traceRows = (parsedContent.traceability_matrix as TraceRow[] | undefined) ?? [];
+    const matrixHtml = traceRows.length > 0 ? `
+      <div class="section">
+        <h2>Traceability Matrix <span class="count">(${traceRows.length} requirements)</span></h2>
+        <p style="font-size:8.5pt;color:#666;margin:0 0 6pt">
+          FDA 21 CFR 820.30 / EU MDR / IEC 62304 §5.2.6 — every requirement and its downstream verification artifacts.
+        </p>
+        <table>
+          <thead><tr>
+            <th>Req</th><th>Type</th><th>Title</th>
+            <th>Design</th><th>Test Cases</th><th>System</th><th>Integration</th><th>Units</th><th>Risks</th><th>Validation</th>
+          </tr></thead>
+          <tbody>
+            ${traceRows.map(r => `<tr>
+              <td><strong>${r.readable_id ?? "—"}</strong></td>
+              <td>${r.type ?? "—"}</td>
+              <td>${(r.title ?? "—").slice(0, 60)}</td>
+              <td style="text-align:center">${(r.design_element_ids ?? []).length}</td>
+              <td style="text-align:center">${(r.testcase_ids ?? []).length}</td>
+              <td style="text-align:center">${(r.system_test_ids ?? []).length}</td>
+              <td style="text-align:center">${(r.integration_test_ids ?? []).length}</td>
+              <td style="text-align:center">${(r.software_unit_ids ?? []).length}</td>
+              <td style="text-align:center">${(r.risk_ids ?? []).length}</td>
+              <td style="text-align:center">${(r.validation_ids ?? []).length}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>` : "";
+
+    // Bound-release banner (when the DHF was generated against a specific release)
+    type BoundRel = { id: string; version: string; status: string };
+    const bound = parsedContent.bound_release as BoundRel | null | undefined;
+    const boundHtml = bound ? `
+      <div style="background:#fef3c7;border:1pt solid #fcd34d;border-radius:5pt;padding:8pt 12pt;margin-bottom:14pt;font-size:9pt">
+        <strong style="color:#92400e">Release of record:</strong> v${bound.version} (${bound.status}) —
+        <span style="color:#92400e;font-family:monospace;font-size:8pt">${bound.id}</span>
+      </div>` : "";
+
     const sectionsHtml = SECTIONS.map(s => {
       const rows = (parsedContent[s.key] as Record<string, unknown>[] | undefined) ?? [];
       if (!rows.length) return "";
@@ -171,7 +249,7 @@ export default function DHFPage() {
             <div class="diagram-header">
               <span class="mono">${el.readable_id ?? ""}</span>
               <strong>${el.title}</strong>
-              <span class="type-badge">${el.type}</span>
+              ${el.component_id ? `<span class="type-badge">comp ${el.component_id.slice(0,8)}…</span>` : ""}
             </div>
             <div class="diagram-body"><div class="mermaid">${el.diagram_source}</div></div>
           </div>`).join("")}
@@ -218,8 +296,10 @@ export default function DHFPage() {
       Generated: ${new Date(selected.generated_at).toLocaleString("en-GB", { dateStyle: "long", timeStyle: "short" })}
     </div>
   </div>
+  ${boundHtml}
   ${summaryHtml}
   ${sdpHtml}
+  ${matrixHtml}
   ${sectionsHtml}
   ${diagramsHtml}
   ${hasDiagrams ? `<script>
@@ -253,10 +333,26 @@ export default function DHFPage() {
         <div>
           <div style={cardStyle}>
             <h3 style={{ marginTop: 0 }}>Generate DHF</h3>
-            <div style={{ marginBottom: "0.75rem" }}>
+            <div style={{ marginBottom: "0.5rem" }}>
+              <label style={{ fontSize: "0.72rem", color: "#64748b", display: "block", marginBottom: 3 }}>Project</label>
               <select style={inputStyle} value={projectId} onChange={e => handleProjectChange(e.target.value)}>
                 <option value="">All projects</option>
                 {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: "0.75rem" }}>
+              <label style={{ fontSize: "0.72rem", color: "#64748b", display: "block", marginBottom: 3 }}>
+                Bind to release (optional) — recommended at release time
+              </label>
+              <select
+                style={inputStyle} value={boundReleaseId}
+                onChange={e => setBoundReleaseId(e.target.value)}
+                disabled={!projectId || releases.length === 0}
+              >
+                <option value="">— Project-wide (no release) —</option>
+                {releases.map(r => (
+                  <option key={r.id} value={r.id}>{r.version} ({r.status})</option>
+                ))}
               </select>
             </div>
             <button
@@ -385,7 +481,7 @@ function MermaidRenderer({ source }: { source: string }) {
 }
 
 // ── Design elements section with inline diagram rendering ─────────────────────
-type DesignElementRow = { id: string; readable_id?: string; type: string; title: string; description?: string; diagram_source?: string };
+type DesignElementRow = { id: string; readable_id?: string; component_id?: string | null; title: string; description?: string; diagram_source?: string };
 
 function DesignElementsDHFSection({ items }: { items: unknown[] }) {
   const [expanded, setExpanded] = useState(false);
@@ -428,8 +524,8 @@ function DesignElementsDHFSection({ items }: { items: unknown[] }) {
               {rows.map((row, i) => (
                 <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#fafafa" }}>
                   <td style={{ padding: "6px 8px", border: "1px solid #eee", fontFamily: "monospace", fontSize: "0.72rem", color: "#6b7280" }}>{row.readable_id ?? "—"}</td>
-                  <td style={{ padding: "6px 8px", border: "1px solid #eee", fontSize: "0.75rem" }}>
-                    <span style={{ background: row.type === "ARCHITECTURE" ? "#e3f2fd" : "#f3e5f5", borderRadius: 4, padding: "1px 7px", fontWeight: 600 }}>{row.type}</span>
+                  <td style={{ padding: "6px 8px", border: "1px solid #eee", fontSize: "0.75rem", fontFamily: "monospace", color: "#6b7280" }}>
+                    {row.component_id ? `${row.component_id.slice(0, 8)}…` : "—"}
                   </td>
                   <td style={{ padding: "6px 8px", border: "1px solid #eee" }}>{row.title}</td>
                   <td style={{ padding: "6px 8px", border: "1px solid #eee", color: "#555" }}>{row.description ?? "—"}</td>
@@ -454,7 +550,11 @@ function DesignElementsDHFSection({ items }: { items: unknown[] }) {
                   <div style={{ background: "#f8fafc", padding: "8px 14px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "#6b7280" }}>{el.readable_id}</span>
                     <span style={{ fontWeight: 600, fontSize: "0.85rem", color: "#1f2937" }}>{el.title}</span>
-                    <span style={{ fontSize: "0.72rem", background: el.type === "ARCHITECTURE" ? "#e3f2fd" : "#f3e5f5", borderRadius: 4, padding: "1px 7px", color: el.type === "ARCHITECTURE" ? "#1565c0" : "#6a1b9a", fontWeight: 600 }}>{el.type}</span>
+                    {el.component_id && (
+                      <span style={{ fontSize: "0.72rem", background: "#f3e5f5", borderRadius: 4, padding: "1px 7px", color: "#6a1b9a", fontWeight: 600 }}>
+                        comp {el.component_id.slice(0, 8)}…
+                      </span>
+                    )}
                   </div>
                   <div style={{ padding: "16px", background: "#fff", overflowX: "auto" }}>
                     <MermaidRenderer source={el.diagram_source!} />

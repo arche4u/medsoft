@@ -61,14 +61,26 @@ export default function VerificationPage() {
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px" }}>
-      <h1>Test Execution</h1>
-
-      <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
-        <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={inputStyle}>
-          <option value="">— Select project</option>
-          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+      <div style={{ marginBottom: "1.5rem" }}>
+        <h1 style={{ marginTop: 0, marginBottom: 4, color: "#0d1b2a" }}>
+          Test Execution
+          <span style={{ fontSize: 12, fontWeight: 500, color: "#92400e", background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 4, padding: "2px 8px", marginLeft: 8, verticalAlign: "middle" }}>DEPRECATED</span>
+        </h1>
+        <p style={{ margin: 0, fontSize: 13, color: "#546e7a" }}>
+          Execution records against the legacy generic test register. Being retired — IEC 62304
+          tracks execution at a specific level (§5.5 unit, §5.6 integration, §5.7 system).
+          Record new execution evidence on the matching level-specific page:
+        </p>
+        <p style={{ margin: "6px 0 0", fontSize: 12.5 }}>
+          {" "}<a href="/units" style={{ color: "#5d4037", fontWeight: 600 }}>Unit Verification (§5.5)</a> ·
+          {" "}<a href="/integration-tests" style={{ color: "#5d4037", fontWeight: 600 }}>Integration Tests (§5.6)</a> ·
+          {" "}<a href="/system-testing" style={{ color: "#5d4037", fontWeight: 600 }}>System Testing (§5.7)</a>
+        </p>
       </div>
+
+      {!projectId && (
+        <p style={{ color: "#888", marginBottom: "1.5rem" }}>Select a project from the sidebar to continue.</p>
+      )}
 
       {/* Test case overview table */}
       <section style={{ marginBottom: "2rem" }}>

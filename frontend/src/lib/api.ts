@@ -1108,7 +1108,8 @@ export const api = {
     deleteItem: (id: string) => req<void>(`/release/items/${id}`, { method: "DELETE" }),
   },
   dhf: {
-    generate: (project_id: string) => req<DHFDocument>(`/dhf/generate/${project_id}`, { method: "POST" }),
+    generate: (project_id: string, release_id?: string) =>
+      req<DHFDocument>(`/dhf/generate/${project_id}${release_id ? `?release_id=${release_id}` : ""}`, { method: "POST" }),
     list: (project_id?: string) =>
       req<DHFDocument[]>(`/dhf/documents${project_id ? `?project_id=${project_id}` : ""}`),
     get: (id: string) => req<DHFDocument>(`/dhf/documents/${id}`),

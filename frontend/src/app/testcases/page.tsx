@@ -196,12 +196,27 @@ function TestCasesPageInner() {
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "20px" }}>
-      <h1 style={{ marginTop: 0, marginBottom: 20 }}>Test Cases</h1>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ marginTop: 0, marginBottom: 4, color: "#0d1b2a" }}>Test Cases <span style={{ fontSize: 12, fontWeight: 500, color: "#92400e", background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 4, padding: "2px 8px", marginLeft: 8, verticalAlign: "middle" }}>DEPRECATED</span></h1>
+        <p style={{ margin: 0, fontSize: 13, color: "#546e7a" }}>
+          IEC 62304 has no "generic test case" concept — every test belongs to a specific level
+          (unit / integration / system). This legacy register is being retired in favour of the
+          level-specific modules. The remaining data here is read-only V&amp;V history; do new work in:
+        </p>
+        <p style={{ margin: "6px 0 0", fontSize: 12.5 }}>
+          {" "}<a href="/units" style={{ color: "#5d4037", fontWeight: 600 }}>Unit Verification (§5.5)</a> ·
+          {" "}<a href="/integration-tests" style={{ color: "#5d4037", fontWeight: 600 }}>Integration Tests (§5.6)</a> ·
+          {" "}<a href="/system-testing" style={{ color: "#5d4037", fontWeight: 600 }}>System Testing (§5.7)</a> ·
+          {" "}<a href="/tracelinks" style={{ color: "#1565c0", fontWeight: 600 }}>Trace Matrix</a>
+        </p>
+        <p style={{ margin: "6px 0 0", fontSize: 11, color: "#90a4ae" }}>
+          The legacy tables (testcases, tracelinks, test_executions) remain in place — other models still hold FKs (release_items, change_impacts, sw_component_tc_links, risk_controls). Full data migration is a separate follow-up.
+        </p>
+      </div>
 
-      <select value={projectId} onChange={e => setProjectId(e.target.value)} style={{ ...inputStyle, marginBottom: 20 }}>
-        <option value="">— Select project</option>
-        {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
+      {!projectId && (
+        <p style={{ color: "#888", marginBottom: 20 }}>Select a project from the sidebar to continue.</p>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
         {/* Create */}

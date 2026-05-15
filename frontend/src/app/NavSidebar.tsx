@@ -115,16 +115,12 @@ const SECTIONS: Section[] = [
           { href: "/units", label: "Unit Verification" },                      // §5.5
           { href: "/integration-tests", label: "Integration Tests" },          // §5.6
           { href: "/system-testing", label: "System Testing & Release" },      // §5.7 + §5.8 release-mgmt
-          {
-            // Legacy generic test register (pre-§5.5/§5.6/§5.7 modules) — still
-            // load-bearing for the release gate, DHF, and the Trace Matrix.
-            href: "/testcases",
-            label: "Test Register",
-            subItems: [
-              { href: "/testcases",    label: "Test Cases" },
-              { href: "/verification", label: "Test Execution" },
-            ],
-          },
+          // Legacy "Test Register" (Test Cases / Test Execution) hidden — IEC
+          // 62304 has no "generic test case" concept; every test is unit /
+          // integration / system. The pages still exist at /testcases and
+          // /verification (deprecation banners point to the level-specific
+          // modules above). FKs to the testcases table remain across other
+          // models (release_items, change_impacts, …) — those tables stay.
         ],
       },
       {
