@@ -70,8 +70,13 @@ ALL_PERMISSIONS = [
     # Validation
     ("CREATE_VALIDATION",        "Create validation records"),
     ("UPDATE_VALIDATION",        "Update validation records"),
+    # Software Development Plan (IEC 62304 §5.1)
+    ("CREATE_SDP",               "Create Software Development Plans"),
+    ("UPDATE_SDP",               "Update SDP sections, phases, and roles"),
+    ("DELETE_SDP",               "Delete SDPs"),
+    ("APPROVE_SDP",              "Approve / transition SDP status"),
     # Change Control
-    ("CREATE_CHANGE_REQUEST",    "Create change requests"),
+    ("CREATE_CHANGE_REQUEST",    "Create change requests (§6.2.3)"),
     ("APPROVE_CHANGE_REQUEST",   "Approve or reject change requests"),
     ("IMPLEMENT_CHANGE",         "Mark change requests as implemented"),
     # Feedback Intake (IEC 62304 §6.2.1 — post-market surveillance)
@@ -122,6 +127,7 @@ ROLE_PERMISSIONS = {
         "CREATE_BASELINE", "UPDATE_BASELINE", "DELETE_BASELINE", "RELEASE_BASELINE",
         "CREATE_PROBLEM_REPORT", "UPDATE_PROBLEM_REPORT", "DELETE_PROBLEM_REPORT",
         "CREATE_CAPA", "UPDATE_CAPA", "DELETE_CAPA", "VERIFY_CAPA",
+        "CREATE_SDP", "UPDATE_SDP", "APPROVE_SDP",
     ],
     "QARA": [
         "READ_REQUIREMENT", "CREATE_REQUIREMENT", "UPDATE_REQUIREMENT",
@@ -140,6 +146,7 @@ ROLE_PERMISSIONS = {
         "CREATE_BASELINE", "UPDATE_BASELINE", "DELETE_BASELINE", "RELEASE_BASELINE",
         "CREATE_PROBLEM_REPORT", "UPDATE_PROBLEM_REPORT", "DELETE_PROBLEM_REPORT",
         "CREATE_CAPA", "UPDATE_CAPA", "DELETE_CAPA", "VERIFY_CAPA",
+        "CREATE_SDP", "UPDATE_SDP", "APPROVE_SDP",
     ],
     "DEVELOPER": [
         "READ_REQUIREMENT", "CREATE_REQUIREMENT", "UPDATE_REQUIREMENT", "DELETE_REQUIREMENT",
@@ -158,6 +165,7 @@ ROLE_PERMISSIONS = {
         "CREATE_BASELINE", "UPDATE_BASELINE",
         "CREATE_PROBLEM_REPORT", "UPDATE_PROBLEM_REPORT",
         "CREATE_CAPA", "UPDATE_CAPA",
+        "CREATE_SDP", "UPDATE_SDP",
     ],
     "TESTER": [
         "READ_REQUIREMENT", "READ_RISK", "READ_DESIGN",

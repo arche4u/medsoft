@@ -33,7 +33,7 @@ router = APIRouter(prefix="/change-control", tags=["change-control"])
 async def create_change_request(
     body: ChangeRequestCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: TokenData = Depends(get_current_user),
+    current_user: TokenData = Depends(require_permission("CREATE_CHANGE_REQUEST")),
 ):
     cr = ChangeRequest(
         project_id=body.project_id,
