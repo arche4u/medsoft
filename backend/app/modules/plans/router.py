@@ -116,8 +116,14 @@ async def create_plan(
     )
     db.add(plan)
     await db.flush()
+    # `required` is a template-only marker (mandatory audit evidence); the
+    # PlanSection table doesn't carry it, so strip it before constructing rows.
+    section_columns = {"section_number", "section_name", "content", "sort_order"}
     for s in seed_sections:
-        db.add(PlanSection(plan_id=plan.id, **s))
+        db.add(PlanSection(
+            plan_id=plan.id,
+            **{k: v for k, v in s.items() if k in section_columns},
+        ))
     await audit(db, "plan", plan.id, AuditAction.CREATE, current_user.user_id, f"{title} v{plan.version}")
     await db.commit()
     await db.refresh(plan)

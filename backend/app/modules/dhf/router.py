@@ -16,6 +16,9 @@ from app.modules.risks.model import Risk
 from app.modules.validation.model import ValidationRecord
 from app.modules.verification.model import TestExecution
 from app.modules.sdp.model import SoftwareDevelopmentPlan
+from app.modules.software_items.model import SoftwareItem
+from app.modules.change_control.model import ChangeRequest
+from app.modules.users.model import User
 
 from .model import DHFDocument
 from .schema import DHFDocumentRead
@@ -27,6 +30,20 @@ router = APIRouter(prefix="/dhf", tags=["dhf"])
 # Each helper turns a single module's data into the JSON shape embedded in DHF.
 # Keep them small and module-scoped so adding new modules (units, architecture,
 # system_testing, capa, config_mgmt) is a copy-paste of this pattern.
+
+def _resolve_created_by(obj, user_name_by_id: dict) -> str | None:
+    """Render a `created_by` field as a display string.
+
+    The column may be a UUID (look up the user), a non-UUID string (a free-text
+    author label — pass through), or absent. Returns None when nothing's there.
+    """
+    raw = getattr(obj, "created_by", None)
+    if raw is None:
+        return None
+    if isinstance(raw, uuid.UUID):
+        return user_name_by_id.get(raw)
+    return str(raw)
+
 
 def _serialize_sdp(sdp: SoftwareDevelopmentPlan | None) -> dict | None:
     """IEC 62304 §5.1 — embed the project's APPROVED SDP into the DHF."""
@@ -150,9 +167,43 @@ async def generate_dhf(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
         )
     ).scalar_one_or_none()
 
+    # Collect software items (IEC 62304 §4.3 + §4.4 legacy software).
+    software_items = (
+        await db.execute(
+            select(SoftwareItem).where(SoftwareItem.project_id == project_id)
+        )
+    ).scalars().all()
+
+    # Collect change requests (IEC 62304 §6.2 / §6.2.3 impact-analysis trail).
+    change_requests = (
+        await db.execute(
+            select(ChangeRequest).where(ChangeRequest.project_id == project_id)
+        )
+    ).scalars().all()
+
+    # Resolve created_by user display names in one query when the column is a
+    # UUID. Non-UUID values (free-text or absent) are handled in the serializer.
+    user_name_by_id: dict = {}
+    cr_uuid_user_ids = {
+        cr.created_by for cr in change_requests
+        if isinstance(getattr(cr, "created_by", None), uuid.UUID)
+    }
+    if cr_uuid_user_ids:
+        users = (
+            await db.execute(select(User).where(User.id.in_(cr_uuid_user_ids)))
+        ).scalars().all()
+        user_name_by_id = {u.id: u.name for u in users}
+
+    # Count CRs that touch released software (§6.2.3 trigger) for the summary.
+    cr_modifying_released = sum(
+        1
+        for cr in change_requests
+        if bool(getattr(cr, "modifies_released_software", False))
+    )
+
     # Build structured DHF content
     content = {
-        "dhf_version": "1.1",
+        "dhf_version": "1.2",
         "project_id": str(project_id),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -162,6 +213,9 @@ async def generate_dhf(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
             "total_risks": len(risks),
             "total_validations": len(validations),
             "total_executions": len(executions),
+            "total_software_items": len(software_items),
+            "change_requests_total": len(change_requests),
+            "change_requests_modifying_released_software": cr_modifying_released,
             "sdp_present": sdp is not None,
         },
         "sdp": _serialize_sdp(sdp),
@@ -235,6 +289,49 @@ async def generate_dhf(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
                 "status": v.status.value,
             }
             for v in validations
+        ],
+        # IEC 62304 §4.3 + §4.4 — software-item classification tree.
+        # `is_legacy` / `legacy_assessment` make §4.4 legacy-software handling
+        # visible to auditors reading the DHF bundle. Resolved via getattr so the
+        # serializer keeps working before the §4.4 migration lands.
+        "software_items": [
+            {
+                "id": str(si.id),
+                "name": si.name,
+                # Version isn't on SoftwareItem in this build; expose what exists.
+                "item_type": si.item_type,
+                "safety_class": si.safety_class,
+                "status": si.status,
+                "parent_id": str(si.parent_id) if si.parent_id else None,
+                "is_legacy": bool(getattr(si, "is_legacy", False)),
+                "legacy_assessment": getattr(si, "legacy_assessment", None),
+            }
+            for si in software_items
+        ],
+        # IEC 62304 §6.2 — change requests. The §6.2.3 impact-analysis trail
+        # (modifies_released_software + the three effect-of fields) is read via
+        # getattr so the bundle stays correct before the §6.2.3 migration.
+        "change_requests": [
+            {
+                "id": str(cr.id),
+                "readable_id": getattr(cr, "readable_id", None),
+                "title": cr.title,
+                "description": cr.description,
+                "status": cr.status.value if hasattr(cr.status, "value") else cr.status,
+                "modifies_released_software": bool(
+                    getattr(cr, "modifies_released_software", False)
+                ),
+                "effect_on_organization": getattr(cr, "effect_on_organization", None),
+                "effect_on_released_software": getattr(
+                    cr, "effect_on_released_software", None
+                ),
+                "effect_on_interfacing_systems": getattr(
+                    cr, "effect_on_interfacing_systems", None
+                ),
+                "created_at": cr.created_at.isoformat() if cr.created_at else None,
+                "created_by": _resolve_created_by(cr, user_name_by_id),
+            }
+            for cr in change_requests
         ],
     }
 

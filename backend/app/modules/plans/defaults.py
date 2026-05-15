@@ -8,11 +8,15 @@ are created with a single placeholder section the author fills in.
 from typing import TypedDict
 
 
-class SectionDef(TypedDict):
+class SectionDef(TypedDict, total=False):
     section_number: str
     section_name: str
     content: str
     sort_order: int
+    # True means the section is mandatory audit evidence and cannot be removed
+    # or left empty. Used by templates where IEC 62304 makes the section a
+    # hard requirement (e.g. §4.4(d) gap analysis for legacy software).
+    required: bool
 
 
 class PlanTypeDef(TypedDict):
@@ -23,12 +27,33 @@ class PlanTypeDef(TypedDict):
     sections: list[SectionDef]
 
 
-def _sections(*pairs: tuple[str, str, str]) -> list[SectionDef]:
-    """(number, name, content) tuples → ordered SectionDef list."""
-    return [
-        {"section_number": num, "section_name": name, "content": content, "sort_order": i + 1}
-        for i, (num, name, content) in enumerate(pairs)
-    ]
+def _sections(*pairs: tuple) -> list[SectionDef]:
+    """Section tuples → ordered SectionDef list.
+
+    Each tuple is `(number, name, content)` or `(number, name, content, required)`.
+    The 4-tuple form marks the section as mandatory audit evidence.
+    """
+    out: list[SectionDef] = []
+    for i, pair in enumerate(pairs):
+        if len(pair) == 4:
+            num, name, content, required = pair
+            section: SectionDef = {
+                "section_number": num,
+                "section_name": name,
+                "content": content,
+                "sort_order": i + 1,
+                "required": bool(required),
+            }
+        else:
+            num, name, content = pair
+            section = {
+                "section_number": num,
+                "section_name": name,
+                "content": content,
+                "sort_order": i + 1,
+            }
+        out.append(section)
+    return out
 
 
 # ── Built-in plan types (IEC 62304 §6 / §7 / §8 / §9) ────────────────────────
@@ -135,6 +160,52 @@ PLAN_TYPES: dict[str, PlanTypeDef] = {
             ("6", "Roles and Responsibilities",
              "Who triages problem reports, who performs the investigation, who approves resolutions, and who "
              "performs trend analysis."),
+        ),
+    },
+    "LEGACY_SOFTWARE": {
+        "key": "LEGACY_SOFTWARE",
+        "label": "Legacy Software Plan",
+        "iec_clause": "4.4",
+        "description": (
+            "IEC 62304 §4.4 — strategy for software developed before the standard applied. "
+            "Establishes the risk-based assessment that justifies which §5 sub-clauses are "
+            "(and are not) applied to the legacy item, and what objective evidence supports "
+            "continued use."
+        ),
+        "sections": _sections(
+            ("1", "Purpose and Scope",
+             "Identifies the legacy software item(s) covered by this plan, the rationale for treating "
+             "them as legacy under IEC 62304 §4.4, and the software safety class of each item per §4.3."),
+            ("2", "Continued Use Justification",
+             "Per §4.4(a) — the justification for the continued use of the legacy software, including its "
+             "history of use, the version under consideration, and any field experience or post-market data."),
+            ("3", "Risk Assessment",
+             "Per §4.4(b)–(c) — risk-based assessment of the legacy software's contribution to hazardous "
+             "situations, including identification of any anomalies that affect safety. References the project "
+             "risk management file (ISO 14971) and the §7 software risk register."),
+            ("4", "Existing Objective Evidence",
+             "The objective evidence already available for the legacy item (existing requirements, design "
+             "documents, test results, configuration records, problem-report history) and gaps relative to "
+             "what IEC 62304 §5 would require for a freshly-developed item."),
+            ("5", "Risk Control and Additional Activities",
+             "Per §4.4(c) — the additional verification, validation, configuration management, or risk "
+             "control activities required to bring residual risk to an acceptable level, and how each is "
+             "linked to the safety class of the item."),
+            ("6", "Gap Analysis — §5 Sub-clauses Applied vs. Not Applied",
+             "MANDATORY per IEC 62304 §4.4(d). For each §5 sub-clause (5.1 Planning through 5.8 Release), "
+             "state whether the activity is applied to the legacy software, partially applied, or not applied, "
+             "with a documented risk-based rationale for every non-application. For Class B and Class C legacy "
+             "software this gap analysis is mandatory audit evidence — the rationale must reference the safety "
+             "class, the hazardous situations identified in §3, and the additional activities defined in §5. A "
+             "missing or empty gap analysis is a non-conformity finding under §4.4(d) and prevents release.",
+             True),
+            ("7", "Configuration Management and Records",
+             "How the legacy software item is placed under configuration management per §8, including "
+             "identification of its baseline version, SOUP components, and the location of all records "
+             "supporting this plan."),
+            ("8", "Roles and Responsibilities",
+             "Who authors the legacy assessment, who reviews the gap analysis, who approves the plan, and "
+             "who is accountable for maintaining the evidence over the device lifecycle."),
         ),
     },
 }
