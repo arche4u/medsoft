@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -410,16 +410,29 @@ async def _compute_readiness(release_id: str, project_id: str, db: AsyncSession)
          len(open_high) == 0,
          f"{len(open_high)} unresolved HIGH risk(s)" if open_high else "No unresolved HIGH risks")
 
-    # 7 — Release checklist complete
-    checklist = (await db.execute(
+    # 7 — Release items linked (§5.8 requires the release to declare the
+    # configuration items / requirements / test cases / design elements it ships).
+    from app.modules.compliance.release.model import ReleaseItem
+    items_total = (await db.execute(
+        select(func.count()).select_from(ReleaseItem).where(ReleaseItem.release_id == uuid.UUID(release_id))
+    )).scalar() or 0
+    gate("release_items", "Release items linked (§5.8)",
+         items_total > 0,
+         f"{items_total} item(s) linked" if items_total > 0 else "No release items linked")
+
+    # 8 — Release checklist initialized and complete
+    checklist_all = (await db.execute(
         select(ReleaseChecklistItem).where(
             ReleaseChecklistItem.release_id == uuid.UUID(release_id),
-            ReleaseChecklistItem.status == "PENDING",
         )
     )).scalars().all()
-    gate("checklist", "Release checklist complete",
-         len(checklist) == 0,
-         f"{len(checklist)} checklist item(s) pending" if checklist else "Checklist complete", blocking=False)
+    pending_count = sum(1 for c in checklist_all if c.status == "PENDING")
+    if not checklist_all:
+        gate("checklist", "Release checklist complete", False, "Checklist not initialized")
+    else:
+        gate("checklist", "Release checklist complete",
+             pending_count == 0,
+             f"{len(checklist_all) - pending_count} of {len(checklist_all)} checklist items complete")
 
     blocking = [g.label for g in gates if g.blocking and not g.passed]
     return ReleaseReadiness(
