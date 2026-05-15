@@ -12,12 +12,9 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 from app.modules.projects.model import Project
 from app.modules.requirements.model import Requirement
-from app.modules.testcases.model import TestCase
-from app.modules.tracelinks.model import TraceLink
 from app.modules.risks.model import Risk, _compute_level
 import app.modules.design.model  # noqa: F401 — register design_elements table for FK resolution
 # §5.4 design elements themselves are seeded by seed_architecture.py (they link to §5.3 components).
-from app.modules.verification.model import TestExecution, ExecutionStatus
 from app.modules.validation.model import ValidationRecord, ValidationStatus
 from app.modules.change_control.model import ChangeRequest, ChangeRequestState, ChangeImpact
 from app.modules.release.model import Release, ReleaseStatus, ReleaseItem
@@ -28,6 +25,13 @@ import app.modules.architecture.model  # noqa: F401  ensure mapper registered
 import app.modules.audit.model  # noqa: F401
 import app.modules.sdp.model  # noqa: F401  (ensure mapper registered before TRUNCATE)
 import app.modules.config_mgmt.model  # noqa: F401  (CM mirror tables)
+import app.modules.system_testing.model  # noqa: F401  (system_test_cases — FK target for §5.7 columns)
+import app.modules.units.model  # noqa: F401  (§5.5 unit tests)
+import app.modules.integration_tests.model  # noqa: F401  (§5.6 integration tests)
+import app.modules.software_items.model  # noqa: F401  (§4.3 safety classification)
+import app.modules.plans.model  # noqa: F401
+import app.modules.capa.model  # noqa: F401
+import app.modules.attachments.model  # noqa: F401
 
 engine = create_async_engine(settings.DATABASE_URL, echo=False)
 Session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -41,12 +45,6 @@ def risk(req_id, hazard, sit, harm, s, p):
     return Risk(requirement_id=req_id, hazard=hazard, hazardous_situation=sit,
                 harm=harm, severity=s, probability=p, risk_level=_compute_level(s, p))
 
-def tc(proj_id, rid, title, desc=None):
-    return TestCase(project_id=proj_id, readable_id=rid, title=title, description=desc)
-
-def exe(tc_id, status, notes):
-    return TestExecution(testcase_id=tc_id, status=status, notes=notes)
-
 def val(proj_id, req_id, desc, status):
     return ValidationRecord(project_id=proj_id, related_requirement_id=req_id,
                             description=desc, status=status)
@@ -59,9 +57,9 @@ async def wipe(db: AsyncSession):
         "dhf_documents",
         "release_items", "releases",
         "change_impacts", "change_requests",
-        "test_executions", "validation_records",
+        "validation_records",
         "requirement_design_links", "design_elements",
-        "tracelinks", "risks", "testcases",
+        "risks",
         "requirements", "requirement_categories",
         "software_safety_profiles",
         "architecture_baseline_interfaces", "architecture_baseline_components", "architecture_baselines",
@@ -192,58 +190,6 @@ async def seed():
             psw[rid] = r
         await db.flush()
 
-        # ── Test cases ─────────────────────────────────────────────────────
-        ptc = {}
-        tcrows = [
-            ("TC-001", "Waveform layout save/restore",
-             "Configure 6-tile layout; power-cycle; verify identical layout on boot"),
-            ("TC-002", "Touch gesture latency",
-             "100 tap events measured with high-speed camera; verify P99 <100 ms"),
-            ("TC-003", "Alarm limit rejection – out-of-range",
-             "Attempt SpO2 high limit = 110%; verify CONFIG_ERROR raised and limit unchanged"),
-            ("TC-004", "LED colour mapping – critical alarm",
-             "Trigger HR critical alarm; verify LED transitions to solid red within 200 ms"),
-            ("TC-005", "LED colour mapping – advisory alarm",
-             "Trigger SpO2 advisory; verify LED transitions to yellow blink 1 Hz"),
-            ("TC-006", "Alarm escalation timing",
-             "Allow critical alarm unacknowledged for 65 s; verify volume ≥ 82 dB"),
-            ("TC-007", "Alarm suspend auto-resume",
-             "Suspend alarms; wait 125 s; verify ADVISORY alarm fires and monitoring resumes"),
-            ("TC-008", "72-hour trend buffer integrity",
-             "Fill 72-hour buffer; power cycle; read back full dataset; verify 0 missing samples"),
-            ("TC-009", "PDF export timing",
-             "Request 72-hour PDF report; measure wall-clock time; verify ≤ 10 s"),
-            ("TC-010", "FHIR publish retry on 5xx",
-             "Mock gateway returning HTTP 503; verify client retries ≥ 3 times then alerts"),
-            ("TC-011", "Wi-Fi reconnect within 5 s",
-             "Drop Wi-Fi AP; re-enable; measure time to reconnect and resume data stream"),
-            ("TC-012", "Standby LED pulse verification",
-             "Enter standby; measure LED blink frequency with oscilloscope; verify 1 Hz ± 5%"),
-            ("TC-013", "Alarm debounce – 3 violations",
-             "Inject 2 threshold crossings then normal; verify no alarm raised"),
-            ("TC-014", "Alarm event log persistence",
-             "Generate 5000 alarm events; read log; power-cycle; verify all 5000 intact"),
-            ("TC-015", "Auto-brightness ramp",
-             "Vary ambient light 10–1000 lux; verify PWM duty changes monotonically"),
-        ]
-        for rid, title, desc in tcrows:
-            t = tc(p1.id, rid, title, desc)
-            db.add(t)
-            ptc[rid] = t
-        await db.flush()
-
-        # ── Trace links ────────────────────────────────────────────────────
-        tl_map = [
-            ("SWR-001", "TC-001"), ("SWR-002", "TC-002"), ("SWR-003", "TC-003"),
-            ("SWR-004", "TC-004"), ("SWR-004", "TC-005"), ("SWR-005", "TC-006"),
-            ("SWR-006", "TC-007"), ("SWR-007", "TC-008"), ("SWR-008", "TC-009"),
-            ("SWR-009", "TC-010"), ("SWR-010", "TC-011"), ("SWR-011", "TC-012"),
-            ("SWR-012", "TC-013"), ("SWR-014", "TC-014"), ("SWR-015", "TC-015"),
-        ]
-        for sw_k, tc_k in tl_map:
-            db.add(TraceLink(requirement_id=psw[sw_k].id, testcase_id=ptc[tc_k].id))
-        await db.flush()
-
         # ── Risks ──────────────────────────────────────────────────────────
         db.add_all([
             risk(psw["SWR-005"].id, "Alarm escalation timer not started",
@@ -274,28 +220,7 @@ async def seed():
         await db.flush()
         # §5.4 design elements are seeded in seed_architecture.py (they link to
         # §5.3 SWComponents, which don't exist until that step runs).
-
-        # ── Test executions ────────────────────────────────────────────────
-        execs = [
-            ("TC-001", ExecutionStatus.PASS, "Layout restored correctly after cold boot in 3 runs"),
-            ("TC-002", ExecutionStatus.PASS, "P99 latency 87 ms — within 100 ms spec"),
-            ("TC-003", ExecutionStatus.PASS, "CONFIG_ERROR raised; existing limit unchanged"),
-            ("TC-004", ExecutionStatus.PASS, "LED turned solid red 145 ms after alarm trigger"),
-            ("TC-005", ExecutionStatus.PASS, "Yellow 1 Hz blink confirmed on oscilloscope"),
-            ("TC-006", ExecutionStatus.FAIL, "Measured 78 dB at 65 s — below 82 dB target; amplifier gain needs adjustment"),
-            ("TC-007", ExecutionStatus.PASS, "ADVISORY alarm fired at 122 s; monitoring resumed normally"),
-            ("TC-008", ExecutionStatus.PASS, "Zero missing samples across full 72-hour buffer after power cycle"),
-            ("TC-009", ExecutionStatus.PASS, "PDF generated in 6.2 s for 72-hour dataset"),
-            ("TC-010", ExecutionStatus.PASS, "Client retried 3 times then raised CONNECTIVITY_ALERT"),
-            ("TC-011", ExecutionStatus.PASS, "Reconnected and resumed in 3.8 s"),
-            ("TC-012", ExecutionStatus.PASS, "1.002 Hz measured — within ±5% spec"),
-            ("TC-013", ExecutionStatus.PASS, "No alarm raised on 2 violations; alarm raised on 3rd"),
-            ("TC-014", ExecutionStatus.BLOCKED, "NAND flash test fixture not available in lab yet"),
-            ("TC-015", ExecutionStatus.PASS, "PWM increased monotonically across full lux range"),
-        ]
-        for tc_k, status, notes in execs:
-            db.add(exe(ptc[tc_k].id, status, notes))
-        await db.flush()
+        # §5.7 system tests are seeded by seed_architecture.py.
 
         # ── Validation records ─────────────────────────────────────────────
         db.add_all([
@@ -341,12 +266,8 @@ async def seed():
         db.add_all([
             ChangeImpact(change_request_id=cr1.id, impacted_requirement_id=psw["SWR-005"].id,
                          impact_description="SWR-005 escalated volume target changes from 85 dB to 90 dB"),
-            ChangeImpact(change_request_id=cr1.id, impacted_testcase_id=ptc["TC-006"].id,
-                         impact_description="TC-006 pass criterion changes to ≥ 87 dB at 65 s"),
             ChangeImpact(change_request_id=cr3.id, impacted_requirement_id=psw["SWR-006"].id,
                          impact_description="SWR-006 maximum suspend duration constant changes to 180 s"),
-            ChangeImpact(change_request_id=cr3.id, impacted_testcase_id=ptc["TC-007"].id,
-                         impact_description="TC-007 wait time changes to 185 s"),
         ])
         await db.flush()
 
@@ -358,13 +279,11 @@ async def seed():
 
         for swk in ["SWR-001","SWR-002","SWR-003","SWR-004","SWR-005","SWR-006"]:
             db.add(ReleaseItem(release_id=r1a.id, requirement_id=psw[swk].id))
-        for tck in ["TC-001","TC-002","TC-003","TC-004","TC-005","TC-006"]:
-            db.add(ReleaseItem(release_id=r1a.id, testcase_id=ptc[tck].id))
         for swk in ["SWR-007","SWR-008","SWR-009","SWR-010","SWR-011"]:
             db.add(ReleaseItem(release_id=r1b.id, requirement_id=psw[swk].id))
         await db.flush()
 
-        print(f"✓ P1 Patient Vital Signs Monitor — 10 USER | 10 SYS | 15 SW | 15 TC | 8 risks")
+        print(f"✓ P1 Patient Vital Signs Monitor — 10 USER | 10 SYS | 15 SW | 8 risks")
 
         # ══════════════════════════════════════════════════════════════════════
         # PROJECT 2 — Electrosurgical Generator  (Class C, Control + Software)
@@ -473,54 +392,6 @@ async def seed():
             esw[rid] = r
         await db.flush()
 
-        etc = {}
-        for rid, title, desc in [
-            ("TC-001", "PID power accuracy – 50 Ω load",
-             "Set 80 W; measure RF power at 50 Ω dummy load; verify within ±8 W"),
-            ("TC-002", "PID power accuracy – 200 Ω load",
-             "Set 80 W; measure at 200 Ω; verify ±10% over 10 s"),
-            ("TC-003", "Mode selection latency",
-             "Toggle Cut→Coag via front panel; measure mode parameter load time < 10 ms"),
-            ("TC-004", "Footswitch activation latency",
-             "Logic analyser on footswitch GPIO and RF gate; verify activate ≤ 50 ms"),
-            ("TC-005", "Footswitch deactivation latency",
-             "Logic analyser; verify deactivate ≤ 20 ms after release"),
-            ("TC-006", "REM alarm – low contact",
-             "Set pad resistance ratio to 0.5; verify REM_ALARM within 500 ms"),
-            ("TC-007", "Leakage current – IEC 60601-1",
-             "Isolation tester; verify patient leakage < 100 µA at 264 V mains"),
-            ("TC-008", "LED mode indicator – all modes",
-             "Cycle all 5 modes; verify correct colour for each state"),
-            ("TC-009", "LED FAULT state – red",
-             "Trigger REM_ALARM; verify LED turns solid red and RF gate inhibited"),
-            ("TC-010", "No-load auto cutoff",
-             "Open circuit on output; verify gate cut within 500 ms after 2 s window"),
-            ("TC-011", "Thermal fault inhibit",
-             "Inject T > 75 °C via NTC resistor sim; verify output inhibit and alarm"),
-            ("TC-012", "Self-test on power-on",
-             "Power cycle; verify self-test passes in < 3 s and device enters READY state"),
-            ("TC-013", "Watchdog reset on hang",
-             "Suspend watchdog task; verify MCU reset within 400 ms"),
-            ("TC-014", "Activation tone – Cut mode",
-             "Spectrum analyser; verify 800 Hz continuous during Cut activation"),
-            ("TC-015", "Activation tone – Coag mode",
-             "Verify 800 Hz 50% duty cycle interruption during Coag activation"),
-        ]:
-            t = tc(p2.id, rid, title, desc)
-            db.add(t)
-            etc[rid] = t
-        await db.flush()
-
-        for sw_k, tc_k in [
-            ("SWR-001","TC-001"),("SWR-001","TC-002"),("SWR-002","TC-003"),
-            ("SWR-003","TC-004"),("SWR-003","TC-005"),("SWR-005","TC-006"),
-            ("SWR-006","TC-007"),("SWR-007","TC-008"),("SWR-007","TC-009"),
-            ("SWR-008","TC-010"),("SWR-009","TC-011"),("SWR-013","TC-012"),
-            ("SWR-014","TC-013"),("SWR-010","TC-014"),("SWR-010","TC-015"),
-        ]:
-            db.add(TraceLink(requirement_id=esw[sw_k].id, testcase_id=etc[tc_k].id))
-        await db.flush()
-
         db.add_all([
             risk(esw["SWR-001"].id, "PID integral windup",
                  "Power runaway at high-impedance transition", "Patient burn", 5, 2),
@@ -542,26 +413,7 @@ async def seed():
         await db.flush()
 
         # §5.4 design elements seeded in seed_architecture.py (see project 1).
-
-        for tc_k, status, notes in [
-            ("TC-001", ExecutionStatus.PASS, "Mean power 79.4 W; max deviation 7.6% — within ±10%"),
-            ("TC-002", ExecutionStatus.PASS, "Mean power 78.8 W at 200 Ω over 10 s"),
-            ("TC-003", ExecutionStatus.PASS, "Parameter load time 4 ms — well within 10 ms"),
-            ("TC-004", ExecutionStatus.PASS, "Activation latency 38 ms — within 50 ms spec"),
-            ("TC-005", ExecutionStatus.PASS, "Deactivation latency 14 ms — within 20 ms spec"),
-            ("TC-006", ExecutionStatus.PASS, "REM_ALARM raised at 340 ms"),
-            ("TC-007", ExecutionStatus.PASS, "Patient leakage measured 62 µA — within 100 µA limit"),
-            ("TC-008", ExecutionStatus.PASS, "All 5 mode colours matched specification"),
-            ("TC-009", ExecutionStatus.PASS, "LED went solid red within 200 ms of fault injection"),
-            ("TC-010", ExecutionStatus.PASS, "Gate cut at 2.48 s after open-circuit condition"),
-            ("TC-011", ExecutionStatus.PASS, "Output inhibited 80 ms after NTC sim reached 75 °C"),
-            ("TC-012", ExecutionStatus.PASS, "Self-test passed in 1.8 s; READY state achieved"),
-            ("TC-013", ExecutionStatus.PASS, "MCU reset at 380 ms after watchdog task suspended"),
-            ("TC-014", ExecutionStatus.PASS, "800 Hz ± 2 Hz confirmed by spectrum analyser"),
-            ("TC-015", ExecutionStatus.FAIL, "Interruption gap measured 480 ms instead of 500 ms — needs DAC timing fix"),
-        ]:
-            db.add(exe(etc[tc_k].id, status, notes))
-        await db.flush()
+        # §5.7 system tests seeded by seed_architecture.py.
 
         db.add_all([
             val(p2.id, eu["URQ-001"].id,
@@ -607,7 +459,7 @@ async def seed():
             db.add(ReleaseItem(release_id=er2.id, requirement_id=esw[swk].id))
         await db.flush()
 
-        print(f"✓ P2 Electrosurgical Generator — 10 USER | 10 SYS | 15 SW | 15 TC | 8 risks")
+        print(f"✓ P2 Electrosurgical Generator — 10 USER | 10 SYS | 15 SW | 8 risks")
 
         # ══════════════════════════════════════════════════════════════════════
         # PROJECT 3 — Smart Drug Infusion Pump v2 (Class C, Alarms + LED + Control)
@@ -716,54 +568,6 @@ async def seed():
             isw[rid] = r
         await db.flush()
 
-        itc = {}
-        for rid, title, desc in [
-            ("TC-001", "Drug library hard-limit rejection",
-             "Program morphine at 200% of max dose; verify hard-limit rejection and alarm"),
-            ("TC-002", "Drug library soft-limit warning",
-             "Program at 110% of soft limit; verify advisory warning displayed"),
-            ("TC-003", "VTBI NEI alert timing",
-             "Set VTBI=150 mL at 10 mL/h; verify NEI alert at exactly 15 min remaining"),
-            ("TC-004", "Upstream occlusion alarm",
-             "Clamp upstream line; verify OCCLUSION_ALARM within 30 s at 5 mL/h"),
-            ("TC-005", "Air-in-line halt – 50 µL bubble",
-             "Inject calibrated 50 µL air bolus; verify motor halts and LED flashes amber"),
-            ("TC-006", "Air-in-line – 30 µL no halt",
-             "Inject 30 µL bubble; verify infusion continues (below threshold)"),
-            ("TC-007", "Battery LED – 4 states",
-             "Discharge to 80%, 50%, 20%, 8%; verify LED segment count and colour at each"),
-            ("TC-008", "Battery LED – flashing red < 10%",
-             "Discharge to 9%; verify red blink at 1 Hz"),
-            ("TC-009", "Piggyback switchover",
-             "Configure piggyback; verify primary pauses, piggyback runs, primary resumes on completion"),
-            ("TC-010", "PIN gate – dose change > 20%",
-             "Increase rate by 25% without PIN; verify pump holds and prompts for PIN"),
-            ("TC-011", "PIN gate lockout after 3 failures",
-             "Enter wrong PIN 3 times; verify lockout and audit log entries"),
-            ("TC-012", "Tamper-evident log integrity check",
-             "Write 100 entries; manually alter entry 50; verify HMAC chain break detected"),
-            ("TC-013", "BLE GATT notify on alarm",
-             "Trigger NEI alarm; verify GATT notification sent to connected PDMS within 2 s"),
-            ("TC-014", "Free-flow valve activation latency",
-             "Open pump door; logic analyser; verify solenoid asserted within 100 ms"),
-            ("TC-015", "Motor stall detection",
-             "Mechanically stall syringe plunger; verify stall detected and OCCLUSION path taken"),
-        ]:
-            t = tc(p3.id, rid, title, desc)
-            db.add(t)
-            itc[rid] = t
-        await db.flush()
-
-        for sw_k, tc_k in [
-            ("SWR-001","TC-001"),("SWR-001","TC-002"),("SWR-002","TC-003"),
-            ("SWR-004","TC-004"),("SWR-005","TC-005"),("SWR-005","TC-006"),
-            ("SWR-006","TC-007"),("SWR-006","TC-008"),("SWR-008","TC-009"),
-            ("SWR-014","TC-010"),("SWR-009","TC-011"),("SWR-010","TC-012"),
-            ("SWR-011","TC-013"),("SWR-012","TC-014"),("SWR-003","TC-015"),
-        ]:
-            db.add(TraceLink(requirement_id=isw[sw_k].id, testcase_id=itc[tc_k].id))
-        await db.flush()
-
         db.add_all([
             risk(isw["SWR-001"].id, "Drug library CRC failure undetected",
                  "Corrupt dose limits applied without warning", "Overdose or underdose", 5, 2),
@@ -785,26 +589,7 @@ async def seed():
         await db.flush()
 
         # §5.4 design elements seeded in seed_architecture.py (see project 1).
-
-        for tc_k, status, notes in [
-            ("TC-001", ExecutionStatus.PASS, "Hard-limit rejection confirmed; alarm raised immediately"),
-            ("TC-002", ExecutionStatus.PASS, "Soft-limit advisory displayed correctly"),
-            ("TC-003", ExecutionStatus.PASS, "NEI alert fired at 14 min 58 s — within tolerance"),
-            ("TC-004", ExecutionStatus.PASS, "OCCLUSION_ALARM at 22 s — within 30 s spec"),
-            ("TC-005", ExecutionStatus.PASS, "Motor halted within 200 ms; amber LED blink confirmed"),
-            ("TC-006", ExecutionStatus.PASS, "Infusion continued; no alarm for 30 µL bubble"),
-            ("TC-007", ExecutionStatus.PASS, "All 4 LED states matched expected segment/colour"),
-            ("TC-008", ExecutionStatus.PASS, "Red 1 Hz blink confirmed at 9% SoC"),
-            ("TC-009", ExecutionStatus.PASS, "Piggyback switchover sequence completed correctly"),
-            ("TC-010", ExecutionStatus.PASS, "Pump held; PIN prompt displayed within 1 s"),
-            ("TC-011", ExecutionStatus.PASS, "Lockout after 3rd failure; 3 audit entries logged"),
-            ("TC-012", ExecutionStatus.PASS, "HMAC chain break detected at entry 50"),
-            ("TC-013", ExecutionStatus.FAIL, "GATT notification delayed 3.8 s — BLE stack congestion; under investigation"),
-            ("TC-014", ExecutionStatus.PASS, "Solenoid asserted at 78 ms — within 100 ms spec"),
-            ("TC-015", ExecutionStatus.PASS, "Stall detected in 4 encoder ticks; OCCLUSION path taken"),
-        ]:
-            db.add(exe(itc[tc_k].id, status, notes))
-        await db.flush()
+        # §5.7 system tests seeded by seed_architecture.py.
 
         db.add_all([
             val(p3.id, iu["URQ-001"].id,
@@ -847,8 +632,6 @@ async def seed():
                          impact_description="SWR-001 lookup table size doubles; SRAM impact analysis required"),
             ChangeImpact(change_request_id=icr3.id, impacted_requirement_id=isw["SWR-005"].id,
                          impact_description="SWR-005 threshold constant and TC-006 pass criteria must change"),
-            ChangeImpact(change_request_id=icr3.id, impacted_testcase_id=itc["TC-006"].id,
-                         impact_description="TC-006 must now verify halt at 30 µL"),
         ])
         await db.flush()
 
@@ -863,7 +646,7 @@ async def seed():
             db.add(ReleaseItem(release_id=ir2.id, requirement_id=isw[swk].id))
         await db.flush()
 
-        print(f"✓ P3 Smart Drug Infusion Pump v2 — 10 USER | 10 SYS | 15 SW | 15 TC | 8 risks")
+        print(f"✓ P3 Smart Drug Infusion Pump v2 — 10 USER | 10 SYS | 15 SW | 8 risks")
 
         # ══════════════════════════════════════════════════════════════════════
         # PROJECT 4 — Hemodialysis Machine  (Class C, Control + UI + Alarms)
@@ -972,54 +755,6 @@ async def seed():
             hsw[rid] = r
         await db.flush()
 
-        htc = {}
-        for rid, title, desc in [
-            ("TC-001", "Blood pump flow accuracy – 50 mL/min",
-             "Gravimetric measurement; verify ±5% over 5 min"),
-            ("TC-002", "Blood pump flow accuracy – 400 mL/min",
-             "Gravimetric measurement at high flow; verify ±5%"),
-            ("TC-003", "Conductivity alarm – high conductivity",
-             "Inject 16.5 mS/cm solution; verify alarm within 10 s"),
-            ("TC-004", "Conductivity alarm – low conductivity",
-             "Inject 11.5 mS/cm solution; verify alarm and dialysate pump inhibit"),
-            ("TC-005", "TMP alarm – 360 mmHg",
-             "Simulate TMP > 350 mmHg; verify TMP_ALARM and blood pump halt"),
-            ("TC-006", "Thermal control – setpoint tracking",
-             "Set 37 °C; measure temperature over 30 min; verify within ±0.5 °C"),
-            ("TC-007", "Air detector clamp latency",
-             "Inject 0.3 mL air bolus; verify clamp asserted within 500 ms"),
-            ("TC-008", "Air detector – 0.1 mL no clamp",
-             "Inject 0.1 mL air; verify no clamp (below threshold)"),
-            ("TC-009", "Blood leak alarm",
-             "Add 0.5% haemoglobin solution to dialysate path; verify BLOOD_LEAK_ALARM"),
-            ("TC-010", "Session 15-min alert",
-             "Set 60-min session; advance timer to 14 min remaining; verify alert fires"),
-            ("TC-011", "UF rate accuracy – 500 mL goal",
-             "Set 500 mL UF goal over 4 h; measure actual UF by weight; verify within ±2%"),
-            ("TC-012", "Parameter validation – out-of-range rejection",
-             "Enter blood flow 650 mL/min; verify inline error and session start blocked"),
-            ("TC-013", "Alarm log export to USB",
-             "Generate 50 alarm events; insert USB; verify CSV written with all 50 records"),
-            ("TC-014", "Safety interlock – conductivity fault",
-             "Trigger conductivity fault; verify blood pump inhibited within 500 ms"),
-            ("TC-015", "Safety interlock – temperature fault",
-             "Trigger temperature fault; verify blood pump inhibited and alarm displayed"),
-        ]:
-            t = tc(p4.id, rid, title, desc)
-            db.add(t)
-            htc[rid] = t
-        await db.flush()
-
-        for sw_k, tc_k in [
-            ("SWR-001","TC-001"),("SWR-001","TC-002"),("SWR-002","TC-003"),
-            ("SWR-002","TC-004"),("SWR-003","TC-005"),("SWR-004","TC-006"),
-            ("SWR-005","TC-007"),("SWR-005","TC-008"),("SWR-006","TC-009"),
-            ("SWR-007","TC-010"),("SWR-012","TC-011"),("SWR-013","TC-012"),
-            ("SWR-010","TC-013"),("SWR-015","TC-014"),("SWR-015","TC-015"),
-        ]:
-            db.add(TraceLink(requirement_id=hsw[sw_k].id, testcase_id=htc[tc_k].id))
-        await db.flush()
-
         db.add_all([
             risk(hsw["SWR-001"].id, "Blood pump PID overshoot",
                  "Flow rate exceeds set value by > 5%", "Haemolysis or volume imbalance", 4, 2),
@@ -1041,26 +776,7 @@ async def seed():
         await db.flush()
 
         # §5.4 design elements seeded in seed_architecture.py (see project 1).
-
-        for tc_k, status, notes in [
-            ("TC-001", ExecutionStatus.PASS, "Mean flow 49.1 mL/min; max deviation 2.8% — within ±5%"),
-            ("TC-002", ExecutionStatus.PASS, "Mean flow 398 mL/min; max deviation 3.2%"),
-            ("TC-003", ExecutionStatus.PASS, "Alarm raised at 7 s after conductivity injection"),
-            ("TC-004", ExecutionStatus.PASS, "Alarm and pump inhibit within 8 s"),
-            ("TC-005", ExecutionStatus.PASS, "TMP_ALARM and blood pump halt confirmed"),
-            ("TC-006", ExecutionStatus.FAIL, "Temperature drifted to 37.6 °C at 20 min — RTD calibration offset identified"),
-            ("TC-007", ExecutionStatus.PASS, "Clamp asserted at 420 ms — within 500 ms spec"),
-            ("TC-008", ExecutionStatus.PASS, "No clamp for 0.1 mL air — correct behaviour"),
-            ("TC-009", ExecutionStatus.PASS, "BLOOD_LEAK_ALARM raised within 5 s"),
-            ("TC-010", ExecutionStatus.PASS, "Alert fired at exactly 15 min mark"),
-            ("TC-011", ExecutionStatus.PASS, "Actual UF 499.2 mL — 0.16% error"),
-            ("TC-012", ExecutionStatus.PASS, "Inline error displayed; session start button disabled"),
-            ("TC-013", ExecutionStatus.PASS, "CSV written with all 50 records within 3 s of USB mount"),
-            ("TC-014", ExecutionStatus.PASS, "Blood pump inhibited within 320 ms of conductivity fault injection"),
-            ("TC-015", ExecutionStatus.BLOCKED, "Temperature fault injection fixture not yet calibrated"),
-        ]:
-            db.add(exe(htc[tc_k].id, status, notes))
-        await db.flush()
+        # §5.7 system tests seeded by seed_architecture.py.
 
         db.add_all([
             val(p4.id, hu["URQ-001"].id,
@@ -1100,8 +816,6 @@ async def seed():
         db.add_all([
             ChangeImpact(change_request_id=hcr2.id, impacted_requirement_id=hsw["SWR-005"].id,
                          impact_description="SWR-005 threshold constant changes; TC-008 criteria must be updated"),
-            ChangeImpact(change_request_id=hcr2.id, impacted_testcase_id=htc["TC-008"].id,
-                         impact_description="TC-008 must verify no-clamp at 0.05 mL instead of 0.1 mL"),
         ])
         await db.flush()
 
@@ -1116,7 +830,7 @@ async def seed():
             db.add(ReleaseItem(release_id=hr2.id, requirement_id=hsw[swk].id))
         await db.flush()
 
-        print(f"✓ P4 Hemodialysis Machine — 10 USER | 10 SYS | 15 SW | 15 TC | 8 risks")
+        print(f"✓ P4 Hemodialysis Machine — 10 USER | 10 SYS | 15 SW | 8 risks")
 
         # ══════════════════════════════════════════════════════════════════════
         # PROJECT 5 — Automated External Defibrillator  (Class C, LED + Alarms + Control)
@@ -1228,54 +942,6 @@ async def seed():
             asw[rid] = r
         await db.flush()
 
-        atc = {}
-        for rid, title, desc in [
-            ("TC-001", "VF detection sensitivity – AHA/ANSI database",
-             "AHA arrhythmia database, 200 VF episodes; verify sensitivity ≥ 90%"),
-            ("TC-002", "NSR specificity – no false shock",
-             "AHA database, 100 NSR episodes; verify 0 shock decisions"),
-            ("TC-003", "Charge time – 12 V battery",
-             "Charge from 0 to 2000 V; measure wall-clock time; verify < 10 s"),
-            ("TC-004", "Shock energy – 50 Ω load",
-             "Deliver shock; measure energy via voltage/current integration; verify 150 J ± 15%"),
-            ("TC-005", "CPR depth estimation – 5 cm reference",
-             "Mechanical CPR device at 5 cm depth; verify LED depth bar lights at correct segment"),
-            ("TC-006", "CPR rate advisory – 80 cpm",
-             "Mechanical CPR at 80 cpm; verify 'faster' audio cue issued"),
-            ("TC-007", "LED sequence – normal scenario",
-             "Complete power-on → pads → analyse → shock advised scenario; verify all 4 LED transitions"),
-            ("TC-008", "LED SHOCK state – red flash during charging",
-             "Trigger shock-advised state; verify red LED flashes during capacitor charge"),
-            ("TC-009", "Audio prompt – volume at 1 m",
-             "Sound level meter measurement; verify ≥ 70 dB at 1 m"),
-            ("TC-010", "Paediatric mode – energy halved",
-             "Enable paediatric key; charge and deliver shock; verify energy 75 J ± 15%"),
-            ("TC-011", "Daily self-test – pass path",
-             "Power on fresh device; verify self-test completes and green LED illuminates within 30 s"),
-            ("TC-012", "Daily self-test – battery fail",
-             "Remove battery mid-test; verify red LED blink and 30 s beep alarm"),
-            ("TC-013", "Event data USB read-out",
-             "Complete 2 shock sequence; read USB; verify ECG and shock events present"),
-            ("TC-014", "Charge abort – pad removal",
-             "Remove pads during charging; verify bleed resistor activates within 200 ms"),
-            ("TC-015", "Shock gate – motion during analysis",
-             "Apply motion artefact during analysis; verify shock not delivered"),
-        ]:
-            t = tc(p5.id, rid, title, desc)
-            db.add(t)
-            atc[rid] = t
-        await db.flush()
-
-        for sw_k, tc_k in [
-            ("SWR-001","TC-001"),("SWR-001","TC-002"),("SWR-003","TC-003"),
-            ("SWR-004","TC-004"),("SWR-005","TC-005"),("SWR-006","TC-006"),
-            ("SWR-007","TC-007"),("SWR-007","TC-008"),("SWR-008","TC-009"),
-            ("SWR-009","TC-010"),("SWR-010","TC-011"),("SWR-011","TC-012"),
-            ("SWR-012","TC-013"),("SWR-014","TC-014"),("SWR-015","TC-015"),
-        ]:
-            db.add(TraceLink(requirement_id=asw[sw_k].id, testcase_id=atc[tc_k].id))
-        await db.flush()
-
         db.add_all([
             risk(asw["SWR-001"].id, "VF classifier false negative",
                  "Shockable rhythm not detected", "Failure to defibrillate; patient death", 5, 2),
@@ -1297,26 +963,7 @@ async def seed():
         await db.flush()
 
         # §5.4 design elements seeded in seed_architecture.py (see project 1).
-
-        for tc_k, status, notes in [
-            ("TC-001", ExecutionStatus.PASS, "Sensitivity 93.5% on 200-episode AHA database"),
-            ("TC-002", ExecutionStatus.PASS, "0 false shock decisions on 100 NSR episodes"),
-            ("TC-003", ExecutionStatus.PASS, "Charge time 8.4 s from 12.0 V battery"),
-            ("TC-004", ExecutionStatus.PASS, "Energy 148.2 J — within 150 J ± 15% spec"),
-            ("TC-005", ExecutionStatus.PASS, "Depth bar LED correctly indicated 5 cm compression"),
-            ("TC-006", ExecutionStatus.PASS, "'Faster' audio cue issued at 80 cpm — correct"),
-            ("TC-007", ExecutionStatus.PASS, "All 4 LED transitions confirmed in correct order"),
-            ("TC-008", ExecutionStatus.PASS, "Red LED flash confirmed during charge phase"),
-            ("TC-009", ExecutionStatus.FAIL, "Audio measured 66 dB at 1 m — below 70 dB; amplifier gain needs +4 dB"),
-            ("TC-010", ExecutionStatus.PASS, "Energy 74.8 J — within 75 J ± 15% spec"),
-            ("TC-011", ExecutionStatus.PASS, "Self-test passed in 18 s; green LED illuminated"),
-            ("TC-012", ExecutionStatus.PASS, "Red LED blink and 30 s beep alarm confirmed on battery removal"),
-            ("TC-013", ExecutionStatus.PASS, "ECG + shock events present in USB read-out; timestamps correct"),
-            ("TC-014", ExecutionStatus.PASS, "Bleed resistor activated at 140 ms after pad removal"),
-            ("TC-015", ExecutionStatus.PASS, "Shock withheld during motion artefact — correct gate behaviour"),
-        ]:
-            db.add(exe(atc[tc_k].id, status, notes))
-        await db.flush()
+        # §5.7 system tests seeded by seed_architecture.py.
 
         db.add_all([
             val(p5.id, au["URQ-001"].id,
@@ -1359,8 +1006,6 @@ async def seed():
         db.add_all([
             ChangeImpact(change_request_id=acr1.id, impacted_requirement_id=asw["SWR-008"].id,
                          impact_description="SWR-008 amplifier enable configuration changes; TC-009 must be re-run"),
-            ChangeImpact(change_request_id=acr1.id, impacted_testcase_id=atc["TC-009"].id,
-                         impact_description="TC-009 re-test required after hardware rework"),
         ])
         await db.flush()
 
@@ -1371,8 +1016,6 @@ async def seed():
 
         for swk in ["SWR-001","SWR-002","SWR-003","SWR-004","SWR-005","SWR-006","SWR-007"]:
             db.add(ReleaseItem(release_id=ar1.id, requirement_id=asw[swk].id))
-        for tck in ["TC-001","TC-002","TC-003","TC-004","TC-007"]:
-            db.add(ReleaseItem(release_id=ar1.id, testcase_id=atc[tck].id))
         for swk in ["SWR-008","SWR-009","SWR-010","SWR-011","SWR-012","SWR-013","SWR-014","SWR-015"]:
             db.add(ReleaseItem(release_id=ar2.id, requirement_id=asw[swk].id))
         await db.flush()
@@ -1420,7 +1063,7 @@ async def seed():
 
         await db.commit()
 
-    print(f"✓ P5 AED — 10 USER | 10 SYS | 15 SW | 15 TC | 8 risks")
+    print(f"✓ P5 AED — 10 USER | 10 SYS | 15 SW | 8 risks")
     print(f"\n{'='*65}")
     print("COMPREHENSIVE SEED COMPLETE")
     print(f"{'='*65}")
@@ -1430,8 +1073,8 @@ async def seed():
     print("Project 4: Hemodialysis Machine             — Control + UI + Alarms")
     print("Project 5: Automated External Defibrillator — LED + Alarms + Control")
     print(f"{'='*65}")
-    print("Each project: 10 USER | 10 SYS | 15 SW | 15 TC | 8+ risks")
-    print("              15 test executions (§5.4 design elements: seed_architecture.py)")
+    print("Each project: 10 USER | 10 SYS | 15 SW | 8+ risks")
+    print("              (§5.4 design elements + §5.7 system tests: seed_architecture.py)")
     print("              5 validation records | 3 change requests | 2 releases")
     print("              + 1 APPROVED SDP per project (release gate ready)")
     print(f"{'='*65}\n")

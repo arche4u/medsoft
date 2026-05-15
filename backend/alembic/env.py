@@ -9,11 +9,8 @@ from app.core.config import settings
 from app.core.base import Base
 import app.modules.projects.model       # noqa: F401
 import app.modules.requirements.model   # noqa: F401
-import app.modules.testcases.model      # noqa: F401
-import app.modules.tracelinks.model     # noqa: F401
 import app.modules.risks.model          # noqa: F401
 import app.modules.design.model         # noqa: F401
-import app.modules.verification.model   # noqa: F401
 import app.modules.validation.model     # noqa: F401
 import app.modules.audit.model          # noqa: F401
 import app.modules.change_control.model # noqa: F401

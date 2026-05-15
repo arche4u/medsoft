@@ -52,7 +52,7 @@ def _to_read(c: SWComponent, iface_count: int = 0) -> ComponentRead:
         approved_by=c.approved_by, approved_at=c.approved_at,
         requirement_ids=[lnk.requirement_id for lnk in c.req_links],
         risk_ids=[lnk.risk_id for lnk in c.risk_links],
-        testcase_ids=[lnk.testcase_id for lnk in c.tc_links],
+        system_test_ids=[lnk.system_test_id for lnk in c.tc_links],
         interface_count=iface_count,
         created_at=c.created_at, updated_at=c.updated_at,
     )
@@ -155,12 +155,12 @@ COMPLIANCE_RULES: list[dict] = [
         ),
     },
     {
-        "rule": "has_testcases", "label": "Test cases linked",
+        "rule": "has_system_tests", "label": "System tests linked (§5.7)",
         "applies_to": {"B", "C"}, "required": True, "blocks_release": True,
         "check": lambda x: (
             x.tc_count > 0,
-            f"{x.tc_count} test case(s) linked" if x.tc_count
-            else "No test cases linked — link integration/system tests",
+            f"{x.tc_count} system test(s) linked" if x.tc_count
+            else "No system tests linked — link §5.7 system tests",
         ),
     },
     {
@@ -344,7 +344,7 @@ async def get_tree(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
             description=c.description,
             requirement_ids=[lnk.requirement_id for lnk in c.req_links],
             risk_ids=[lnk.risk_id for lnk in c.risk_links],
-            testcase_ids=[lnk.testcase_id for lnk in c.tc_links],
+            system_test_ids=[lnk.system_test_id for lnk in c.tc_links],
             interface_count=iface_counts.get(c.id, 0),
             is_compliant=_is_compliant(c),
             children=[_build_node(ch) for ch in sorted(children_comps, key=lambda x: x.name)],
@@ -479,8 +479,8 @@ async def set_risks(
     return _to_read(c, await _interface_count(db, c.id))
 
 
-@router.put("/{component_id}/testcases", response_model=ComponentRead)
-async def set_testcases(
+@router.put("/{component_id}/system-tests", response_model=ComponentRead)
+async def set_system_tests(
     component_id: uuid.UUID, payload: SetLinksPayload,
     db: AsyncSession = Depends(get_db),
     current_user: TokenData = Depends(require_permission("UPDATE_ARCHITECTURE")),
@@ -493,9 +493,9 @@ async def set_testcases(
         await db.delete(lnk)
     await db.flush()
     for tcid in dict.fromkeys(payload.ids):
-        db.add(SWComponentTCLink(component_id=component_id, testcase_id=tcid))
+        db.add(SWComponentTCLink(component_id=component_id, system_test_id=tcid))
     await audit(db, "sw_component", c.id, AuditAction.UPDATE, current_user.user_id,
-                f"Linked {len(set(payload.ids))} test case(s)")
+                f"Linked {len(set(payload.ids))} system test(s)")
     await db.commit()
     await db.refresh(c)
     return _to_read(c, await _interface_count(db, c.id))

@@ -20,11 +20,8 @@ from datetime import datetime, timezone
 # relationships before we start querying.
 import app.modules.projects.model           # noqa: F401
 import app.modules.requirements.model       # noqa: F401
-import app.modules.testcases.model          # noqa: F401
-import app.modules.tracelinks.model         # noqa: F401
 import app.modules.risks.model              # noqa: F401
 import app.modules.design.model             # noqa: F401
-import app.modules.verification.model       # noqa: F401
 import app.modules.validation.model         # noqa: F401
 import app.modules.config_mgmt.model        # noqa: F401
 import app.modules.sdp.model                # noqa: F401
@@ -331,16 +328,13 @@ async def scenario_traceability(db: AsyncSession, project_id) -> None:
     n_l1 = sum(len(r.get("children", [])) for r in tree)
     n_l2 = sum(len(c.get("children", [])) for r in tree for c in r.get("children", []))
     ok(f"tree walked: {n_roots} roots, {n_l1} L1, {n_l2} L2 nodes")
-    # Verify leaf attachments present (design_elements/testcases keys)
-    leaf_with_design = any(
-        ("design_elements" in c) or any("design_elements" in gc for gc in c.get("children", []))
-        for r in tree for c in r.get("children", [])
-    )
+    # Verify leaf attachments present (design_elements key — legacy testcases
+    # leaf attachment was dropped along with the testcases table).
     if n_l2 > 0:
         # Find any L2 node and confirm it has the leaf-attached keys
         l2 = next((gc for r in tree for c in r.get("children", []) for gc in c.get("children", [])), None)
-        if l2 is not None and "design_elements" in l2 and "testcases" in l2:
-            ok("leaf nodes carry design_elements + testcases")
+        if l2 is not None and "design_elements" in l2:
+            ok("leaf nodes carry design_elements")
         else:
             fail("leaf attachments", f"l2 keys: {list(l2.keys()) if l2 else 'none'}")
     else:

@@ -5,9 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.requirements.model import Requirement
 from app.modules.design.model import DesignElement, RequirementDesignLink
-from app.modules.tracelinks.model import TraceLink
-from app.modules.testcases.model import TestCase
-from app.modules.verification.model import TestExecution
+from app.modules.system_testing.model import (
+    SystemTestCase, SystemTestResult, STAdditionalReqLink,
+)
 
 router = APIRouter(prefix="/impact-analysis", tags=["impact"])
 
@@ -40,30 +40,33 @@ async def impact_analysis(requirement_id: uuid.UUID, db: AsyncSession = Depends(
         select(DesignElement).where(DesignElement.id.in_(design_el_ids))
     )).scalars().all() if design_el_ids else []
 
-    # Test cases linked via tracelinks to any req in scope
-    trace_links = (await db.execute(
-        select(TraceLink).where(TraceLink.requirement_id.in_(scope_ids))
+    # §5.7 System tests linked to any req in scope (primary FK + additional links)
+    primary_tests = (await db.execute(
+        select(SystemTestCase).where(SystemTestCase.requirement_id.in_(scope_ids))
     )).scalars().all()
+    addl_links = (await db.execute(
+        select(STAdditionalReqLink).where(STAdditionalReqLink.requirement_id.in_(scope_ids))
+    )).scalars().all()
+    addl_test_ids = {l.stc_id for l in addl_links} - {t.id for t in primary_tests}
+    addl_tests = (await db.execute(
+        select(SystemTestCase).where(SystemTestCase.id.in_(addl_test_ids))
+    )).scalars().all() if addl_test_ids else []
+    system_tests = list(primary_tests) + list(addl_tests)
 
-    tc_ids = list({l.testcase_id for l in trace_links})
-    testcases = (await db.execute(
-        select(TestCase).where(TestCase.id.in_(tc_ids))
-    )).scalars().all() if tc_ids else []
-
-    # Latest execution per test case
+    # Latest execution per system test
     latest_execs = []
-    for tc in testcases:
+    for st in system_tests:
         ex = (await db.execute(
-            select(TestExecution)
-            .where(TestExecution.testcase_id == tc.id)
-            .order_by(desc(TestExecution.executed_at))
+            select(SystemTestResult)
+            .where(SystemTestResult.test_case_id == st.id)
+            .order_by(desc(SystemTestResult.execution_date))
             .limit(1)
         )).scalar_one_or_none()
         latest_execs.append({
-            "testcase_id": str(tc.id),
-            "testcase_title": tc.title,
-            "status": ex.status.value if ex else None,
-            "executed_at": ex.executed_at.isoformat() if ex else None,
+            "system_test_id": str(st.id),
+            "system_test_name": st.name,
+            "status": ex.result if ex else None,
+            "executed_at": ex.execution_date.isoformat() if ex else None,
         })
 
     return {
@@ -78,12 +81,12 @@ async def impact_analysis(requirement_id: uuid.UUID, db: AsyncSession = Depends(
             for r in children + grandchildren
         ],
         "linked_design_elements": [
-            {"id": str(e.id), "type": e.type.value, "readable_id": e.readable_id, "title": e.title, "description": e.description}
+            {"id": str(e.id), "readable_id": e.readable_id, "title": e.title, "description": e.description}
             for e in design_elements
         ],
-        "linked_testcases": [
-            {"id": str(tc.id), "title": tc.title}
-            for tc in testcases
+        "linked_system_tests": [
+            {"id": str(st.id), "name": st.name}
+            for st in system_tests
         ],
         "latest_executions": latest_execs,
     }

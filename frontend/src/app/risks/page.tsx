@@ -4,7 +4,7 @@ import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  api, Project, Requirement, TestCase, Risk, RiskControl, ResidualRisk, RiskDashboard, SafetyProfile,
+  api, Project, Requirement, SystemTestCase, Risk, RiskControl, ResidualRisk, RiskDashboard, SafetyProfile,
 } from "@/lib/api";
 
 type RiskLevel = "HIGH" | "MEDIUM" | "LOW";
@@ -208,8 +208,8 @@ function DashboardTab({ projectId }: { projectId: string }) {
 }
 
 // ── Risk Controls Panel ───────────────────────────────────────────────────────
-function ControlsPanel({ risk, reqs, testcases, onReload }: {
-  risk: Risk; reqs: Requirement[]; testcases: TestCase[]; onReload: () => void;
+function ControlsPanel({ risk, reqs, systemTests, onReload }: {
+  risk: Risk; reqs: Requirement[]; systemTests: SystemTestCase[]; onReload: () => void;
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [cType, setCType]     = useState("INHERENT_SAFETY");
@@ -227,7 +227,7 @@ function ControlsPanel({ risk, reqs, testcases, onReload }: {
     try {
       await api.risks.controls.create(risk.id, {
         control_type: cType, description: cDesc,
-        requirement_id: cReqId || null, testcase_id: cTcId || null,
+        requirement_id: cReqId || null, system_test_id: cTcId || null,
         implementation_status: cStatus, verification_notes: cNotes || null,
       });
       setCDesc(""); setCReqId(""); setCTcId(""); setCNotes(""); setShowAdd(false);
@@ -248,7 +248,7 @@ function ControlsPanel({ risk, reqs, testcases, onReload }: {
   }
 
   const reqById = Object.fromEntries(reqs.map(r => [r.id, r]));
-  const tcById  = Object.fromEntries(testcases.map(t => [t.id, t]));
+  const tcById  = Object.fromEntries(systemTests.map(t => [t.id, t]));
 
   return (
     <div style={{ padding: "10px 14px 12px", background: "#f8faff", borderTop: "1px solid #c5cae9" }}>
@@ -266,7 +266,7 @@ function ControlsPanel({ risk, reqs, testcases, onReload }: {
         const meta = CONTROL_TYPE_META[ctrl.control_type] ?? { label: ctrl.control_type, short: ctrl.control_type, color: "#546e7a" };
         const impl = IMPL_STATUS_META[ctrl.implementation_status] ?? { label: ctrl.implementation_status, color: "#546e7a" };
         const linkedReq = ctrl.requirement_id ? reqById[ctrl.requirement_id] : null;
-        const linkedTc  = ctrl.testcase_id ? tcById[ctrl.testcase_id] : null;
+        const linkedTc  = ctrl.system_test_id ? tcById[ctrl.system_test_id] : null;
         return (
           <div key={ctrl.id} style={{ marginBottom: 6, padding: "8px 10px", background: "#fff", border: "1px solid #e8eaf6", borderRadius: 6 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -292,9 +292,9 @@ function ControlsPanel({ risk, reqs, testcases, onReload }: {
                 </a>
               )}
               {linkedTc && (
-                <a href={`/testcases?highlight=${linkedTc.id}`}
+                <a href={`/system-testing?highlight=${linkedTc.id}`}
                   style={{ fontSize: 11, color: "#2e7d32", background: "#e8f5e9", padding: "1px 7px", borderRadius: 4, textDecoration: "none", fontFamily: "monospace" }}>
-                  TC: {linkedTc.title.slice(0, 40)}
+                  ST: {linkedTc.name.slice(0, 40)}
                 </a>
               )}
             </div>
@@ -343,11 +343,11 @@ function ControlsPanel({ risk, reqs, testcases, onReload }: {
               </select>
             </div>
             <div>
-              <label style={labelStyle}>Link to Test Case (optional)</label>
+              <label style={labelStyle}>Link to System Test (optional)</label>
               <select value={cTcId} onChange={e => setCTcId(e.target.value)} style={inputStyle}>
                 <option value="">— none</option>
-                {testcases.map(t => (
-                  <option key={t.id} value={t.id}>{t.readable_id ? `${t.readable_id} ` : ""}{t.title.slice(0, 50)}</option>
+                {systemTests.map(t => (
+                  <option key={t.id} value={t.id}>{t.name.slice(0, 60)}</option>
                 ))}
               </select>
             </div>
@@ -460,8 +460,8 @@ function ResidualPanel({ risk, onReload }: { risk: Risk; onReload: () => void })
 }
 
 // ── Risk row ──────────────────────────────────────────────────────────────────
-function RiskRow({ risk, req, reqs, testcases, isLast, onDelete, onUpdate }: {
-  risk: Risk; req?: Requirement; reqs: Requirement[]; testcases: TestCase[];
+function RiskRow({ risk, req, reqs, systemTests, isLast, onDelete, onUpdate }: {
+  risk: Risk; req?: Requirement; reqs: Requirement[]; systemTests: SystemTestCase[];
   isLast: boolean; onDelete: (id: string) => void; onUpdate: (updated: Risk) => void;
 }) {
   const [editing,      setEditing]      = useState(false);
@@ -643,7 +643,7 @@ function RiskRow({ risk, req, reqs, testcases, isLast, onDelete, onUpdate }: {
 
       {/* Controls panel */}
       {showControls && (
-        <ControlsPanel risk={risk} reqs={reqs} testcases={testcases} onReload={() => onUpdate(risk)} />
+        <ControlsPanel risk={risk} reqs={reqs} systemTests={systemTests} onReload={() => onUpdate(risk)} />
       )}
 
       {/* Residual risk panel */}
@@ -655,8 +655,8 @@ function RiskRow({ risk, req, reqs, testcases, isLast, onDelete, onUpdate }: {
 }
 
 // ── Risk level group ──────────────────────────────────────────────────────────
-function RiskGroup({ level, risks, reqs, testcases, onDelete, onUpdate }: {
-  level: RiskLevel; risks: Risk[]; reqs: Requirement[]; testcases: TestCase[];
+function RiskGroup({ level, risks, reqs, systemTests, onDelete, onUpdate }: {
+  level: RiskLevel; risks: Risk[]; reqs: Requirement[]; systemTests: SystemTestCase[];
   onDelete: (id: string) => void; onUpdate: (updated: Risk) => void;
 }) {
   const [open, setOpen] = useState(true);
@@ -687,7 +687,7 @@ function RiskGroup({ level, risks, reqs, testcases, onDelete, onUpdate }: {
         <div style={{ border: `1px solid ${meta.border}`, borderTop: "none", borderRadius: "0 0 6px 6px", overflow: "hidden" }}>
           {risks.map((r, i) => (
             <RiskRow key={r.id} risk={r} req={reqById[r.requirement_id]}
-              reqs={reqs} testcases={testcases}
+              reqs={reqs} systemTests={systemTests}
               isLast={i === risks.length - 1}
               onDelete={onDelete} onUpdate={onUpdate} />
           ))}
@@ -918,7 +918,7 @@ function RisksPageInner() {
 
   const [projects,   setProjects]   = useState<Project[]>([]);
   const [reqs,       setReqs]       = useState<Requirement[]>([]);
-  const [testcases,  setTestcases]  = useState<TestCase[]>([]);
+  const [systemTests, setSystemTests] = useState<SystemTestCase[]>([]);
   const [risks,      setRisks]      = useState<Risk[]>([]);
   const [projectId,  setProjectId]  = useActiveProject();
   const [filter,     setFilter]     = useState<string>(lvlParam);
@@ -943,15 +943,15 @@ function RisksPageInner() {
     const [r, rk, tc] = await Promise.all([
       api.requirements.list(projectId),
       api.risks.list(undefined, projectId),
-      api.testcases.list(projectId),
+      api.systemTesting.list(projectId),
     ]);
     setReqs(r);
     setRisks(rk);
-    setTestcases(tc);
+    setSystemTests(tc);
   };
 
   useEffect(() => {
-    if (!projectId) { setReqs([]); setRisks([]); setTestcases([]); return; }
+    if (!projectId) { setReqs([]); setRisks([]); setSystemTests([]); return; }
     reload();
   }, [projectId]);
 
@@ -1103,7 +1103,7 @@ function RisksPageInner() {
           ) : (
             <div>
               {displayLevels.map(l => grouped[l].length > 0 && (
-                <RiskGroup key={l} level={l} risks={grouped[l]} reqs={reqs} testcases={testcases}
+                <RiskGroup key={l} level={l} risks={grouped[l]} reqs={reqs} systemTests={systemTests}
                   onDelete={handleDelete} onUpdate={handleUpdate} />
               ))}
             </div>

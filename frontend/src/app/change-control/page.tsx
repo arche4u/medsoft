@@ -253,8 +253,8 @@ export default function ChangeControlPage() {
                       {selected.impacts.map(imp => {
                         const type = imp.impacted_requirement_id ? "Requirement"
                           : imp.impacted_design_id ? "Design"
-                          : "Test Case";
-                        const entityId = imp.impacted_requirement_id || imp.impacted_design_id || imp.impacted_testcase_id || "";
+                          : "System Test";
+                        const entityId = imp.impacted_requirement_id || imp.impacted_design_id || imp.impacted_system_test_id || "";
                         return (
                           <tr key={imp.id}>
                             <td style={{ padding: "6px 8px", border: "1px solid #eee" }}>

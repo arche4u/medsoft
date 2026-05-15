@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, Project, Requirement, TestCase, Risk, RequirementCategory, TestCategory, RiskCategory } from "@/lib/api";
+import { api, Project, Requirement, SystemTestCase, Risk, RequirementCategory, RiskCategory } from "@/lib/api";
 import { useActiveProject } from "@/lib/useActiveProject";
 import DashboardSrsPanel from "./DashboardSrsPanel";
 
@@ -282,10 +282,9 @@ export default function ProjectDashboardPage() {
   const [projects,     setProjects]     = useState<Project[]>([]);
   const [project,      setProject]      = useState<Project | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
-  const [testcases,    setTestcases]    = useState<TestCase[]>([]);
+  const [systemTests,  setSystemTests]  = useState<SystemTestCase[]>([]);
   const [risks,        setRisks]        = useState<Risk[]>([]);
   const [cats,         setCats]         = useState<RequirementCategory[]>([]);
-  const [testCats,     setTestCats]     = useState<TestCategory[]>([]);
   const [riskCats,     setRiskCats]     = useState<RiskCategory[]>([]);
 
   const [name,    setName]    = useState("");
@@ -298,25 +297,23 @@ export default function ProjectDashboardPage() {
   useEffect(() => { api.projects.list().then(setProjects); }, []);
 
   useEffect(() => {
-    if (!activeId) { setProject(null); setRequirements([]); setTestcases([]); setRisks([]); setCats([]); setTestCats([]); setRiskCats([]); return; }
+    if (!activeId) { setProject(null); setRequirements([]); setSystemTests([]); setRisks([]); setCats([]); setRiskCats([]); return; }
     Promise.all([
       api.projects.list(),
       api.requirements.list(activeId),
-      api.testcases.list(activeId),
+      api.systemTesting.list(activeId),
       api.risks.list(undefined, activeId),
       api.requirements.categories.list(activeId),
-      api.testcases.categories.list(activeId),
       api.risks.categories.list(activeId),
-    ]).then(([projs, reqs, tcs, rks, cs, tcs2, rcs]) => {
+    ]).then(([projs, reqs, tcs, rks, cs, rcs]) => {
       const p = projs.find(x => x.id === activeId) ?? null;
       setProject(p);
       setName(p?.name ?? "");
       setDesc(p?.description ?? "");
       setRequirements(reqs);
-      setTestcases(tcs);
+      setSystemTests(tcs);
       setRisks(rks);
       setCats(cs);
-      setTestCats(tcs2);
       setRiskCats(rcs);
     });
   }, [activeId]);
@@ -389,7 +386,7 @@ export default function ProjectDashboardPage() {
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 10 }}>
         <StatCard label="Requirements" value={requirements.length} sub={`${cats.length} types`} color="#1565c0" />
-        <StatCard label="Test Cases"   value={testcases.length}    color="#0d47a1" />
+        <StatCard label="System Tests §5.7" value={systemTests.length} color="#0d47a1" />
         <StatCard label="Risks Total"  value={risks.length}        color="#6a1b9a" />
         <StatCard label="High Risks"   value={highRisks}           color={highRisks > 0 ? "#b71c1c" : "#2e7d32"} />
         <StatCard label="Open Risks"   value={openRisks}           color={openRisks > 0 ? "#e65100" : "#2e7d32"} />
@@ -438,8 +435,7 @@ export default function ProjectDashboardPage() {
             {[
               { label: "Requirements",    href: "/requirements" },
               { label: "Risk Register",   href: "/risks" },
-              { label: "Test Cases",      href: "/testcases" },
-              { label: "Trace Matrix",    href: "/tracelinks" },
+              { label: "System Tests",    href: "/system-testing" },
               { label: "Design Elements", href: "/design" },
               { label: "Documents",       href: "/documents" },
               { label: "Change Control",  href: "/change-control" },
@@ -468,16 +464,6 @@ export default function ProjectDashboardPage() {
             onAdd={d => api.requirements.categories.create(d)}
             onDelete={api.requirements.categories.delete}
             onUpdate={api.requirements.categories.update}
-          />
-          <FolderPanel
-            title="Test Folders"
-            description="Organize test cases into suites, phases, or test levels"
-            icon="✓"
-            categories={testCats}
-            projectId={activeId}
-            onAdd={api.testcases.categories.create}
-            onDelete={api.testcases.categories.delete}
-            onUpdate={api.testcases.categories.update}
           />
           <FolderPanel
             title="Risk Register Folders"

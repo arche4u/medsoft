@@ -31,7 +31,7 @@ export default function TraceabilityPage() {
     acc + 1 + (u.children?.reduce((a2, s) => a2 + 1 + (s.children?.length ?? 0), 0) ?? 0), 0);
   const totalTests = tree.reduce((acc, u) =>
     acc + (u.children?.reduce((a2, s) =>
-      a2 + (s.children?.reduce((a3, sw) => a3 + (sw.testcases?.length ?? 0), 0) ?? 0), 0) ?? 0), 0);
+      a2 + (s.children?.reduce((a3, sw) => a3 + (sw.system_tests?.length ?? 0), 0) ?? 0), 0) ?? 0), 0);
 
   return (
     <div>
@@ -44,7 +44,7 @@ export default function TraceabilityPage() {
         </select>
         {projectId && !loading && (
           <span style={{ fontSize: "0.85rem", color: "#555" }}>
-            {totalReqs} requirements · {totalTests} test links
+            {totalReqs} requirements · {totalTests} system-test links
           </span>
         )}
       </div>
@@ -164,17 +164,22 @@ function SwBlock({ node }: { node: TreeNode }) {
         {node.risks.map((r) => <RiskBadge key={r.id} level={r.risk_level} />)}
       </div>
       <RiskList risks={node.risks} />
-      {(node.testcases ?? []).length > 0 && (
+      {(node.system_tests ?? []).length > 0 && (
         <div style={{ marginTop: "0.5rem", paddingLeft: "0.5rem" }}>
-          {(node.testcases ?? []).map((tc) => (
-            <div key={tc.id} style={{ fontSize: "0.82rem", color: "#1b5e20", padding: "2px 0" }}>
-              🧪 {tc.title}
+          {(node.system_tests ?? []).map((st) => (
+            <div key={st.id} style={{ fontSize: "0.82rem", color: "#1b5e20", padding: "2px 0" }}>
+              🧪 {st.name}
+              {st.latest_execution && (
+                <span style={{ marginLeft: 8, fontSize: "0.72rem", color: st.latest_execution.status === "PASS" ? "#2e7d32" : "#b71c1c" }}>
+                  [{st.latest_execution.status}]
+                </span>
+              )}
             </div>
           ))}
         </div>
       )}
-      {(node.testcases ?? []).length === 0 && (
-        <div style={{ fontSize: "0.78rem", color: "#aaa", marginTop: "0.35rem" }}>No test cases linked.</div>
+      {(node.system_tests ?? []).length === 0 && (
+        <div style={{ fontSize: "0.78rem", color: "#aaa", marginTop: "0.35rem" }}>No system tests linked.</div>
       )}
     </div>
   );

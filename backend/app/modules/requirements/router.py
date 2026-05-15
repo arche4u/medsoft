@@ -37,7 +37,22 @@ _INITIAL_CATEGORIES = [
 
 async def _ensure_builtins(db: AsyncSession, project_id: uuid.UUID) -> None:
     """Seed initial categories on first use. Idempotent — pre-existing rows
-    are kept. Two passes: insert the rows first, then wire parent_id by name."""
+    are kept. Two passes: insert the rows first, then wire parent_id by name.
+
+    Returns 404 cleanly if the project_id is stale (e.g. frontend cached an
+    ID that was wiped by a re-seed) rather than letting the FK violation
+    surface as a 500.
+    """
+    from app.modules.projects.model import Project
+    project = (await db.execute(
+        select(Project).where(Project.id == project_id)
+    )).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(
+            404,
+            f"Project {project_id} not found. Your session may reference a deleted "
+            "project — pick another project from the sidebar."
+        )
     for bc in _INITIAL_CATEGORIES:
         stmt = pg_insert(RequirementCategory).values(
             id=uuid.uuid4(),

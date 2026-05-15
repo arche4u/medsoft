@@ -66,9 +66,6 @@ class Requirement(Base, TimestampMixin):
     needs_review_reason: Mapped[str | None] = mapped_column(Text)
 
     project: Mapped["Project"] = relationship(back_populates="requirements")
-    tracelinks: Mapped[list["TraceLink"]] = relationship(
-        back_populates="requirement", cascade="all, delete-orphan", passive_deletes=True
-    )
     risks: Mapped[list["Risk"]] = relationship(
         back_populates="requirement", cascade="all, delete-orphan", passive_deletes=True
     )

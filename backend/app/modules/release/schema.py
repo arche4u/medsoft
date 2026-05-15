@@ -16,13 +16,13 @@ class ReleaseTransition(BaseModel):
 class ReleaseItemCreate(BaseModel):
     release_id: uuid.UUID
     requirement_id: uuid.UUID | None = None
-    testcase_id: uuid.UUID | None = None
+    system_test_id: uuid.UUID | None = None
     design_element_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def at_least_one_ref(self):
-        if not any([self.requirement_id, self.testcase_id, self.design_element_id]):
-            raise ValueError("At least one of requirement_id, testcase_id, or design_element_id must be provided")
+        if not any([self.requirement_id, self.system_test_id, self.design_element_id]):
+            raise ValueError("At least one of requirement_id, system_test_id, or design_element_id must be provided")
         return self
 
 
@@ -30,7 +30,7 @@ class ReleaseItemRead(BaseModel):
     id: uuid.UUID
     release_id: uuid.UUID
     requirement_id: uuid.UUID | None
-    testcase_id: uuid.UUID | None
+    system_test_id: uuid.UUID | None
     design_element_id: uuid.UUID | None
 
     model_config = {"from_attributes": True}
@@ -52,6 +52,6 @@ class ReleaseDetail(ReleaseRead):
 
 class ReadinessCheck(BaseModel):
     ready: bool
-    total_testcases: int
+    total_system_tests: int
     passed: int
     not_passed: list[uuid.UUID]

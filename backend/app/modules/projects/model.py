@@ -13,4 +13,3 @@ class Project(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text)
 
     requirements: Mapped[list["Requirement"]] = relationship(back_populates="project", cascade="all, delete-orphan", passive_deletes=True)
-    testcases: Mapped[list["TestCase"]] = relationship(back_populates="project", cascade="all, delete-orphan", passive_deletes=True)

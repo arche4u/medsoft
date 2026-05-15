@@ -54,8 +54,8 @@ class ChangeImpact(Base):
     impacted_design_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("design_elements.id"), nullable=True
     )
-    impacted_testcase_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("testcases.id"), nullable=True
+    impacted_system_test_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("system_test_cases.id", ondelete="SET NULL"), nullable=True
     )
     impact_description: Mapped[str | None] = mapped_column(Text)
 

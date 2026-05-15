@@ -9,8 +9,6 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 from app.modules.projects.model import Project
 from app.modules.requirements.model import Requirement, RequirementType
-from app.modules.testcases.model import TestCase
-from app.modules.tracelinks.model import TraceLink
 from app.modules.risks.model import Risk, _compute_level
 
 engine = create_async_engine(settings.DATABASE_URL, echo=False)
@@ -66,27 +64,6 @@ async def seed():
         db.add_all([sw1, sw2, sw3])
         await db.flush()
 
-        # ── Test cases ────────────────────────────────────────────────────────
-        tc1 = TestCase(project_id=project.id, title="TC-001 PID step response test",
-                       description="Verify PID output converges within 3 cycles")
-        tc2 = TestCase(project_id=project.id, title="TC-002 Dose calculation boundary test",
-                       description="Test min/max dose inputs including negative and overflow")
-        tc3 = TestCase(project_id=project.id, title="TC-003 Occlusion alarm trigger test",
-                       description="Simulate pressure > 300 mmHg and verify alarm within 5s")
-        tc4 = TestCase(project_id=project.id, title="TC-004 Pressure sensor accuracy test",
-                       description="Verify ADC readings match calibrated pressure gauge ±1%")
-        db.add_all([tc1, tc2, tc3, tc4])
-        await db.flush()
-
-        # ── Trace links (SOFTWARE ↔ TestCase) ─────────────────────────────────
-        db.add_all([
-            TraceLink(requirement_id=sw1.id, testcase_id=tc1.id),
-            TraceLink(requirement_id=sw2.id, testcase_id=tc2.id),
-            TraceLink(requirement_id=sw3.id, testcase_id=tc3.id),
-            TraceLink(requirement_id=sw3.id, testcase_id=tc4.id),
-        ])
-        await db.flush()
-
         # ── Risks ─────────────────────────────────────────────────────────────
         db.add_all([
             Risk(requirement_id=sw1.id,
@@ -112,7 +89,7 @@ async def seed():
         await db.commit()
         print(f"✓ Project created: {project.id}")
         print(f"  2 USER | 3 SYSTEM | 3 SOFTWARE requirements")
-        print(f"  4 test cases | 4 trace links | 3 risks")
+        print(f"  3 risks")
 
 
 asyncio.run(seed())

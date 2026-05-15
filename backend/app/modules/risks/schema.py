@@ -36,7 +36,7 @@ class RiskControlCreate(BaseModel):
     control_type: str = Field(pattern="^(INHERENT_SAFETY|PROTECTIVE_MEASURE|INFORMATION_FOR_SAFETY)$")
     description: str
     requirement_id: uuid.UUID | None = None
-    testcase_id: uuid.UUID | None = None
+    system_test_id: uuid.UUID | None = None
     implementation_status: str = Field(default="PROPOSED", pattern="^(PROPOSED|IMPLEMENTED|VERIFIED)$")
     verification_notes: str | None = None
 
@@ -44,7 +44,7 @@ class RiskControlUpdate(BaseModel):
     control_type: str | None = Field(default=None, pattern="^(INHERENT_SAFETY|PROTECTIVE_MEASURE|INFORMATION_FOR_SAFETY)$")
     description: str | None = None
     requirement_id: uuid.UUID | None = None
-    testcase_id: uuid.UUID | None = None
+    system_test_id: uuid.UUID | None = None
     implementation_status: str | None = Field(default=None, pattern="^(PROPOSED|IMPLEMENTED|VERIFIED)$")
     verification_notes: str | None = None
 
@@ -54,7 +54,7 @@ class RiskControlRead(BaseModel):
     control_type: str
     description: str
     requirement_id: uuid.UUID | None
-    testcase_id: uuid.UUID | None
+    system_test_id: uuid.UUID | None
     implementation_status: str
     verification_notes: str | None
     created_at: datetime

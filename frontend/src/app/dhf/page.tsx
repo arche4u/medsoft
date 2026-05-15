@@ -92,8 +92,6 @@ export default function DHFPage() {
       { key: "unit_test_cases",         title: "§5.5 Unit Tests",               columns: [{ id: "name", label: "Name" }, { id: "test_type", label: "Type" }, { id: "expected_result", label: "Expected" }, { id: "latest_result", label: "Latest" }] },
       { key: "integration_tests",       title: "§5.6 Integration Tests",        columns: [{ id: "name", label: "Name" }, { id: "test_type", label: "Type" }, { id: "safety_relevance", label: "Safety" }, { id: "latest_result", label: "Latest" }] },
       { key: "system_tests",            title: "§5.7 System Tests",             columns: [{ id: "name", label: "Name" }, { id: "test_type", label: "Type" }, { id: "safety_relevance", label: "Safety" }, { id: "latest_result", label: "Latest" }] },
-      { key: "testcases",               title: "Test Cases (V&V register)",     columns: [{ id: "title", label: "Title" }, { id: "description", label: "Description" }] },
-      { key: "test_results",            title: "Test Executions",               columns: [{ id: "status", label: "Status" }, { id: "executed_at", label: "Executed At" }, { id: "notes", label: "Notes" }] },
       { key: "releases",                title: "§5.8 Releases",                 columns: [{ id: "version", label: "Version" }, { id: "status", label: "Status" }, { id: "item_count", label: "Items" }, { id: "has_snapshot", label: "Snapshot" }, { id: "artifact_count", label: "Artifacts" }] },
       { key: "release_artifacts",       title: "§5.8 Release Artifacts",        columns: [{ id: "version", label: "Version" }, { id: "artifact_type", label: "Type" }, { id: "reference_id", label: "Reference" }, { id: "label", label: "Label" }] },
       { key: "plans",                   title: "§6/§7/§8/§9 Plans",             columns: [{ id: "plan_type", label: "Type" }, { id: "title", label: "Title" }, { id: "version", label: "Version" }, { id: "status", label: "Status" }, { id: "approved_by", label: "Approved by" }] },
@@ -101,7 +99,6 @@ export default function DHFPage() {
       { key: "problem_reports",         title: "§9 Problem Reports / CAPA",     columns: [{ id: "title", label: "Title" }, { id: "severity", label: "Severity" }, { id: "status", label: "Status" }, { id: "source", label: "Source" }] },
       { key: "validation_records",      title: "Validation Records (V-model: USER reqs)", columns: [{ id: "description", label: "Description" }, { id: "status", label: "Status" }] },
       { key: "electronic_signatures",   title: "Electronic Signatures (21 CFR Part 11)", columns: [{ id: "meaning", label: "Meaning" }, { id: "user_id", label: "User" }, { id: "signed_at", label: "Signed at" }, { id: "comments", label: "Comments" }] },
-      { key: "traceability",            title: "Traceability Links (Req → Test)", columns: [{ id: "requirement_id", label: "Requirement ID" }, { id: "testcase_id", label: "Test Case ID" }] },
     ];
 
     const RISK_COLORS: Record<string, string> = { HIGH: "#ffeaea", MEDIUM: "#fff8e1", LOW: "#f0fdf4" };
@@ -117,7 +114,6 @@ export default function DHFPage() {
           ["Software Units",     summary.total_software_units,          "#00695c"],
           ["Integration Tests",  summary.total_integration_tests,       "#5d4037"],
           ["System Tests",       summary.total_system_tests,            "#ad1457"],
-          ["Test Cases",         summary.total_testcases,               "#e65100"],
           ["Risks",              summary.total_risks,                   "#b71c1c"],
           ["Validations",        summary.total_validations,             "#6a1b9a"],
           ["Releases",           summary.total_releases,                "#1976d2"],
@@ -170,7 +166,7 @@ export default function DHFPage() {
     // verification artifact so auditors can see coverage at a glance.
     type TraceRow = {
       readable_id?: string; type?: string; title?: string;
-      design_element_ids?: string[]; testcase_ids?: string[];
+      design_element_ids?: string[];
       system_test_ids?: string[]; integration_test_ids?: string[];
       software_unit_ids?: string[]; risk_ids?: string[]; validation_ids?: string[];
     };
@@ -184,7 +180,7 @@ export default function DHFPage() {
         <table>
           <thead><tr>
             <th>Req</th><th>Type</th><th>Title</th>
-            <th>Design</th><th>Test Cases</th><th>System</th><th>Integration</th><th>Units</th><th>Risks</th><th>Validation</th>
+            <th>Design</th><th>System Tests</th><th>Integration</th><th>Units</th><th>Risks</th><th>Validation</th>
           </tr></thead>
           <tbody>
             ${traceRows.map(r => `<tr>
@@ -192,7 +188,6 @@ export default function DHFPage() {
               <td>${r.type ?? "—"}</td>
               <td>${(r.title ?? "—").slice(0, 60)}</td>
               <td style="text-align:center">${(r.design_element_ids ?? []).length}</td>
-              <td style="text-align:center">${(r.testcase_ids ?? []).length}</td>
               <td style="text-align:center">${(r.system_test_ids ?? []).length}</td>
               <td style="text-align:center">${(r.integration_test_ids ?? []).length}</td>
               <td style="text-align:center">${(r.software_unit_ids ?? []).length}</td>
@@ -416,10 +411,9 @@ export default function DHFPage() {
                     {[
                       { label: "Requirements", value: summary.total_requirements, color: "#1565c0" },
                       { label: "Design Elements", value: summary.total_design_elements, color: "#2e7d32" },
-                      { label: "Test Cases", value: summary.total_testcases, color: "#e65100" },
+                      { label: "System Tests", value: summary.total_system_tests, color: "#ad1457" },
                       { label: "Risks", value: summary.total_risks, color: "#b71c1c" },
                       { label: "Validations", value: summary.total_validations, color: "#6a1b9a" },
-                      { label: "Test Executions", value: summary.total_executions, color: "#00695c" },
                       { label: "SDP", value: summary.sdp_present ? "✓" : "—", color: summary.sdp_present ? "#15803d" : "#9ca3af" },
                     ].map(s => (
                       <div key={s.label} style={{ background: "#f8f8f8", borderRadius: 6, padding: "0.75rem", textAlign: "center", border: `2px solid ${s.color}20` }}>
@@ -435,11 +429,11 @@ export default function DHFPage() {
               <DHFSection title="Requirements" items={parsedContent.requirements as unknown[]} columns={["readable_id", "type", "title", "description"]} />
               <DesignElementsDHFSection items={parsedContent.design_elements as unknown[]} />
               <DHFSection title="Requirement → Design Links" items={parsedContent.requirement_design_links as unknown[]} columns={["requirement_id", "design_element_id"]} />
-              <DHFSection title="Test Cases" items={parsedContent.testcases as unknown[]} columns={["title", "description"]} />
-              <DHFSection title="Test Results" items={parsedContent.test_results as unknown[]} columns={["testcase_id", "status", "executed_at", "notes"]} />
+              <DHFSection title="System Tests (§5.7)" items={parsedContent.system_tests as unknown[]} columns={["name", "test_type", "safety_relevance", "latest_result"]} />
+              <DHFSection title="Integration Tests (§5.6)" items={parsedContent.integration_tests as unknown[]} columns={["name", "test_type", "safety_relevance", "latest_result"]} />
+              <DHFSection title="Unit Tests (§5.5)" items={parsedContent.unit_test_cases as unknown[]} columns={["name", "test_type", "expected_result", "latest_result"]} />
               <DHFSection title="Risks" items={parsedContent.risks as unknown[]} columns={["hazard", "harm", "severity", "probability", "risk_level"]} />
               <DHFSection title="Validation Records" items={parsedContent.validation_records as unknown[]} columns={["requirement_id", "description", "status"]} />
-              <DHFSection title="Traceability Links (Req → Test)" items={parsedContent.traceability as unknown[]} columns={["requirement_id", "testcase_id"]} />
             </>
           ) : (
             <div style={{ ...cardStyle, color: "#888", textAlign: "center", padding: "3rem" }}>

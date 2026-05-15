@@ -10,11 +10,8 @@ from app.modules.audit.service import audit
 from app.modules.audit.model import AuditAction
 from app.modules.requirements.model import Requirement
 from app.modules.design.model import DesignElement, RequirementDesignLink
-from app.modules.testcases.model import TestCase
-from app.modules.tracelinks.model import TraceLink
 from app.modules.risks.model import Risk
 from app.modules.validation.model import ValidationRecord
-from app.modules.verification.model import TestExecution
 from app.modules.sdp.model import SoftwareDevelopmentPlan
 # Phase 6+ modules — extending the DHF to cover §4.3 through §9 (TODO A4).
 from app.modules.software_items.model import SoftwareItem, SoftwareItemRequirementLink, SoftwareItemRiskLink
@@ -110,23 +107,6 @@ async def generate_dhf(
     ).scalars().all()
     de_ids = [de.id for de in design_elements]
 
-    # Collect test cases
-    testcases = (
-        await db.execute(
-            select(TestCase).where(TestCase.project_id == project_id)
-        )
-    ).scalars().all()
-    tc_ids = [tc.id for tc in testcases]
-
-    # Collect trace links
-    tracelinks = []
-    if req_ids:
-        tracelinks = (
-            await db.execute(
-                select(TraceLink).where(TraceLink.requirement_id.in_(req_ids))
-            )
-        ).scalars().all()
-
     # Collect risks
     risks = []
     if req_ids:
@@ -142,20 +122,6 @@ async def generate_dhf(
             select(ValidationRecord).where(ValidationRecord.project_id == project_id)
         )
     ).scalars().all()
-
-    # Collect latest test executions
-    executions = []
-    for tc_id in tc_ids:
-        latest = (
-            await db.execute(
-                select(TestExecution)
-                .where(TestExecution.testcase_id == tc_id)
-                .order_by(TestExecution.executed_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if latest:
-            executions.append(latest)
 
     # Collect requirement-design links
     req_design_links = []
@@ -306,9 +272,6 @@ async def generate_dhf(
     def _ids_for(model_list, attr_name):
         return [getattr(x, attr_name) for x in model_list]
 
-    tracelinks_by_req = {}
-    for tl in tracelinks:
-        tracelinks_by_req.setdefault(tl.requirement_id, []).append(str(tl.testcase_id))
     rdl_by_req = {}
     for rdl in req_design_links:
         rdl_by_req.setdefault(rdl.requirement_id, []).append(str(rdl.design_element_id))
@@ -339,7 +302,6 @@ async def generate_dhf(
             "type": r.type,
             "title": r.title,
             "design_element_ids": rdl_by_req.get(r.id, []),
-            "testcase_ids":       tracelinks_by_req.get(r.id, []),
             "system_test_ids":    stc_by_req.get(r.id, []),
             "integration_test_ids": itc_by_req.get(r.id, []),
             "software_unit_ids":  unit_by_req.get(r.id, []),
@@ -359,16 +321,14 @@ async def generate_dhf(
         "bound_release": {
             "id": str(bound_release.id),
             "version": bound_release.version,
-            "status": str(bound_release.status),
+            "status": bound_release.status.value,
         } if bound_release else None,
         "summary": {
             # Phase 0–5
             "total_requirements": len(requirements),
             "total_design_elements": len(design_elements),
-            "total_testcases": len(testcases),
             "total_risks": len(risks),
             "total_validations": len(validations),
-            "total_executions": len(executions),
             "sdp_present": sdp is not None,
             # Phase 6+ — IEC 62304 §4.3 through §9
             "total_software_items": len(software_items),
@@ -413,29 +373,12 @@ async def generate_dhf(
             }
             for de in design_elements
         ],
-        "traceability": [
-            {"requirement_id": str(tl.requirement_id), "testcase_id": str(tl.testcase_id)}
-            for tl in tracelinks
-        ],
         "requirement_design_links": [
             {
                 "requirement_id": str(rdl.requirement_id),
                 "design_element_id": str(rdl.design_element_id),
             }
             for rdl in req_design_links
-        ],
-        "testcases": [
-            {"id": str(tc.id), "title": tc.title, "description": tc.description}
-            for tc in testcases
-        ],
-        "test_results": [
-            {
-                "testcase_id": str(ex.testcase_id),
-                "status": ex.status.value,
-                "executed_at": ex.executed_at.isoformat(),
-                "notes": ex.notes,
-            }
-            for ex in executions
         ],
         "risks": [
             {

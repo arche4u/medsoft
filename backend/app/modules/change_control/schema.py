@@ -23,7 +23,7 @@ class ChangeImpactCreate(BaseModel):
     change_request_id: uuid.UUID
     impacted_requirement_id: uuid.UUID | None = None
     impacted_design_id: uuid.UUID | None = None
-    impacted_testcase_id: uuid.UUID | None = None
+    impacted_system_test_id: uuid.UUID | None = None
     impact_description: str | None = None
 
 
@@ -32,7 +32,7 @@ class ChangeImpactRead(BaseModel):
     change_request_id: uuid.UUID
     impacted_requirement_id: uuid.UUID | None
     impacted_design_id: uuid.UUID | None
-    impacted_testcase_id: uuid.UUID | None
+    impacted_system_test_id: uuid.UUID | None
     impact_description: str | None
 
     model_config = {"from_attributes": True}

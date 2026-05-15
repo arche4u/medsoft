@@ -19,14 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 # Eager-import every model so the SQLAlchemy mapper resolves cross-module
-# relationships (Requirement → Risk → TraceLink etc.) before we query.
+# relationships (Requirement → Risk → DesignElement etc.) before we query.
 import app.modules.projects.model           # noqa: F401
 import app.modules.requirements.model       # noqa: F401
-import app.modules.testcases.model          # noqa: F401
-import app.modules.tracelinks.model         # noqa: F401
 import app.modules.risks.model              # noqa: F401
 import app.modules.design.model             # noqa: F401
-import app.modules.verification.model       # noqa: F401
 import app.modules.validation.model         # noqa: F401
 import app.modules.architecture.model       # noqa: F401
 import app.modules.config_mgmt.model        # noqa: F401

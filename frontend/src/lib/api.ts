@@ -63,8 +63,6 @@ export type ChangeImpactPreview = {
   total: number;
   by_type: Record<string, number>;
 };
-export type TestCase    = { id: string; project_id: string; category_id: string | null; readable_id: string | null; title: string; description: string | null; expected_result: string | null; created_at: string };
-export type TraceLink   = { id: string; requirement_id: string; testcase_id: string };
 export type Risk = {
   id: string; requirement_id: string; category_id: string | null;
   title: string | null; hazard: string; hazardous_situation: string; harm: string;
@@ -74,7 +72,7 @@ export type Risk = {
 };
 export type RiskControl = {
   id: string; risk_id: string; control_type: string; description: string;
-  requirement_id: string | null; testcase_id: string | null;
+  requirement_id: string | null; system_test_id: string | null;
   implementation_status: string; verification_notes: string | null;
   created_at: string; updated_at: string;
 };
@@ -108,10 +106,7 @@ export type SafetyProfile = {
 // (component_id) and may sub-nest under another element of the same component.
 export type DesignElement     = { id: string; project_id: string; component_id: string; parent_id: string | null; readable_id: string | null; title: string; description: string | null; diagram_source: string | null; created_at: string };
 export type DesignLink        = { id: string; requirement_id: string; design_element_id: string };
-export type TestCategory      = { id: string; project_id: string; name: string; label: string; color: string; sort_order: number; is_builtin: boolean };
 export type RiskCategory      = { id: string; project_id: string; name: string; label: string; color: string; sort_order: number; is_builtin: boolean; created_at: string; updated_at: string };
-export type ExecStatus        = "PASS" | "FAIL" | "BLOCKED";
-export type TestExecution     = { id: string; testcase_id: string; status: ExecStatus; executed_at: string; notes: string | null; actual_result: string | null };
 export type ValidationStatus  = "PLANNED" | "PASSED" | "FAILED";
 export type ValidationRecord  = { id: string; project_id: string; related_requirement_id: string; description: string; status: ValidationStatus; created_at: string };
 export type AuditLog          = { id: string; entity_type: string; entity_id: string; action: "CREATE" | "UPDATE" | "DELETE"; timestamp: string; actor_name: string | null; details: string | null };
@@ -119,17 +114,17 @@ export type AuditLog          = { id: string; entity_type: string; entity_id: st
 export type ImpactResult = {
   requirement: { id: string; type: string; title: string; description: string | null };
   children_requirements: { id: string; type: string; title: string }[];
-  linked_design_elements: { id: string; type: string; readable_id: string | null; title: string; description: string | null }[];
-  linked_testcases: { id: string; title: string }[];
-  latest_executions: { testcase_id: string; testcase_title: string; status: string | null; executed_at: string | null }[];
+  linked_design_elements: { id: string; readable_id: string | null; title: string; description: string | null }[];
+  linked_system_tests: { id: string; name: string }[];
+  latest_executions: { system_test_id: string; system_test_name: string; status: string | null; executed_at: string | null }[];
 };
 
 export type TreeNode = {
   id: string; type: ReqType; title: string; description: string | null;
   risks: { id: string; hazard: string; harm: string; severity: number; probability: number; risk_level: string }[];
   children?: TreeNode[];
-  design_elements?: { id: string; title: string; type: string }[];
-  testcases?: { id: string; title: string; latest_execution: { status: string; executed_at: string } | null }[];
+  design_elements?: { id: string; readable_id: string | null; title: string }[];
+  system_tests?: { id: string; name: string; latest_execution: { status: string; executed_at: string } | null }[];
 };
 
 export type UploadSummary = { total_added: number; total_skipped: number; added: { title: string; type: string }[]; skipped: { title: string; reason: string }[] };
@@ -238,7 +233,7 @@ export type ChangeImpact = {
   id: string; change_request_id: string;
   impacted_requirement_id: string | null;
   impacted_design_id: string | null;
-  impacted_testcase_id: string | null;
+  impacted_system_test_id: string | null;
   impact_description: string | null;
 };
 export type ChangeRequestDetail = ChangeRequest & { impacts: ChangeImpact[] };
@@ -252,9 +247,9 @@ export type Approval = {
 
 export type ReleaseStatus = "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "RELEASED";
 export type Release = { id: string; project_id: string; version: string; status: ReleaseStatus; created_at: string };
-export type ReleaseItem = { id: string; release_id: string; requirement_id: string | null; testcase_id: string | null; design_element_id: string | null };
+export type ReleaseItem = { id: string; release_id: string; requirement_id: string | null; system_test_id: string | null; design_element_id: string | null };
 export type ReleaseDetail = Release & { items: ReleaseItem[] };
-export type ReadinessCheck = { ready: boolean; total_testcases: number; passed: number; not_passed: string[] };
+export type ReadinessCheck = { ready: boolean; total_system_tests: number; passed: number; not_passed: string[] };
 
 export type DHFDocument = { id: string; project_id: string; name: string; generated_at: string; file_path: string | null; content: string | null };
 
@@ -499,7 +494,7 @@ export type SWComponent = {
   rationale: string | null;
   diagram_source: string | null;
   approved_by: string | null; approved_at: string | null;
-  requirement_ids: string[]; risk_ids: string[]; testcase_ids: string[];
+  requirement_ids: string[]; risk_ids: string[]; system_test_ids: string[];
   interface_count: number;
   created_at: string; updated_at: string;
 };
@@ -517,7 +512,7 @@ export type SWComponentTreeNode = {
   id: string; name: string; component_type: ComponentType;
   safety_class: string; status: ComponentStatus; version: string;
   description: string | null;
-  requirement_ids: string[]; risk_ids: string[]; testcase_ids: string[];
+  requirement_ids: string[]; risk_ids: string[]; system_test_ids: string[];
   interface_count: number; is_compliant: boolean;
   children: SWComponentTreeNode[];
 };
@@ -914,24 +909,6 @@ export const api = {
         req<RequirementCategoryBaseline>(`/requirements/category-baselines/${id}/fork`, { method: "POST" }),
     },
   },
-  testcases: {
-    list: (project_id?: string) => req<TestCase[]>(`/testcases/${project_id ? `?project_id=${project_id}` : ""}`),
-    create: (d: { project_id: string; category_id?: string; title: string; description?: string; expected_result?: string }) => req<TestCase>("/testcases/", { method: "POST", body: JSON.stringify(d) }),
-    update: (id: string, d: { category_id?: string | null; title?: string; description?: string; expected_result?: string }) => req<TestCase>(`/testcases/${id}`, { method: "PUT", body: JSON.stringify(d) }),
-    categories: {
-      list:   (project_id: string) => req<TestCategory[]>(`/testcases/categories?project_id=${project_id}`),
-      create: (d: { project_id: string; name: string; label: string; color: string }) =>
-        req<TestCategory>("/testcases/categories", { method: "POST", body: JSON.stringify(d) }),
-      update: (id: string, d: { label?: string; color?: string; sort_order?: number }) =>
-        req<TestCategory>(`/testcases/categories/${id}`, { method: "PUT", body: JSON.stringify(d) }),
-      delete: (id: string) => req<void>(`/testcases/categories/${id}`, { method: "DELETE" }),
-    },
-  },
-  tracelinks: {
-    list: (requirement_id?: string) => req<TraceLink[]>(`/tracelinks/${requirement_id ? `?requirement_id=${requirement_id}` : ""}`),
-    create: (d: { requirement_id: string; testcase_id: string }) => req<TraceLink>("/tracelinks/", { method: "POST", body: JSON.stringify(d) }),
-    delete: (link_id: string) => req<void>(`/tracelinks/${link_id}`, { method: "DELETE" }),
-  },
   risks: {
     list: (requirement_id?: string, project_id?: string) => {
       const p = new URLSearchParams();
@@ -949,9 +926,9 @@ export const api = {
     dashboard: (project_id: string) => req<RiskDashboard>(`/risks/dashboard/${project_id}`),
     controls: {
       list: (risk_id: string) => req<RiskControl[]>(`/risks/${risk_id}/controls`),
-      create: (risk_id: string, d: { control_type: string; description: string; requirement_id?: string | null; testcase_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
+      create: (risk_id: string, d: { control_type: string; description: string; requirement_id?: string | null; system_test_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
         req<RiskControl>(`/risks/${risk_id}/controls`, { method: "POST", body: JSON.stringify(d) }),
-      update: (control_id: string, d: { control_type?: string; description?: string; requirement_id?: string | null; testcase_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
+      update: (control_id: string, d: { control_type?: string; description?: string; requirement_id?: string | null; system_test_id?: string | null; implementation_status?: string; verification_notes?: string | null }) =>
         req<RiskControl>(`/risks/controls/${control_id}`, { method: "PUT", body: JSON.stringify(d) }),
       delete: (control_id: string) => req<void>(`/risks/controls/${control_id}`, { method: "DELETE" }),
     },
@@ -996,12 +973,6 @@ export const api = {
     createLink: (d: { requirement_id: string; design_element_id: string }) =>
       req<DesignLink>("/design/links", { method: "POST", body: JSON.stringify(d) }),
     deleteLink: (id: string) => req<void>(`/design/links/${id}`, { method: "DELETE" }),
-  },
-  verification: {
-    listExecutions: (testcase_id?: string) => req<TestExecution[]>(`/verification/executions${testcase_id ? `?testcase_id=${testcase_id}` : ""}`),
-    execute: (d: { testcase_id: string; status: ExecStatus; notes?: string; actual_result?: string }) =>
-      req<TestExecution>("/verification/executions", { method: "POST", body: JSON.stringify(d) }),
-    latest: (testcase_id: string) => req<TestExecution | null>(`/verification/executions/latest?testcase_id=${testcase_id}`),
   },
   validation: {
     listRecords: (project_id?: string) => req<ValidationRecord[]>(`/validation/records${project_id ? `?project_id=${project_id}` : ""}`),
@@ -1076,7 +1047,7 @@ export const api = {
       change_request_id: string;
       impacted_requirement_id?: string;
       impacted_design_id?: string;
-      impacted_testcase_id?: string;
+      impacted_system_test_id?: string;
       impact_description?: string;
     }) => req<ChangeImpact>("/change-control/impacts", { method: "POST", body: JSON.stringify(d) }),
     deleteImpact: (id: string) => req<void>(`/change-control/impacts/${id}`, { method: "DELETE" }),
@@ -1103,7 +1074,7 @@ export const api = {
         body: JSON.stringify({ new_status }),
       }),
     readiness: (id: string) => req<ReadinessCheck>(`/release/releases/${id}/readiness`),
-    addItem: (d: { release_id: string; requirement_id?: string; testcase_id?: string; design_element_id?: string }) =>
+    addItem: (d: { release_id: string; requirement_id?: string; system_test_id?: string; design_element_id?: string }) =>
       req<ReleaseItem>("/release/items", { method: "POST", body: JSON.stringify(d) }),
     deleteItem: (id: string) => req<void>(`/release/items/${id}`, { method: "DELETE" }),
   },
@@ -1217,8 +1188,8 @@ export const api = {
       req<SWComponent>(`/architecture/${id}/requirements`, { method: "PUT", body: JSON.stringify({ ids }) }),
     setRisks: (id: string, ids: string[]) =>
       req<SWComponent>(`/architecture/${id}/risks`, { method: "PUT", body: JSON.stringify({ ids }) }),
-    setTestcases: (id: string, ids: string[]) =>
-      req<SWComponent>(`/architecture/${id}/testcases`, { method: "PUT", body: JSON.stringify({ ids }) }),
+    setSystemTests: (id: string, ids: string[]) =>
+      req<SWComponent>(`/architecture/${id}/system-tests`, { method: "PUT", body: JSON.stringify({ ids }) }),
     compliance: (id: string) => req<ArchCompliance>(`/architecture/${id}/compliance`),
     listInterfaces: (project_id: string) => req<SWInterface[]>(`/architecture/interfaces/${project_id}`),
     createInterface: (d: { project_id: string; source_component_id: string; target_component_id: string; interface_type?: InterfaceType; name: string; description?: string | null; data_format?: string | null; communication_method?: string | null; safety_relevant?: boolean }) =>

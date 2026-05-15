@@ -115,7 +115,7 @@ class ComponentRead(BaseModel):
     approved_at: datetime | None
     requirement_ids: list[uuid.UUID] = []
     risk_ids: list[uuid.UUID] = []
-    testcase_ids: list[uuid.UUID] = []
+    system_test_ids: list[uuid.UUID] = []
     interface_count: int = 0
     created_at: datetime
     updated_at: datetime
@@ -134,7 +134,7 @@ class ComponentTreeNode(BaseModel):
     description: str | None
     requirement_ids: list[uuid.UUID] = []
     risk_ids: list[uuid.UUID] = []
-    testcase_ids: list[uuid.UUID] = []
+    system_test_ids: list[uuid.UUID] = []
     interface_count: int = 0
     is_compliant: bool = True
     children: list["ComponentTreeNode"] = []

@@ -115,12 +115,6 @@ const SECTIONS: Section[] = [
           { href: "/units", label: "Unit Verification" },                      // §5.5
           { href: "/integration-tests", label: "Integration Tests" },          // §5.6
           { href: "/system-testing", label: "System Testing & Release" },      // §5.7 + §5.8 release-mgmt
-          // Legacy "Test Register" (Test Cases / Test Execution) hidden — IEC
-          // 62304 has no "generic test case" concept; every test is unit /
-          // integration / system. The pages still exist at /testcases and
-          // /verification (deprecation banners point to the level-specific
-          // modules above). FKs to the testcases table remain across other
-          // models (release_items, change_impacts, …) — those tables stay.
         ],
       },
       {
@@ -143,9 +137,6 @@ const SECTIONS: Section[] = [
         // Not a clause-numbered process, so it sits last as the "whole picture".
         group: "Traceability",
         items: [
-          // Impact analysis isn't a separate page — it's the "impact spider"
-          // modal inside Trace Matrix (click any requirement ID chip).
-          { href: "/tracelinks",   label: "Trace Matrix" },
           { href: "/traceability", label: "V-Model Tree" },
           { href: "/validation",   label: "Validation Records" },
         ],

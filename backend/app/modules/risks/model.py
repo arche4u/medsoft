@@ -99,8 +99,8 @@ class RiskControl(Base, TimestampMixin):
     requirement_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("requirements.id", ondelete="SET NULL"), nullable=True
     )
-    testcase_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("testcases.id", ondelete="SET NULL"), nullable=True
+    system_test_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("system_test_cases.id", ondelete="SET NULL"), nullable=True
     )
     implementation_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PROPOSED")
     verification_notes: Mapped[str | None] = mapped_column(Text, nullable=True)

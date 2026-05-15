@@ -12,7 +12,7 @@ from app.modules.auth.schema import TokenData
 from app.modules.esign.model import ElectronicSignature, ESignEntityType, ESignMeaning
 from app.modules.requirements.model import Requirement
 from app.modules.design.model import DesignElement
-from app.modules.testcases.model import TestCase
+from app.modules.system_testing.model import SystemTestCase
 
 from .model import ChangeRequest, ChangeImpact, ChangeRequestState, VALID_TRANSITIONS
 from .schema import (
@@ -174,9 +174,9 @@ async def _auto_populate_impacts(db: AsyncSession, cr: ChangeRequest) -> None:
             select(DesignElement).where(DesignElement.project_id == cr.project_id)
         )
     ).scalars().all()
-    tcs = (
+    sts = (
         await db.execute(
-            select(TestCase).where(TestCase.project_id == cr.project_id)
+            select(SystemTestCase).where(SystemTestCase.project_id == cr.project_id)
         )
     ).scalars().all()
 
@@ -192,11 +192,11 @@ async def _auto_populate_impacts(db: AsyncSession, cr: ChangeRequest) -> None:
             impacted_design_id=de.id,
             impact_description=f"Design element may be affected: {de.title}",
         ))
-    for tc in tcs:
+    for st in sts:
         db.add(ChangeImpact(
             change_request_id=cr.id,
-            impacted_testcase_id=tc.id,
-            impact_description=f"Test case may need re-execution: {tc.title}",
+            impacted_system_test_id=st.id,
+            impact_description=f"System test may need re-execution: {st.name}",
         ))
 
 

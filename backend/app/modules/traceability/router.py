@@ -7,7 +7,7 @@ project's category taxonomy is honoured:
 - Root categories (no parent_id) form the top tier.
 - Each child category nests under its parent.
 - Leaf categories (no category points to them as parent) carry the design
-  elements + test cases + executions attached to requirements of that type.
+  elements + system test cases attached to requirements of that type.
 """
 import uuid
 from fastapi import APIRouter, Depends
@@ -16,10 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.requirements.model import Requirement, RequirementCategory
 from app.modules.risks.model import Risk
-from app.modules.tracelinks.model import TraceLink
-from app.modules.testcases.model import TestCase
 from app.modules.design.model import DesignElement, RequirementDesignLink
-from app.modules.verification.model import TestExecution
+from app.modules.system_testing.model import (
+    SystemTestCase, SystemTestResult, STAdditionalReqLink,
+)
 
 router = APIRouter(prefix="/traceability", tags=["traceability"])
 
@@ -56,7 +56,7 @@ async def get_traceability_tree(project_id: uuid.UUID, db: AsyncSession = Depend
             "severity": risk.severity, "probability": risk.probability, "risk_level": risk.risk_level,
         })
 
-    # ── Design/test/execution links — attached at leaf-level requirements ────
+    # ── Design elements — attached at leaf-level requirements ────────────────
     leaf_req_ids = [r.id for r in reqs if r.type in leaf_names]
 
     design_links = (await db.execute(
@@ -72,34 +72,44 @@ async def get_traceability_tree(project_id: uuid.UUID, db: AsyncSession = Depend
         el = de_by_id.get(link.design_element_id)
         if el:
             design_by_req.setdefault(link.requirement_id, []).append({
-                "id": str(el.id), "type": el.type.value, "title": el.title,
+                "id": str(el.id), "readable_id": el.readable_id, "title": el.title,
             })
 
-    trace_links = (await db.execute(
-        select(TraceLink).where(TraceLink.requirement_id.in_(leaf_req_ids))
-    )).scalars().all() if leaf_req_ids else []
-    tc_ids = list({l.testcase_id for l in trace_links})
-    testcases = (await db.execute(
-        select(TestCase).where(TestCase.id.in_(tc_ids))
-    )).scalars().all() if tc_ids else []
-    tc_by_id = {tc.id: tc for tc in testcases}
-    tc_ids_by_req: dict[uuid.UUID, list] = {}
-    for link in trace_links:
-        tc_ids_by_req.setdefault(link.requirement_id, []).append(link.testcase_id)
+    # ── §5.7 System tests — primary FK + additional req links ────────────────
+    primary_tests = (await db.execute(
+        select(SystemTestCase).where(SystemTestCase.requirement_id.in_(req_ids))
+    )).scalars().all() if req_ids else []
+    addl_links = (await db.execute(
+        select(STAdditionalReqLink).where(STAdditionalReqLink.requirement_id.in_(req_ids))
+    )).scalars().all() if req_ids else []
+    all_tests = {t.id: t for t in primary_tests}
+    addl_test_ids = {l.stc_id for l in addl_links} - set(all_tests.keys())
+    if addl_test_ids:
+        for t in (await db.execute(
+            select(SystemTestCase).where(SystemTestCase.id.in_(addl_test_ids))
+        )).scalars().all():
+            all_tests[t.id] = t
+
+    tests_by_req: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for t in primary_tests:
+        if t.requirement_id is not None:
+            tests_by_req.setdefault(t.requirement_id, []).append(t.id)
+    for l in addl_links:
+        if l.stc_id in all_tests:
+            tests_by_req.setdefault(l.requirement_id, []).append(l.stc_id)
 
     latest_exec: dict[uuid.UUID, dict] = {}
-    for tc_id in tc_ids:
+    for st_id in all_tests:
         ex = (await db.execute(
-            select(TestExecution)
-            .where(TestExecution.testcase_id == tc_id)
-            .order_by(desc(TestExecution.executed_at))
+            select(SystemTestResult)
+            .where(SystemTestResult.test_case_id == st_id)
+            .order_by(desc(SystemTestResult.execution_date))
             .limit(1)
         )).scalar_one_or_none()
         if ex:
-            latest_exec[tc_id] = {"status": ex.status.value, "executed_at": ex.executed_at.isoformat()}
+            latest_exec[st_id] = {"status": ex.result, "executed_at": ex.execution_date.isoformat()}
 
     # ── Tree assembly ────────────────────────────────────────────────────────
-    # Requirements indexed by parent_id for fast lookup at each level.
     children_req: dict[uuid.UUID | None, list[Requirement]] = {}
     for r in reqs:
         children_req.setdefault(r.parent_id, []).append(r)
@@ -110,9 +120,20 @@ async def get_traceability_tree(project_id: uuid.UUID, db: AsyncSession = Depend
             "description": r.description, "risks": risks_by_req.get(r.id, []),
         }
 
+    def tests_payload(req_id: uuid.UUID) -> list[dict]:
+        out = []
+        for st_id in tests_by_req.get(req_id, []):
+            st = all_tests.get(st_id)
+            if not st:
+                continue
+            out.append({
+                "id": str(st_id),
+                "name": st.name,
+                "latest_execution": latest_exec.get(st_id),
+            })
+        return out
+
     def attach_children(node: dict, req: Requirement) -> None:
-        """For each downstream category under this requirement's category,
-        find requirements of that downstream type whose parent_id == req.id."""
         own_cat = cat_by_name.get(req.type)
         if not own_cat:
             return
@@ -122,21 +143,17 @@ async def get_traceability_tree(project_id: uuid.UUID, db: AsyncSession = Depend
                     continue
                 child_node = req_node(child_req)
                 attach_children(child_node, child_req)
-                # If this is a leaf-level requirement, attach design+tests.
                 if child_req.type in leaf_names:
                     child_node["design_elements"] = design_by_req.get(child_req.id, [])
-                    child_node["testcases"] = [
-                        {
-                            "id": str(tc_id),
-                            "title": tc_by_id[tc_id].title if tc_id in tc_by_id else "?",
-                            "latest_execution": latest_exec.get(tc_id),
-                        }
-                        for tc_id in tc_ids_by_req.get(child_req.id, [])
-                    ]
+                    child_node["system_tests"] = tests_payload(child_req.id)
+                # Every requirement (leaf or not) may carry validation/system tests
+                # via additional links — surface tests at every level.
+                if "system_tests" not in child_node:
+                    direct = tests_payload(child_req.id)
+                    if direct:
+                        child_node["system_tests"] = direct
                 node.setdefault("children", []).append(child_node)
 
-    # Top-level entries: roots of the requirements tree = requirements whose
-    # category has no parent_id.
     root_cat_names = {c.name for c in cats if c.parent_id is None}
     tree: list[dict] = []
     for r in reqs:
@@ -146,21 +163,13 @@ async def get_traceability_tree(project_id: uuid.UUID, db: AsyncSession = Depend
             continue
         node = req_node(r)
         attach_children(node, r)
-        # If a root category is also a leaf (single-tier project), attach
-        # design + tests at the root too.
         if r.type in leaf_names:
             node["design_elements"] = design_by_req.get(r.id, [])
-            node["testcases"] = [
-                {
-                    "id": str(tc_id),
-                    "title": tc_by_id[tc_id].title if tc_id in tc_by_id else "?",
-                    "latest_execution": latest_exec.get(tc_id),
-                }
-                for tc_id in tc_ids_by_req.get(r.id, [])
-            ]
+            node["system_tests"] = tests_payload(r.id)
+        elif tests_payload(r.id):
+            node["system_tests"] = tests_payload(r.id)
         node.setdefault("children", [])
         tree.append(node)
 
-    # Silence unused-var warnings on cat_by_id (kept for future helpers).
     _ = cat_by_id
     return tree

@@ -1,7 +1,7 @@
 "use client";
 import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useState } from "react";
-import { api, Project, Release, ReleaseDetail, ReleaseStatus, TestCase, Requirement, DesignElement, ReadinessCheck, Approval } from "@/lib/api";
+import { api, Project, Release, ReleaseDetail, ReleaseStatus, SystemTestCase, Requirement, DesignElement, ReadinessCheck, Approval } from "@/lib/api";
 
 const STATUS_COLORS: Record<ReleaseStatus, string> = {
   DRAFT: "#546e7a",
@@ -41,10 +41,10 @@ export default function ReleasePage() {
   }
 
   // Add item form
-  const [testcases, setTestcases] = useState<TestCase[]>([]);
+  const [systemTests, setSystemTests] = useState<SystemTestCase[]>([]);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [designElements, setDesignElements] = useState<DesignElement[]>([]);
-  const [itemType, setItemType] = useState<"testcase" | "requirement" | "design">("testcase");
+  const [itemType, setItemType] = useState<"system_test" | "requirement" | "design">("system_test");
   const [itemId, setItemId] = useState("");
 
   // Approval form
@@ -62,7 +62,7 @@ export default function ReleasePage() {
 
   const loadReleases = (pid: string) => {
     api.release.list(pid).then(setReleases);
-    api.testcases.list(pid).then(setTestcases);
+    api.systemTesting.list(pid).then(setSystemTests);
     api.requirements.list(pid).then(setRequirements);
     api.design.listElements(pid).then(setDesignElements);
   };
@@ -110,8 +110,8 @@ export default function ReleasePage() {
     if (!selected || !itemId) return;
     try {
       setError("");
-      const d: { release_id: string; testcase_id?: string; requirement_id?: string; design_element_id?: string } = { release_id: selected.id };
-      if (itemType === "testcase") d.testcase_id = itemId;
+      const d: { release_id: string; system_test_id?: string; requirement_id?: string; design_element_id?: string } = { release_id: selected.id };
+      if (itemType === "system_test") d.system_test_id = itemId;
       else if (itemType === "requirement") d.requirement_id = itemId;
       else d.design_element_id = itemId;
       await api.release.addItem(d);
@@ -148,7 +148,7 @@ export default function ReleasePage() {
   };
 
   const getItemOptions = () => {
-    if (itemType === "testcase") return testcases.map(tc => ({ id: tc.id, label: tc.title }));
+    if (itemType === "system_test") return systemTests.map(tc => ({ id: tc.id, label: tc.name }));
     if (itemType === "requirement") return requirements.map(r => ({ id: r.id, label: `[${r.type}] ${r.title}` }));
     return designElements.map(de => ({ id: de.id, label: `${de.readable_id ?? "DESIGN"} ${de.title}` }));
   };
@@ -224,7 +224,7 @@ export default function ReleasePage() {
                       {readiness.ready ? "✓ Release Ready" : "⚠ Not Ready for Release"}
                     </strong>
                     <div style={{ fontSize: "0.8rem", color: "#555", marginTop: 4 }}>
-                      Test Cases: {readiness.passed}/{readiness.total_testcases} passed
+                      System Tests: {readiness.passed}/{readiness.total_system_tests} passed
                       {readiness.not_passed.length > 0 && ` · ${readiness.not_passed.length} failing`}
                     </div>
                   </div>
@@ -274,13 +274,13 @@ export default function ReleasePage() {
                 <div style={cardStyle}>
                   <h4 style={{ marginTop: 0 }}>Add Release Item</h4>
                   <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
-                    {(["testcase", "requirement", "design"] as const).map(t => (
+                    {(["system_test", "requirement", "design"] as const).map(t => (
                       <button
                         key={t}
                         style={{ ...btnStyle(itemType === t ? "#1565c0" : "#90a4ae"), padding: "0.3rem 0.6rem" }}
                         onClick={() => { setItemType(t); setItemId(""); }}
                       >
-                        {t === "testcase" ? "Test Case" : t === "requirement" ? "Requirement" : "Design Element"}
+                        {t === "system_test" ? "System Test" : t === "requirement" ? "Requirement" : "Design Element"}
                       </button>
                     ))}
                   </div>
@@ -307,8 +307,8 @@ export default function ReleasePage() {
                     </thead>
                     <tbody>
                       {selected.items.map(item => {
-                        const type = item.testcase_id ? "Test Case" : item.requirement_id ? "Requirement" : "Design Element";
-                        const id = item.testcase_id || item.requirement_id || item.design_element_id || "";
+                        const type = item.system_test_id ? "System Test" : item.requirement_id ? "Requirement" : "Design Element";
+                        const id = item.system_test_id || item.requirement_id || item.design_element_id || "";
                         return (
                           <tr key={item.id}>
                             <td style={{ padding: "6px 8px", border: "1px solid #eee" }}>

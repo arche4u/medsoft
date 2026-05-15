@@ -12,12 +12,9 @@ from app.modules.projects.router import router as projects_router
 from app.modules.requirements.router import router as requirements_router
 from app.modules.requirements.baseline_router import router as requirements_baseline_router
 from app.modules.requirements.category_baseline_router import router as requirements_category_baseline_router
-from app.modules.testcases.router import router as testcases_router
-from app.modules.tracelinks.router import router as tracelinks_router
 from app.modules.risks.router import router as risks_router
 from app.modules.traceability.router import router as traceability_router
 from app.modules.design.router import router as design_router
-from app.modules.verification.router import router as verification_router
 from app.modules.validation.router import router as validation_router
 from app.modules.audit.router import router as audit_router
 from app.modules.impact.router import router as impact_router
@@ -66,9 +63,8 @@ _auth = [Depends(get_current_user)]
 for router in [
     projects_router, requirements_router,
     requirements_baseline_router, requirements_category_baseline_router,
-    testcases_router,
-    tracelinks_router, risks_router, traceability_router,
-    design_router, verification_router, validation_router,
+    risks_router, traceability_router,
+    design_router, validation_router,
     audit_router, impact_router,
     change_control_router, approval_router, release_router, dhf_router,
     roles_router, users_router, esign_router, training_router,

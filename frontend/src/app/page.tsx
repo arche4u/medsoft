@@ -1,10 +1,11 @@
 import Link from "next/link";
 
 const steps = [
-  { href: "/projects", label: "1. Create a Project", desc: "Define a new compliance project." },
-  { href: "/requirements", label: "2. Add Requirements", desc: "Attach requirements to a project." },
-  { href: "/testcases", label: "3. Add Test Cases", desc: "Attach test cases to a project." },
-  { href: "/tracelinks", label: "4. Link & View Matrix", desc: "Link requirements ↔ test cases and view traceability." },
+  { href: "/projects",     label: "1. Create a Project", desc: "Define a new IEC 62304 compliance project." },
+  { href: "/requirements", label: "2. Add Requirements", desc: "Capture USER / SYSTEM / SOFTWARE requirements (§5.2)." },
+  { href: "/architecture", label: "3. Define Architecture", desc: "Add §5.3 components, interfaces, and detailed design." },
+  { href: "/system-testing", label: "4. Run System Tests & Release", desc: "Execute §5.7 system tests, then build the §5.8 release." },
+  { href: "/traceability", label: "5. View V-Model Tree", desc: "Requirements → design → tests → validation traceability." },
 ];
 
 export default function Home() {

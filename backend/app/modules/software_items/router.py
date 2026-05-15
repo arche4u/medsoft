@@ -62,8 +62,9 @@ async def _run_compliance(
 ) -> ComplianceStatus:
     from app.modules.risks.model import RiskControl
     from app.modules.architecture.model import SWComponent
-    from app.modules.tracelinks.model import TraceLink
-    from app.modules.testcases.model import TestCase
+    from app.modules.system_testing.model import SystemTestCase, STAdditionalReqLink
+    from app.modules.units.model import SoftwareUnit, UnitTestCase, UnitRequirementLink
+    from app.modules.integration_tests.model import IntegrationTestCase, ITCRequirementLink
 
     safety_class = item.safety_class
     checks: list[ComplianceCheck] = []
@@ -85,71 +86,65 @@ async def _run_compliance(
                    else "No architecture components — define them in SW Architecture",
         ))
 
-    # ── Rule 2: Test cases linked via requirements (Class B & C) ─────────────
+    # ── Rule 2: §5.7 System tests linked to requirements (Class B & C) ───────
     tests_required = safety_class in ("B", "C")
     if tests_required:
-        tc_count = 0
+        st_count = 0
         if req_ids:
-            tc_count = (await db.execute(
-                select(func.count(TraceLink.id)).where(TraceLink.requirement_id.in_(req_ids))
+            primary = (await db.execute(
+                select(func.count(SystemTestCase.id)).where(SystemTestCase.requirement_id.in_(req_ids))
             )).scalar_one()
-        checks.append(ComplianceCheck(
-            rule="tests_required",
-            label="Test cases linked to requirements",
-            required=True,
-            satisfied=tc_count > 0,
-            detail=f"{tc_count} test case(s) traced" if tc_count > 0
-                   else "No test cases traced to linked requirements — add trace links",
-        ))
-
-    # ── Rule 3: Unit tests (test cases in UNIT category) — Class C only ───────
-    unit_required = safety_class == "C"
-    if unit_required:
-        unit_count = 0
-        if req_ids:
-            # Find test cases via trace links whose test_category.name == 'UNIT'
-            from app.modules.testcases.model import TestCategory
-            unit_tcs = (await db.execute(
-                select(func.count(TraceLink.id))
-                .join(TestCase, TestCase.id == TraceLink.testcase_id)
-                .join(TestCategory, TestCategory.id == TestCase.category_id)
-                .where(
-                    TraceLink.requirement_id.in_(req_ids),
-                    TestCategory.name == "UNIT",
+            addl = (await db.execute(
+                select(func.count(STAdditionalReqLink.stc_id)).where(
+                    STAdditionalReqLink.requirement_id.in_(req_ids)
                 )
             )).scalar_one()
-            unit_count = unit_tcs
+            st_count = primary + addl
         checks.append(ComplianceCheck(
-            rule="unit_tests_required",
-            label="Unit tests exist (test category: UNIT)",
+            rule="tests_required",
+            label="System tests linked to requirements (§5.7)",
             required=True,
-            satisfied=unit_count > 0,
-            detail=f"{unit_count} unit test(s) found" if unit_count > 0
-                   else "No UNIT test cases — create a test category named 'UNIT' and link test cases",
+            satisfied=st_count > 0,
+            detail=f"{st_count} system test(s) linked" if st_count > 0
+                   else "No system tests linked — add tests under Testing → System Testing",
         ))
 
-    # ── Rule 4: Integration tests — Class C only ──────────────────────────────
+    # ── Rule 3: §5.5 Unit tests — Class C only ────────────────────────────────
+    unit_required = safety_class == "C"
+    if unit_required:
+        unit_test_count = 0
+        if req_ids:
+            unit_test_count = (await db.execute(
+                select(func.count(UnitTestCase.id))
+                .join(SoftwareUnit, SoftwareUnit.id == UnitTestCase.unit_id)
+                .join(UnitRequirementLink, UnitRequirementLink.unit_id == SoftwareUnit.id)
+                .where(UnitRequirementLink.requirement_id.in_(req_ids))
+            )).scalar_one()
+        checks.append(ComplianceCheck(
+            rule="unit_tests_required",
+            label="Unit tests exist (§5.5)",
+            required=True,
+            satisfied=unit_test_count > 0,
+            detail=f"{unit_test_count} unit test(s) found" if unit_test_count > 0
+                   else "No unit tests — add software units and unit tests under Verification → Unit Verification",
+        ))
+
+    # ── Rule 4: §5.6 Integration tests — Class C only ─────────────────────────
     if unit_required:
         integ_count = 0
         if req_ids:
-            from app.modules.testcases.model import TestCategory
-            integ_tcs = (await db.execute(
-                select(func.count(TraceLink.id))
-                .join(TestCase, TestCase.id == TraceLink.testcase_id)
-                .join(TestCategory, TestCategory.id == TestCase.category_id)
-                .where(
-                    TraceLink.requirement_id.in_(req_ids),
-                    TestCategory.name == "INTEGRATION",
-                )
+            integ_count = (await db.execute(
+                select(func.count(IntegrationTestCase.id))
+                .join(ITCRequirementLink, ITCRequirementLink.itc_id == IntegrationTestCase.id)
+                .where(ITCRequirementLink.requirement_id.in_(req_ids))
             )).scalar_one()
-            integ_count = integ_tcs
         checks.append(ComplianceCheck(
             rule="integration_tests_required",
-            label="Integration tests exist (test category: INTEGRATION)",
+            label="Integration tests exist (§5.6)",
             required=True,
             satisfied=integ_count > 0,
             detail=f"{integ_count} integration test(s) found" if integ_count > 0
-                   else "No INTEGRATION test cases — create a test category named 'INTEGRATION' and link test cases",
+                   else "No integration tests — add tests under Verification → Integration Tests",
         ))
 
     # ── Rule 5: All risk controls verified (Class B & C) ─────────────────────

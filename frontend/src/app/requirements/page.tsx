@@ -3,7 +3,7 @@
 import { useActiveProject } from "@/lib/useActiveProject";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { api, Project, Requirement, RequirementCategory, UploadSummary, DesignElement, DesignLink, TestCase, TraceLink, AIGeneratedRequirement, AICategoryMeta, CompositeBaselineSummary } from "@/lib/api";
+import { api, Project, Requirement, RequirementCategory, UploadSummary, DesignElement, DesignLink, SystemTestCase, AIGeneratedRequirement, AICategoryMeta, CompositeBaselineSummary } from "@/lib/api";
 import { downloadSrsPdf } from "./pdf";
 import SrsBaselineBar from "./SrsBaselineBar";
 import { InlineEditPanel, type FieldDef } from "@/components/InlineEditPanel";
@@ -45,8 +45,8 @@ function RequirementsPageInner() {
   const [projectId,  setProjectId]  = useActiveProject();
   const [composites, setComposites] = useState<CompositeBaselineSummary[]>([]);
 
-  // Linked-item maps for inline chips on each row
-  const [tcMap,  setTcMap]  = useState<Map<string, TestCase[]>>(new Map());
+  // Linked-item maps for inline chips on each row (V-model: req → system tests)
+  const [stMap,  setStMap]  = useState<Map<string, SystemTestCase[]>>(new Map());
   const [deMap,  setDeMap]  = useState<Map<string, { id: string; readable_id: string | null; title: string }[]>>(new Map());
 
   // Create-form state
@@ -100,26 +100,30 @@ function RequirementsPageInner() {
   }, [projectId]);
 
   const reload = async () => {
-    const [r, c, tcs, tlinks, dels, dlinks] = await Promise.all([
+    const [r, c, sts, dels, dlinks] = await Promise.all([
       api.requirements.list(projectId),
       api.requirements.categories.list(projectId),
-      api.testcases.list(projectId),
-      api.tracelinks.list(),
+      api.systemTesting.list(projectId),
       api.design.listElements(projectId),
       api.design.listLinks(),
     ]);
     setReqs(r);
 
-    // Build req_id → TestCase[] map
-    const tcById = Object.fromEntries(tcs.map(t => [t.id, t]));
-    const newTcMap = new Map<string, TestCase[]>();
-    for (const tl of tlinks) {
-      const tc = tcById[tl.testcase_id];
-      if (!tc) continue;
-      if (!newTcMap.has(tl.requirement_id)) newTcMap.set(tl.requirement_id, []);
-      newTcMap.get(tl.requirement_id)!.push(tc);
+    // Build req_id → SystemTestCase[] map (V-model §5.7 system tests).
+    // A system test is linked to a primary requirement_id, plus any number of
+    // additional_requirement_ids. We index against every linked requirement.
+    const newStMap = new Map<string, SystemTestCase[]>();
+    for (const st of sts) {
+      const reqIds = [
+        ...(st.requirement_id ? [st.requirement_id] : []),
+        ...st.additional_requirement_ids,
+      ];
+      for (const rid of reqIds) {
+        if (!newStMap.has(rid)) newStMap.set(rid, []);
+        newStMap.get(rid)!.push(st);
+      }
     }
-    setTcMap(newTcMap);
+    setStMap(newStMap);
 
     // Build req_id → DesignElement[] map
     const deById = Object.fromEntries(dels.map(d => [d.id, d]));
@@ -703,7 +707,7 @@ function RequirementsPageInner() {
                             {/* Focused-type children */}
                             <div style={{ background: "#fff" }}>
                               {children.map(r => (
-                                <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={true} highlightId={highlightId} />
+                                <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} stMap={stMap} deMap={deMap} showCrossTypeChildren={true} highlightId={highlightId} />
                               ))}
                             </div>
                           </div>
@@ -716,7 +720,7 @@ function RequirementsPageInner() {
                           </div>
                           <div style={{ background: "#fff" }}>
                             {orphans.map(r => (
-                              <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={true} highlightId={highlightId} />
+                              <ReqTree key={r.id} req={r} allReqs={reqs} cats={categories} depth={0} onReload={reload} stMap={stMap} deMap={deMap} showCrossTypeChildren={true} highlightId={highlightId} />
                             ))}
                           </div>
                         </div>
@@ -739,7 +743,7 @@ function RequirementsPageInner() {
                     projectId={projectId}
                     depth={0}
                     onReload={reload}
-                    tcMap={tcMap}
+                    stMap={stMap}
                     deMap={deMap}
                     showCrossTypeChildren={false}
                     highlightId={highlightId}
@@ -895,7 +899,7 @@ function InlineCreateReq({ catName, catColor: color, allReqs, cats, projectId, o
 /** Inline form to create a sub-category folder */
 
 /** Category folder node — collapsible, contains reqs and sub-category folders */
-function CategoryFolder({ cat, allCats, reqs, allReqs, cats, projectId, depth, onReload, tcMap, deMap, showCrossTypeChildren, highlightId }: {
+function CategoryFolder({ cat, allCats, reqs, allReqs, cats, projectId, depth, onReload, stMap, deMap, showCrossTypeChildren, highlightId }: {
   cat: RequirementCategory;
   allCats: RequirementCategory[];
   reqs: Requirement[];
@@ -904,7 +908,7 @@ function CategoryFolder({ cat, allCats, reqs, allReqs, cats, projectId, depth, o
   projectId: string;
   depth: number;
   onReload: () => void;
-  tcMap: Map<string, TestCase[]>;
+  stMap: Map<string, SystemTestCase[]>;
   deMap: Map<string, { id: string; readable_id: string | null; title: string }[]>;
   showCrossTypeChildren?: boolean;
   highlightId?: string;
@@ -992,7 +996,7 @@ function CategoryFolder({ cat, allCats, reqs, allReqs, cats, projectId, depth, o
             <p style={{ color: "#bbb", fontSize: "0.75rem", margin: "4px 0 4px 4px", fontStyle: "italic" }}>Empty folder</p>
           )}
           {catRootReqs.map(r => (
-            <ReqTree key={r.id} req={r} allReqs={allReqs} cats={cats} depth={0} onReload={onReload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={showCrossTypeChildren} highlightId={highlightId} />
+            <ReqTree key={r.id} req={r} allReqs={allReqs} cats={cats} depth={0} onReload={onReload} stMap={stMap} deMap={deMap} showCrossTypeChildren={showCrossTypeChildren} highlightId={highlightId} />
           ))}
 
           {/* Sub-category folders */}
@@ -1007,7 +1011,7 @@ function CategoryFolder({ cat, allCats, reqs, allReqs, cats, projectId, depth, o
               projectId={projectId}
               depth={0}
               onReload={onReload}
-              tcMap={tcMap}
+              stMap={stMap}
               deMap={deMap}
               showCrossTypeChildren={showCrossTypeChildren}
               highlightId={highlightId}
@@ -1093,10 +1097,10 @@ function EditReqForm({ req, cats, allReqs, onSave, onCancel }: {
 }
 
 /** Renders a requirement and all its visible children recursively */
-function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap, showCrossTypeChildren, highlightId }: {
+function ReqTree({ req, allReqs, cats, depth, onReload, stMap, deMap, showCrossTypeChildren, highlightId }: {
   req: Requirement; allReqs: Requirement[]; cats: RequirementCategory[];
   depth: number; onReload: () => void;
-  tcMap: Map<string, TestCase[]>;
+  stMap: Map<string, SystemTestCase[]>;
   deMap: Map<string, { id: string; readable_id: string | null; title: string }[]>;
   showCrossTypeChildren?: boolean;
   highlightId?: string;
@@ -1117,7 +1121,7 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap, showCrossT
   const color    = catColor(cat);
   const children = allReqs.filter(r => r.parent_id === req.id && (showCrossTypeChildren || r.type === req.type));
   const childCount = children.length;
-  const linkedTCs = tcMap.get(req.id) ?? [];
+  const linkedSTs = stMap.get(req.id) ?? [];
   const linkedDEs = deMap.get(req.id) ?? [];
 
   async function handleDelete() {
@@ -1190,16 +1194,16 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap, showCrossT
           </span>
         )}
 
-        {/* Linked TC chips */}
-        {linkedTCs.map(tc => (
-          <a key={tc.id} href={`/testcases?highlight=${tc.id}`}
+        {/* Linked System Test chips */}
+        {linkedSTs.map(st => (
+          <a key={st.id} href={`/system-testing?highlight=${st.id}`}
             onClick={e => { e.stopPropagation(); }}
-            title={tc.title}
+            title={st.name}
             style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3,
               background: "#f0fdf4", border: "1px solid #6ee7b7", borderRadius: 4,
               padding: "1px 7px", fontSize: "0.66rem", fontWeight: 700, color: "#059669",
               flexShrink: 0, cursor: "pointer", fontFamily: "monospace" }}>
-            🧪 {tc.readable_id ?? "TC"}
+            🧪 {st.test_type}
           </a>
         ))}
 
@@ -1285,7 +1289,7 @@ function ReqTree({ req, allReqs, cats, depth, onReload, tcMap, deMap, showCrossT
       )}
 
       {children.map(c => (
-        <ReqTree key={c.id} req={c} allReqs={allReqs} cats={cats} depth={depth + 1} onReload={onReload} tcMap={tcMap} deMap={deMap} showCrossTypeChildren={showCrossTypeChildren} />
+        <ReqTree key={c.id} req={c} allReqs={allReqs} cats={cats} depth={depth + 1} onReload={onReload} stMap={stMap} deMap={deMap} showCrossTypeChildren={showCrossTypeChildren} />
       ))}
     </div>
   );
@@ -1300,17 +1304,9 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
 }) {
   const [designEls,   setDesignEls]   = useState<DesignElement[]>([]);
   const [designLinks, setDesignLinks] = useState<DesignLink[]>([]);
-  const [traceLinks,  setTraceLinks]  = useState<TraceLink[]>([]);
-  const [allTCs,      setAllTCs]      = useState<TestCase[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [addChildId,  setAddChildId]  = useState("");
   const [addDesignId, setAddDesignId] = useState("");
-  const [addTcId,     setAddTcId]     = useState("");
-  // inline new test case form
-  const [showTcForm,  setShowTcForm]  = useState(false);
-  const [tcTitle,     setTcTitle]     = useState("");
-  const [tcDesc,      setTcDesc]      = useState("");
-  const [tcExpected,  setTcExpected]  = useState("");
   const [saving,      setSaving]      = useState(false);
   const [msg,         setMsg]         = useState("");
 
@@ -1320,16 +1316,12 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
     async function load() {
       setLoading(true);
       try {
-        const [els, links, tlinks, tcs] = await Promise.all([
+        const [els, links] = await Promise.all([
           api.design.listElements(req.project_id),
           api.design.listLinks(req.id),
-          api.tracelinks.list(req.id),
-          api.testcases.list(req.project_id),
         ]);
         setDesignEls(els);
         setDesignLinks(links);
-        setTraceLinks(tlinks);
-        setAllTCs(tcs);
       } catch { /* ignore */ }
       setLoading(false);
     }
@@ -1398,43 +1390,6 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
     } catch (e: any) { setMsg("Error: " + e.message); }
     setSaving(false);
   }
-
-  async function linkExistingTc() {
-    if (!addTcId) return;
-    setSaving(true); setMsg("");
-    try {
-      const link = await api.tracelinks.create({ requirement_id: req.id, testcase_id: addTcId });
-      setTraceLinks(prev => [...prev, link]);
-      setAddTcId("");
-    } catch (e: any) { setMsg("Error: " + e.message); }
-    setSaving(false);
-  }
-
-  async function createAndLinkTc() {
-    if (!tcTitle.trim()) return;
-    setSaving(true); setMsg("");
-    try {
-      const tc = await api.testcases.create({ project_id: req.project_id, title: tcTitle.trim(), description: tcDesc.trim() || undefined, expected_result: tcExpected.trim() || undefined });
-      setAllTCs(prev => [...prev, tc]);
-      const link = await api.tracelinks.create({ requirement_id: req.id, testcase_id: tc.id });
-      setTraceLinks(prev => [...prev, link]);
-      setTcTitle(""); setTcDesc(""); setTcExpected(""); setShowTcForm(false);
-    } catch (e: any) { setMsg("Error: " + e.message); }
-    setSaving(false);
-  }
-
-  async function unlinkTc(linkId: string) {
-    setSaving(true); setMsg("");
-    try {
-      await api.tracelinks.delete(linkId);
-      setTraceLinks(prev => prev.filter(l => l.id !== linkId));
-    } catch (e: any) { setMsg("Error: " + e.message); }
-    setSaving(false);
-  }
-
-  const linkedTcIds = new Set(traceLinks.map(l => l.testcase_id));
-  const tcById = Object.fromEntries(allTCs.map(t => [t.id, t]));
-  const linkableTcs = allTCs.filter(t => !linkedTcIds.has(t.id));
 
   return (
     <div style={{
@@ -1553,102 +1508,9 @@ function AssignmentPanel({ req, allReqs, cats, onReload }: {
         )}
       </div>
 
-      {/* ── Section C: Test Cases ── */}
-      <div style={{ gridColumn: "1/-1", borderTop: "1px solid #e8eaf6", paddingTop: 10, marginTop: 4 }}>
-        <div style={{ ...assignSectionHead, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span>🧪 Test Cases</span>
-          <button
-            onClick={() => { setShowTcForm(v => !v); setTcTitle(""); setTcDesc(""); setTcExpected(""); }}
-            style={{ fontSize: "0.68rem", background: showTcForm ? "#e8eaf6" : "#eff6ff", border: `1px solid ${showTcForm ? "#9fa8da" : "#bfdbfe"}`, color: showTcForm ? "#3949ab" : "#1d4ed8", borderRadius: 4, padding: "1px 8px", cursor: "pointer", fontWeight: 600 }}>
-            {showTcForm ? "✕ Cancel" : "+ New Test Case"}
-          </button>
-        </div>
-
-        {/* Linked test cases */}
-        {loading ? (
-          <span style={assignEmptyStyle}>Loading…</span>
-        ) : traceLinks.length === 0 && !showTcForm ? (
-          <span style={assignEmptyStyle}>No test cases linked yet</span>
-        ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
-            {traceLinks.map(link => {
-              const tc = tcById[link.testcase_id];
-              if (!tc) return null;
-              return (
-                <span key={link.id} style={{ ...assignChipStyle, border: "1px solid #6ee7b7", padding: 0, overflow: "hidden" }}>
-                  <a href={`/testcases?highlight=${tc.id}`} title={tc.title}
-                    style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 6px" }}>
-                    <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#059669", fontSize: "0.68rem" }}>
-                      {tc.readable_id ?? "TC"}
-                    </span>
-                    <span style={{ color: "#444", fontSize: "0.72rem" }}>{tc.title}</span>
-                  </a>
-                  <button onClick={() => unlinkTc(link.id)} disabled={saving}
-                    style={assignChipRemoveStyle} title="Unlink">×</button>
-                </span>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Inline create form */}
-        {showTcForm && (
-          <div style={{ background: "#f0fdf4", border: "1px solid #6ee7b7", borderRadius: 6, padding: "10px 12px", marginBottom: 6 }}>
-            <div style={{ marginBottom: 6 }}>
-              <label style={{ fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: 3, color: "#065f46" }}>Test Case Title *</label>
-              <input
-                value={tcTitle}
-                onChange={e => setTcTitle(e.target.value)}
-                placeholder="e.g. Verify surgeon can control probe with joystick within 50ms"
-                style={{ width: "100%", border: "1px solid #6ee7b7", borderRadius: 5, padding: "5px 8px", fontSize: "0.8rem", boxSizing: "border-box" as const }}
-              />
-            </div>
-            <div style={{ marginBottom: 6 }}>
-              <label style={{ fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: 3, color: "#065f46" }}>Test Steps</label>
-              <textarea
-                value={tcDesc}
-                onChange={e => setTcDesc(e.target.value)}
-                placeholder="1. Set up the system&#10;2. Perform action&#10;3. Observe output"
-                rows={3}
-                style={{ width: "100%", border: "1px solid #6ee7b7", borderRadius: 5, padding: "5px 8px", fontSize: "0.78rem", resize: "vertical", boxSizing: "border-box" as const, fontFamily: "inherit", lineHeight: 1.5 }}
-              />
-            </div>
-            <div style={{ marginBottom: 8 }}>
-              <label style={{ fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: 3, color: "#065f46" }}>Expected Result *</label>
-              <textarea
-                value={tcExpected}
-                onChange={e => setTcExpected(e.target.value)}
-                placeholder="What the system must do/output to pass this test"
-                rows={2}
-                style={{ width: "100%", border: "1px solid #6ee7b7", borderRadius: 5, padding: "5px 8px", fontSize: "0.78rem", resize: "vertical", boxSizing: "border-box" as const, fontFamily: "inherit", lineHeight: 1.5 }}
-              />
-            </div>
-            <button
-              onClick={createAndLinkTc}
-              disabled={!tcTitle.trim() || saving}
-              style={{ background: "#059669", color: "#fff", border: "none", borderRadius: 5, padding: "4px 14px", cursor: "pointer", fontSize: "0.78rem", fontWeight: 600 }}>
-              {saving ? "Saving…" : "Create & Link Test Case"}
-            </button>
-          </div>
-        )}
-
-        {/* Link existing test case */}
-        {!loading && linkableTcs.length > 0 && (
-          <div style={{ display: "flex", gap: 5, alignItems: "center", marginTop: 4 }}>
-            <select value={addTcId} onChange={e => setAddTcId(e.target.value)} style={assignSelectStyle}>
-              <option value="">+ Link existing test case…</option>
-              {linkableTcs.map(t => (
-                <option key={t.id} value={t.id}>
-                  {t.readable_id ?? "TC"} {t.title}
-                </option>
-              ))}
-            </select>
-            <button onClick={linkExistingTc} disabled={!addTcId || saving} style={assignBtnStyle}>
-              Link
-            </button>
-          </div>
-        )}
-      </div>
+      {/* System Tests (§5.7) are now linked from the System Testing module —
+          a system test references its primary requirement_id directly, so
+          there's no separate link table to maintain here. */}
 
     </div>
   );

@@ -14,7 +14,7 @@ import {
   ArchCompliance, ArchComplianceCheck,
   ArchitectureBaseline, ArchitectureBaselineSummary,
   ComponentTypeInfo,
-  Risk, Requirement, TestCase,
+  Risk, Requirement, SystemTestCase,
 } from "@/lib/api";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -120,18 +120,18 @@ function CompliancePanel({ compliance }: { compliance: ArchCompliance }) {
 // ── Traceability links panel ──────────────────────────────────────────────────
 
 function TracePanel({
-  component, requirements, risks, testcases,
+  component, requirements, risks, systemTests,
   onSave,
 }: {
   component: SWComponent;
   requirements: Requirement[];
   risks: Risk[];
-  testcases: TestCase[];
+  systemTests: SystemTestCase[];
   onSave: (reqs: string[], rks: string[], tcs: string[]) => void;
 }) {
   const [selReqs, setSelReqs] = useState<Set<string>>(new Set(component.requirement_ids));
   const [selRisks, setSelRisks] = useState<Set<string>>(new Set(component.risk_ids));
-  const [selTCs, setSelTCs] = useState<Set<string>>(new Set(component.testcase_ids));
+  const [selTCs, setSelTCs] = useState<Set<string>>(new Set(component.system_test_ids));
 
   function toggle(set: Set<string>, id: string): Set<string> {
     const n = new Set(set);
@@ -153,9 +153,9 @@ function TracePanel({
           render: (r: Risk) => <><span style={{ fontSize: 10, color: "#b71c1c", marginRight: 4 }}>{r.risk_level}</span>{r.title ?? r.hazard}</>,
         },
         {
-          title: "Test Cases", items: testcases,
+          title: "System Tests (§5.7)", items: systemTests,
           sel: selTCs, setFn: (s: Set<string>) => setSelTCs(s),
-          render: (t: TestCase) => <><span style={{ fontSize: 10, color: "#546e7a", marginRight: 4 }}>{t.readable_id ?? ""}</span>{t.title}</>,
+          render: (t: SystemTestCase) => <><span style={{ fontSize: 10, color: "#546e7a", marginRight: 4 }}>{t.test_type}</span>{t.name}</>,
         },
       ].map(({ title, items, sel, setFn, render }) => (
         <div key={title} style={{ ...sty.panel, flex: "1 1 200px" }}>
@@ -165,7 +165,7 @@ function TracePanel({
           <div style={{ maxHeight: 160, overflowY: "auto" as const, marginBottom: 8 }}>
             {items.length === 0
               ? <div style={{ fontSize: 12, color: "#90a4ae" }}>None in project</div>
-              : (items as (Requirement | Risk | TestCase)[]).map(item => (
+              : (items as (Requirement | Risk | SystemTestCase)[]).map(item => (
                 <label key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", fontSize: 12, cursor: "pointer" }}>
                   <input type="checkbox" checked={sel.has(item.id)} onChange={() => setFn(toggle(sel, item.id))} />
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(render as (i: typeof item) => React.ReactNode)(item)}</span>
@@ -186,7 +186,7 @@ function TracePanel({
 // ── Component row (tree node) ─────────────────────────────────────────────────
 
 function ComponentRow({
-  node, depth, interfaces, requirements, risks, testcases,
+  node, depth, interfaces, requirements, risks, systemTests,
   typeMeta, onRefresh,
 }: {
   node: SWComponentTreeNode;
@@ -194,7 +194,7 @@ function ComponentRow({
   interfaces: SWInterface[];
   requirements: Requirement[];
   risks: Risk[];
-  testcases: TestCase[];
+  systemTests: SystemTestCase[];
   typeMeta: Record<string, TypeMeta>;
   onRefresh: () => void;
 }) {
@@ -282,7 +282,7 @@ function ComponentRow({
       await Promise.all([
         api.architecture.setRequirements(node.id, reqs),
         api.architecture.setRisks(node.id, rks),
-        api.architecture.setTestcases(node.id, tcs),
+        api.architecture.setSystemTests(node.id, tcs),
       ]);
       setCompliance(null);
       onRefresh();
@@ -432,7 +432,7 @@ function ComponentRow({
                 {[
                   { label: "Requirements", count: node.requirement_ids.length, color: "#1565c0" },
                   { label: "Risks", count: node.risk_ids.length, color: "#b71c1c" },
-                  { label: "Test Cases", count: node.testcase_ids.length, color: "#1b5e20" },
+                  { label: "System Tests (§5.7)", count: node.system_test_ids.length, color: "#1b5e20" },
                 ].map(({ label, count, color }) => (
                   <div key={label} style={{ padding: "8px 14px", borderRadius: 6, background: "#f5f5f5", textAlign: "center" as const }}>
                     <div style={{ fontSize: 20, fontWeight: 700, color }}>{count}</div>
@@ -448,7 +448,7 @@ function ComponentRow({
               component={fullComp}
               requirements={requirements}
               risks={risks}
-              testcases={testcases}
+              systemTests={systemTests}
               onSave={handleSaveTrace}
             />
           )}
@@ -523,7 +523,7 @@ function ComponentRow({
       {node.children.map(child => (
         <ComponentRow
           key={child.id} node={child} depth={depth + 1}
-          interfaces={interfaces} requirements={requirements} risks={risks} testcases={testcases}
+          interfaces={interfaces} requirements={requirements} risks={risks} systemTests={systemTests}
           typeMeta={typeMeta} onRefresh={onRefresh}
         />
       ))}
@@ -939,7 +939,7 @@ function ArchitecturePageInner() {
   const [interfaces, setInterfaces] = useState<SWInterface[]>([]);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [risks, setRisks] = useState<Risk[]>([]);
-  const [testcases, setTestcases] = useState<TestCase[]>([]);
+  const [systemTests, setSystemTests] = useState<SystemTestCase[]>([]);
   // Component-type taxonomy from the backend (single source of truth).
   const [componentTypes, setComponentTypes] = useState<ComponentTypeInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -962,14 +962,14 @@ function ArchitecturePageInner() {
         api.architecture.listInterfaces(projectId),
         api.requirements.list(projectId),
         api.risks.list(undefined, projectId),
-        api.testcases.list(projectId),
+        api.systemTesting.list(projectId),
       ]);
       setTree(t);
       setFlatComponents(fl);
       setInterfaces(ifaces);
       setRequirements(reqs);
       setRisks(rks);
-      setTestcases(tcs);
+      setSystemTests(tcs);
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1095,7 +1095,7 @@ function ArchitecturePageInner() {
                 {tree.map(root => (
                   <ComponentRow
                     key={root.id} node={root} depth={0}
-                    interfaces={interfaces} requirements={requirements} risks={risks} testcases={testcases}
+                    interfaces={interfaces} requirements={requirements} risks={risks} systemTests={systemTests}
                     typeMeta={typeMeta} onRefresh={load}
                   />
                 ))}

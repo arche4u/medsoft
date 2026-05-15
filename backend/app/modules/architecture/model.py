@@ -154,14 +154,14 @@ class SWComponentRiskLink(Base):
 
 class SWComponentTCLink(Base):
     __tablename__ = "sw_component_tc_links"
-    __table_args__ = (UniqueConstraint("component_id", "testcase_id", name="uq_swcomp_tc"),)
+    __table_args__ = (UniqueConstraint("component_id", "system_test_id", name="uq_swcomp_tc"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     component_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("sw_components.id", ondelete="CASCADE"), nullable=False
     )
-    testcase_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("testcases.id", ondelete="CASCADE"), nullable=False
+    system_test_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("system_test_cases.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     component: Mapped["SWComponent"] = relationship("SWComponent", back_populates="tc_links")

@@ -12,7 +12,7 @@ from app.modules.auth.deps import get_current_user, require_permission
 from app.modules.auth.schema import TokenData
 from app.modules.esign.model import ElectronicSignature, ESignEntityType, ESignMeaning
 from app.modules.training.model import TrainingRecord
-from app.modules.verification.model import TestExecution, ExecutionStatus
+from app.modules.system_testing.model import SystemTestResult
 
 from .model import Release, ReleaseItem, ReleaseStatus, VALID_RELEASE_TRANSITIONS
 from .schema import (
@@ -200,8 +200,8 @@ async def transition_release(
         if not readiness.ready:
             raise HTTPException(
                 400,
-                f"Release blocked: {len(readiness.not_passed)} test case(s) do not have PASS status. "
-                f"Pass rate: {readiness.passed}/{readiness.total_testcases}",
+                f"Release blocked: {len(readiness.not_passed)} system test(s) do not have PASS status. "
+                f"Pass rate: {readiness.passed}/{readiness.total_system_tests}",
             )
 
     rel.status = body.new_status
@@ -232,34 +232,34 @@ async def _check_readiness(release_id: uuid.UUID, db: AsyncSession) -> Readiness
         await db.execute(
             select(ReleaseItem).where(
                 ReleaseItem.release_id == release_id,
-                ReleaseItem.testcase_id.isnot(None),
+                ReleaseItem.system_test_id.isnot(None),
             )
         )
     ).scalars().all()
 
-    tc_ids = [item.testcase_id for item in items]
-    if not tc_ids:
-        return ReadinessCheck(ready=True, total_testcases=0, passed=0, not_passed=[])
+    st_ids = [item.system_test_id for item in items]
+    if not st_ids:
+        return ReadinessCheck(ready=True, total_system_tests=0, passed=0, not_passed=[])
 
-    not_passed = []
+    not_passed: list[uuid.UUID] = []
     passed_count = 0
-    for tc_id in tc_ids:
+    for st_id in st_ids:
         latest = (
             await db.execute(
-                select(TestExecution)
-                .where(TestExecution.testcase_id == tc_id)
-                .order_by(TestExecution.executed_at.desc())
+                select(SystemTestResult)
+                .where(SystemTestResult.test_case_id == st_id)
+                .order_by(SystemTestResult.execution_date.desc())
                 .limit(1)
             )
         ).scalar_one_or_none()
-        if latest and latest.status == ExecutionStatus.PASS:
+        if latest and latest.result == "PASS":
             passed_count += 1
         else:
-            not_passed.append(tc_id)
+            not_passed.append(st_id)
 
     return ReadinessCheck(
         ready=len(not_passed) == 0,
-        total_testcases=len(tc_ids),
+        total_system_tests=len(st_ids),
         passed=passed_count,
         not_passed=not_passed,
     )

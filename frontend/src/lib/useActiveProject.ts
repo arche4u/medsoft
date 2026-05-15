@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { api } from "@/lib/api";
 
 export function useActiveProject(): [string, (id: string) => void] {
   const [projectId, setProjectIdState] = useState("");
@@ -7,7 +8,20 @@ export function useActiveProject(): [string, (id: string) => void] {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = localStorage.getItem("medsoft_active_project") ?? "";
-    if (saved) setProjectIdState(saved);
+    if (saved) {
+      // Verify cached project still exists. Re-seeds and deletions strand
+      // the UUID, causing FK violations downstream — drop the stale entry
+      // and force the user to pick a current project from the sidebar.
+      api.projects.list()
+        .then((projects) => {
+          if (projects.some((p) => p.id === saved)) {
+            setProjectIdState(saved);
+          } else {
+            localStorage.removeItem("medsoft_active_project");
+          }
+        })
+        .catch(() => setProjectIdState(saved));
+    }
 
     const handler = (e: Event) => {
       const pid = (e as CustomEvent<{ projectId: string }>).detail?.projectId ?? "";
