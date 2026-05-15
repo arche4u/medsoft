@@ -13,6 +13,10 @@ class SoftwareUnit(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     component_id = Column(UUID(as_uuid=True), ForeignKey("sw_components.id", ondelete="SET NULL"), nullable=True)
+    # IEC 62304 §4.3 — optional direct link from a §5.5 SoftwareUnit to the
+    # §4.3 SoftwareItem it verifies. Lets the §4.3 compliance rollup count
+    # unit coverage without going through a Requirement link.
+    software_item_id = Column(UUID(as_uuid=True), ForeignKey("software_items.id", ondelete="SET NULL"), nullable=True)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     programming_language = Column(String(100), nullable=True)
@@ -27,6 +31,7 @@ class SoftwareUnit(Base):
     test_cases = relationship("UnitTestCase", back_populates="unit", cascade="all, delete-orphan", lazy="selectin")
     requirement_links = relationship("UnitRequirementLink", back_populates="unit", cascade="all, delete-orphan", lazy="selectin")
     risk_links = relationship("UnitRiskLink", back_populates="unit", cascade="all, delete-orphan", lazy="selectin")
+    software_item = relationship("SoftwareItem", foreign_keys=[software_item_id], lazy="select")
 
 
 class CodeArtifact(Base):

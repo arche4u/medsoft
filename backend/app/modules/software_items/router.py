@@ -64,9 +64,43 @@ async def _run_compliance(
     from app.modules.architecture.model import SWComponent
     from app.modules.tracelinks.model import TraceLink
     from app.modules.testcases.model import TestCase
+    from app.modules.units.model import SoftwareUnit, UnitTestCase, UnitTestResult
 
     safety_class = item.safety_class
     checks: list[ComplianceCheck] = []
+
+    # §5.5 direct-unit rollup — only reported for Class B/C; skip the query
+    # entirely for Class A where it's never surfaced.
+    direct_unit_count = 0
+    direct_unit_pass_rate: float | None = None
+    if safety_class in ("B", "C"):
+        direct_unit_ids = (await db.execute(
+            select(SoftwareUnit.id).where(SoftwareUnit.software_item_id == item.id)
+        )).scalars().all()
+        direct_unit_count = len(direct_unit_ids)
+        if direct_unit_ids:
+            # Pick each test case's latest result via a subquery scoped to this
+            # item's units — avoids grouping the whole unit_test_results table.
+            tc_ids_subq = select(UnitTestCase.id).where(UnitTestCase.unit_id.in_(direct_unit_ids))
+            latest_at_subq = (
+                select(
+                    UnitTestResult.test_case_id.label("tc_id"),
+                    func.max(UnitTestResult.execution_date).label("latest_at"),
+                )
+                .where(UnitTestResult.test_case_id.in_(tc_ids_subq))
+                .group_by(UnitTestResult.test_case_id)
+                .subquery()
+            )
+            result_rows = (await db.execute(
+                select(UnitTestResult.result).join(
+                    latest_at_subq,
+                    (latest_at_subq.c.tc_id == UnitTestResult.test_case_id)
+                    & (latest_at_subq.c.latest_at == UnitTestResult.execution_date),
+                )
+            )).scalars().all()
+            if result_rows:
+                passed = sum(1 for r in result_rows if r == "PASS")
+                direct_unit_pass_rate = passed / len(result_rows) * 100.0
 
     # ── Rule 1: §5.3 architecture component exists (Class B & C) ─────────────
     arch_required = safety_class in ("B", "C")
@@ -215,6 +249,22 @@ async def _run_compliance(
         if "DESIGN_COMPLETE" not in blocks:
             blocks.append("DESIGN_COMPLETE")
 
+    # Informational only — absence of a direct §5.5 link does not block
+    # release; the requirement-based rollup above already covers test evidence.
+    if safety_class in ("B", "C"):
+        if direct_unit_count > 0:
+            pr = f"{direct_unit_pass_rate:.0f}% passing" if direct_unit_pass_rate is not None else "no results yet"
+            detail = f"{direct_unit_count} unit(s) directly linked · {pr}"
+        else:
+            detail = "No unit declares this item via SoftwareUnit.software_item_id"
+        checks.append(ComplianceCheck(
+            rule="direct_unit_present",
+            label="§5.5 unit directly linked to this item",
+            required=False,
+            satisfied=direct_unit_count > 0,
+            detail=detail,
+        ))
+
     suggested_class, suggestion_reason = _suggest_class(risks)
     is_compliant = len(failed) == 0
 
@@ -226,6 +276,8 @@ async def _run_compliance(
         blocks=list(set(blocks)),
         suggested_class=suggested_class,
         suggestion_reason=suggestion_reason,
+        direct_unit_count=direct_unit_count,
+        direct_unit_pass_rate=direct_unit_pass_rate,
     )
 
 

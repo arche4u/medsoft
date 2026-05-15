@@ -87,6 +87,7 @@ class UnitTestCaseRead(BaseModel):
 class SoftwareUnitCreate(BaseModel):
     project_id: uuid.UUID
     component_id: Optional[uuid.UUID] = None
+    software_item_id: Optional[uuid.UUID] = None
     name: str
     description: Optional[str] = None
     programming_language: Optional[str] = None
@@ -97,6 +98,7 @@ class SoftwareUnitCreate(BaseModel):
 
 class SoftwareUnitUpdate(BaseModel):
     component_id: Optional[uuid.UUID] = None
+    software_item_id: Optional[uuid.UUID] = None
     name: Optional[str] = None
     description: Optional[str] = None
     programming_language: Optional[str] = None
@@ -109,6 +111,7 @@ class SoftwareUnitRead(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     component_id: Optional[uuid.UUID]
+    software_item_id: Optional[uuid.UUID]
     name: str
     description: Optional[str]
     programming_language: Optional[str]

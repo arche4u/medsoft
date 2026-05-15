@@ -60,6 +60,7 @@ def _build_unit_read(unit: SoftwareUnit) -> SoftwareUnitRead:
         ))
     return SoftwareUnitRead(
         id=unit.id, project_id=unit.project_id, component_id=unit.component_id,
+        software_item_id=unit.software_item_id,
         name=unit.name, description=unit.description,
         programming_language=unit.programming_language,
         repository_url=unit.repository_url, file_path=unit.file_path,

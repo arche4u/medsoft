@@ -71,6 +71,10 @@ class ComplianceStatus(BaseModel):
     blocks: list[str]
     suggested_class: str
     suggestion_reason: str
+    # §5.5 direct-unit rollup (units linked to this item via SoftwareUnit.software_item_id).
+    # Preserves the existing requirement-based rollup; this is additive evidence.
+    direct_unit_count: int = 0
+    direct_unit_pass_rate: float | None = None
 
 
 # ── Status transition ─────────────────────────────────────────────────────────
