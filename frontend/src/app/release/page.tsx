@@ -24,8 +24,21 @@ export default function ReleasePage() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
 
   const [projectId, setProjectId] = useActiveProject();
-  const [version, setVersion] = useState("");
+  const [version, setVersion] = useState("v1.0.0");
   const [error, setError] = useState("");
+
+  // Suggest the next release version automatically — minor-bump from the
+  // latest existing release (v1.2.0 → v1.3.0); v1.0.0 for the first release.
+  // The user can override at any time; we only pre-fill the form.
+  function nextDefaultVersion(rels: Release[]): string {
+    if (rels.length === 0) return "v1.0.0";
+    const latest = [...rels].sort((a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )[0];
+    const m = latest.version.match(/^v?(\d+)\.(\d+)(?:\.(\d+))?/);
+    if (!m) return "v1.0.0";
+    return `v${parseInt(m[1])}.${parseInt(m[2]) + 1}.0`;
+  }
 
   // Add item form
   const [testcases, setTestcases] = useState<TestCase[]>([]);
@@ -42,6 +55,10 @@ export default function ReleasePage() {
   useEffect(() => {
     api.projects.list().then(setProjects);
   }, []);
+
+  // Whenever the loaded releases change (project switch or after creating one),
+  // pre-fill the version input with the suggested next default.
+  useEffect(() => { setVersion(nextDefaultVersion(releases)); }, [releases]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadReleases = (pid: string) => {
     api.release.list(pid).then(setReleases);
