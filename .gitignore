@@ -49,3 +49,5 @@ backend/uploads/
 
 # mkdocs build output — regenerable from docs/ via `mkdocs build`
 site/
+# mkdocs user-only build output — regenerable via `mkdocs build -f mkdocs-user.yml`
+site-user/
