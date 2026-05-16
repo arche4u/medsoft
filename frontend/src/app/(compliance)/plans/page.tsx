@@ -6,7 +6,7 @@ import { api, PlanSummary } from "@/lib/api";
 import { useActiveProject } from "@/lib/useActiveProject";
 import { STATUS_META, sty } from "@/components/plan/shared";
 
-const BUILTIN_TYPES = new Set(["MAINTENANCE", "RISK_MGMT", "CONFIG_MGMT", "PROBLEM_RESOLUTION"]);
+const BUILTIN_TYPES = new Set(["MAINTENANCE", "RISK_MGMT", "CONFIG_MGMT", "PROBLEM_RESOLUTION", "CYBERSECURITY"]);
 
 function toTypeKey(name: string): string {
   return name

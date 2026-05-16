@@ -38,6 +38,15 @@ function IconHelp({ size = 20 }: { size?: number }) {
   );
 }
 
+function IconCyber({ size = 20 }: { size?: number }) {
+  // Shield-with-keyhole — security/integrity primitive.
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 4a3 3 0 0 1 1 5.83V14h-2v-3.17A3 3 0 0 1 12 5z"/>
+    </svg>
+  );
+}
+
 // ── Nav config ───────────────────────────────────────────────────────────────
 
 type SubItem = { href: string; label: string };
@@ -45,7 +54,7 @@ type NavItem = { href: string; label: string; subItems?: SubItem[] };
 type NavGroup = { group: string; items: NavItem[] };
 
 type Section = {
-  id: "design" | "documents" | "pm";
+  id: "design" | "documents" | "pm" | "cybersecurity";
   label: string;
   icon: React.ReactNode;
   groups: NavGroup[];
@@ -156,6 +165,24 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    // IEC 81001-5-1 cybersecurity — top-level peer to Develop, not nested
+    // under it. Pairs with §7 (risk_class=SECURITY) already in the Risk
+    // Register and §8.2.2 SOUP already in Config Management.
+    id: "cybersecurity",
+    label: "Cyber",
+    icon: <IconCyber />,
+    groups: [
+      {
+        group: "Cybersecurity (IEC 81001-5-1)",
+        items: [
+          { href: "/plans/cybersecurity",                  label: "Cybersecurity Plan" },
+          { href: "/risks?risk_class=SECURITY",             label: "Security Risks (§7)" },
+          { href: "/config-mgmt?type=SOUP",                 label: "SOUP / SBOM source (§8.2.2)" },
+        ],
+      },
+    ],
+  },
+  {
     id: "documents",
     label: "Docs",
     icon: <IconDocuments />,
@@ -171,6 +198,7 @@ const SECTIONS: Section[] = [
           { href: "/plans/risk-mgmt",              label: "Risk Mgmt Plan (§7)" },
           { href: "/plans/config-mgmt",            label: "Config Mgmt Plan (§8.1)" },
           { href: "/plans/problem-resolution",     label: "Problem Resolution Plan (§9)" },
+          { href: "/plans/cybersecurity",          label: "Cybersecurity Plan (81001-5-1)" },
           { href: "/plans",                         label: "Custom Plans" },
         ],
       },

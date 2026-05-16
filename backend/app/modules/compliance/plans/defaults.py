@@ -182,6 +182,76 @@ PLAN_TYPES: dict[str, PlanTypeDef] = {
              "impact assessments for legacy software · who approves re-classification."),
         ),
     },
+    "CYBERSECURITY": {
+        "key": "CYBERSECURITY",
+        "label": "Cybersecurity Plan (IEC 81001-5-1)",
+        "iec_clause": "81001-5-1",
+        "description": (
+            "IEC 81001-5-1 — health software cybersecurity activities across the "
+            "product lifecycle. Pairs with IEC 62304 §7 (risk_class=SECURITY) and "
+            "extends it for threat-led design, SBOM management, vulnerability "
+            "intake, and post-market cyber monitoring."
+        ),
+        "sections": _sections(
+            ("1", "Purpose and Scope",
+             "Scope of the cybersecurity programme: the device under test, the "
+             "connected ecosystem (networks, paired apps, cloud services), and the "
+             "regulatory regimes in play (IEC 81001-5-1, AAMI TIR57, FDA Premarket "
+             "Cybersecurity Guidance, EU NIS2 where applicable). State which "
+             "software items are in scope and the relationship to the §7 risk "
+             "register entries flagged `risk_class=SECURITY` or `SAFETY_SECURITY`."),
+            ("2", "Roles and Responsibilities",
+             "The security owner, the threat-model facilitator, the vulnerability "
+             "triage owner, the SBOM custodian, the post-market cyber-monitor on-call. "
+             "Each role's permissions are wired to the RBAC roles (`READ_RISK`, "
+             "`UPDATE_RISK`, `CREATE_PROBLEM_REPORT`)."),
+            ("3", "Secure Development Activities",
+             "Coding standards, dependency-pinning policy, code review with a "
+             "security checklist, static analysis, dynamic analysis. Reference the "
+             "§5.5 unit-test gates and the §5.6 integration-test gates that already "
+             "execute on every CR."),
+            ("4", "Threat Modelling",
+             "STRIDE per §5.3 architecture component; cadence (per release and on "
+             "every architecture change); facilitator; recording threats and "
+             "mitigations against the relevant SWComponent. Threats with non-trivial "
+             "residual risk are escalated into the §7 risk register with "
+             "`risk_class=SECURITY` and the threat ID in the rationale."),
+            ("5", "SBOM Generation and Upkeep",
+             "Source of truth is the §8.2.2 SOUP register. Generation is automatic "
+             "from CMConfigItem rows where `item_type=SOUP` and is exported as "
+             "CycloneDX JSON at every release. The SBOM is signed and attached to "
+             "the §5.8 release artifacts. Updates: new SOUP entry, version bump, "
+             "or vendor patch all require a SBOM re-export."),
+            ("6", "Vulnerability Monitoring and Triage",
+             "Inputs: NVD / vendor advisories / CERT bulletins / customer reports. "
+             "Each CVE that matches a SOUP entry is logged as a Vulnerability "
+             "Report which auto-creates a §7 Risk with `risk_class=SECURITY` and "
+             "the CVE ID as the trigger. Triage SLA by CVSS band; controls are "
+             "tracked the same as any §7 control."),
+            ("7", "Security Testing",
+             "Per release: dependency scan (clean state); fuzzing of external "
+             "interfaces (§5.3 `safety_relevant=true` interfaces are mandatory); "
+             "authentication/authorization regression tests in §5.7 system tests. "
+             "Penetration test cadence and scope are defined here."),
+            ("8", "Release Cybersecurity Criteria",
+             "A release does not pass the §5.8 readiness gate if any SECURITY risk "
+             "is `HIGH` and not in `ACCEPTED`/`CLOSED` status, OR if the SBOM "
+             "differs from what was attached to the prior release without a "
+             "documented rationale."),
+            ("9", "Post-market Monitoring",
+             "PMS for cyber: feedback channel `CYBER_REPORT`, advisory inbox, "
+             "telemetry signals. The §6.2.5 user/regulator notification flow is "
+             "the channel for disclosure of cyber incidents."),
+            ("10", "Coordinated Vulnerability Disclosure",
+             "Security.txt + reporting email; acknowledgement SLA; embargo policy; "
+             "credit. The disclosure timeline is recorded on the relevant "
+             "Vulnerability Report."),
+            ("11", "Training and Awareness",
+             "Mandatory secure-coding training (cadence); threat-modelling workshop "
+             "(per major version); table-top exercise on incident response (annual). "
+             "Each is tracked through the existing Training module."),
+        ),
+    },
     "PROBLEM_RESOLUTION": {
         "key": "PROBLEM_RESOLUTION",
         "label": "Software Problem Resolution Plan",
