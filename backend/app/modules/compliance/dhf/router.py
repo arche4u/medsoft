@@ -24,6 +24,7 @@ from app.modules.compliance.dev.system_testing.model import (
 )
 from app.modules.compliance.release.model import Release, ReleaseItem
 from app.modules.compliance.plans.model import Plan, PlanSection
+from app.modules.compliance.change_control.model import ChangeRequest
 from app.modules.compliance.problems.capa.model import ProblemReport, RootCause, CAPA, CAPAVerification, ProblemLink
 from app.modules.compliance.config.config_mgmt.model import CMConfigItem, CMBaseline
 from app.modules.compliance.maintenance.feedback.model import FeedbackItem  # §6.2.1
@@ -151,6 +152,12 @@ async def generate_dhf(
     # ── §4.3 software items (safety classification tree) ──────────────────────
     software_items = (await db.execute(
         select(SoftwareItem).where(SoftwareItem.project_id == project_id)
+    )).scalars().all()
+
+    # ── §6.2.3 change requests (full impact-analysis trail) ──────────────────
+    change_requests = (await db.execute(
+        select(ChangeRequest).where(ChangeRequest.project_id == project_id)
+        .order_by(ChangeRequest.created_at.desc())
     )).scalars().all()
 
     # ── §5.3 architecture (components, interfaces, approved baseline) ─────────
@@ -354,6 +361,11 @@ async def generate_dhf(
             "sdp_present": sdp is not None,
             # Phase 6+ — IEC 62304 §4.3 through §9
             "total_software_items": len(software_items),
+            "legacy_software_items": sum(1 for si in software_items if getattr(si, "is_legacy", False)),
+            "total_change_requests": len(change_requests),
+            "change_requests_modifying_released_software": sum(
+                1 for cr in change_requests if getattr(cr, "modifies_released_software", False)
+            ),
             "total_architecture_components": len(components),
             "total_architecture_interfaces": len(interfaces),
             "architecture_baseline_approved": arch_baseline is not None,
@@ -500,6 +512,8 @@ async def generate_dhf(
         # ── §5.2.6 / §820.30 — traceability matrix (auditor view) ────────────
         "traceability_matrix": traceability_matrix,
         # ── §4.3 software safety classification ──────────────────────────────
+        # §4.4 legacy fields (is_legacy + legacy_assessment) are included via
+        # getattr so older schemas without those columns still serialize.
         "software_items": [
             {
                 "id": str(si.id),
@@ -510,10 +524,28 @@ async def generate_dhf(
                 "safety_class": si.safety_class,
                 "classification_justification": si.classification_justification,
                 "status": si.status,
+                "is_legacy": getattr(si, "is_legacy", False),
+                "legacy_assessment": getattr(si, "legacy_assessment", None),
                 "requirement_ids": [str(l.requirement_id) for l in si.requirement_links],
                 "risk_ids": [str(l.risk_id) for l in si.risk_links],
             }
             for si in software_items
+        ],
+        # ── §6.2.3 change requests (post-release impact-analysis trail) ──────
+        "change_requests": [
+            {
+                "id": str(cr.id),
+                "readable_id": getattr(cr, "readable_id", None),
+                "title": cr.title,
+                "description": cr.description,
+                "status": cr.status.value if hasattr(cr.status, "value") else cr.status,
+                "modifies_released_software": getattr(cr, "modifies_released_software", False),
+                "effect_on_organization": getattr(cr, "effect_on_organization", None),
+                "effect_on_released_software": getattr(cr, "effect_on_released_software", None),
+                "effect_on_interfacing_systems": getattr(cr, "effect_on_interfacing_systems", None),
+                "created_at": cr.created_at.isoformat() if cr.created_at else None,
+            }
+            for cr in change_requests
         ],
         # ── §5.3 architecture ─────────────────────────────────────────────────
         "architecture": {
