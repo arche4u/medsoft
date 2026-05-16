@@ -1,6 +1,6 @@
 # MedSoft Compliance Platform
 
-A medical-device software compliance platform aligned to **IEC 62304** (with **ISO 14971** risk management). Covers §4.3 + §5.1–§5.8 + §6 + §7 + §8 + §9 end-to-end, generates auditor-ready Design History Files (DHF) on demand, and ships AI-assisted requirements generation backed by the Anthropic Claude API.
+A medical-device software compliance platform aligned to **IEC 62304** (with **ISO 14971** risk management), **IEC 81001-5-1** (cybersecurity), and **IEC 62366-1** (usability engineering). Covers §4.3 + §5.1–§5.8 + §6 + §7 + §8 + §9 end-to-end, generates auditor-ready Design History Files (DHF) on demand, ships threat modeling + CVE intake + SBOM (CycloneDX) for cyber, and ships a Usability Engineering File (UEF) accepted by every major regulator (EU MDR / FDA / Health Canada / TGA / PMDA / MHRA). AI-assisted requirements generation backed by the Anthropic Claude API.
 
 ---
 
@@ -100,17 +100,18 @@ Loads 5 sample projects (Patient Vital Signs Monitor, Electrosurgical Generator,
 | §6.2.4 CR approval (esign + permission) | `change_control` | ✅ |
 | §6.2.5 User & regulator notification | `release` | ✅ |
 | §6.3.2 Maintenance release lineage | `release` (`parent_release_id`) | ✅ |
-| §7 Risk register (ISO 14971 + IEC 81001-5-1 ready via `risk_class`) | `risks` | ✅ §7.1 contributions · §7.2 controls + §5.3 link · §7.3 closed-loop evidence · §7.4 auto-trigger + inbox |
+| §7 Risk register (ISO 14971 + IEC 81001-5-1 + IEC 62366-1 via `risk_class`) | `risks` | ✅ §7.1 contributions · §7.2 controls + §5.3 link · §7.3 closed-loop evidence · §7.4 auto-trigger + inbox · SAFETY/SECURITY/SAFETY_SECURITY/USABILITY discriminator |
 | §8 Configuration management | `config_mgmt` | ✅ |
 | §9 Problem resolution (CAPA) | `capa` | ✅ |
-| **Cybersecurity (IEC 81001-5-1)** | *coming soon — `compliance/cybersecurity/`* | 🔜 |
+| **Cybersecurity (IEC 81001-5-1)** Plan + Threat Model (STRIDE) + Vulnerability intake (CVE) + SBOM (CycloneDX 1.5) | `cybersecurity/{threat_model, vulnerabilities, sbom}` + `plans` (`CYBERSECURITY`) | ✅ |
+| **Usability Engineering (IEC 62366-1)** — UEF · §5.1 use spec · §5.4 scenarios · use errors → §7 | `usability` + `plans` (`USABILITY`) | ✅ |
 
 Plus cross-cutting:
 - **FDA 21 CFR Part 11** electronic signatures
 - **FDA 21 CFR 820.30(j)** Design History File generator
 - **RBAC** with 6 default roles + per-action permissions
 - **Audit log** on every write (legal record)
-- **Knowledge base** with standards references (IEC 62304, ISO 14971, ISO 13485, FDA 21 CFR 820, EU MDR Annex I)
+- **Knowledge base** with standards references (IEC 62304, ISO 14971, IEC 81001-5-1, IEC 62366-1, ISO 13485, FDA 21 CFR 820, EU MDR Annex I)
 
 ---
 

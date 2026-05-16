@@ -17,7 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║        MedSoft Compliance Platform — Setup                   ║"
-echo "║        IEC 62304 Traceability & AI Requirements Tool         ║"
+echo "║   IEC 62304 · ISO 14971 · IEC 81001-5-1 · IEC 62366-1        ║"
+echo "║   FDA 21 CFR Part 11 · 820.30(j) DHF · EU MDR Annex I §14    ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -26,6 +27,11 @@ header "1. Checking prerequisites..."
 
 command -v python3 >/dev/null 2>&1 || error "Python 3.10+ is required. Install: sudo apt install python3 python3-pip python3-venv"
 PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+PY_MAJOR=$(python3 -c "import sys; print(sys.version_info.major)")
+PY_MINOR=$(python3 -c "import sys; print(sys.version_info.minor)")
+if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }; then
+  error "Python 3.10+ required (found $PY_VER). The backend uses PEP 604 union types (e.g., 'str | None') and SQLAlchemy 2.0 'Mapped[...]' annotations."
+fi
 info "  Python $PY_VER found"
 
 # Prefer nvm Node if available (system Node may be too old)
@@ -38,8 +44,21 @@ NODE_VER=$(node --version)
 info "  Node $NODE_VER found"
 
 command -v npm >/dev/null 2>&1 || error "npm is required (comes with Node.js)"
+# Reject ancient Node — Next.js 15 requires 18.18+ but we recommend 20+.
+NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo "0")
+if [ "$NODE_MAJOR" -lt 18 ]; then
+  error "Node $NODE_VER is too old. Next.js 15 needs 18.18+. Install via nvm: nvm install 20 && nvm use 20"
+fi
+
 command -v psql >/dev/null 2>&1 || error "PostgreSQL client not found. Install: sudo apt install postgresql postgresql-client"
 info "  PostgreSQL client found"
+
+# Optional: gh CLI used for PR-based workflows (the audit-sweep batch + Phase 8/9 used it).
+if command -v gh >/dev/null 2>&1; then
+  info "  GitHub CLI (gh) found — PR workflows available"
+else
+  warn "  GitHub CLI (gh) not found — install if you intend to open PRs from the worktree (sudo apt install gh)"
+fi
 
 success "All prerequisites met."
 
@@ -114,9 +133,9 @@ SEED_CHOICE="${SEED_CHOICE:-1}"
 
 case "$SEED_CHOICE" in
   1)
-    info "  Seeding full demo data (5 projects + users)..."
+    info "  Seeding full demo data (5 projects + IEC 62304 + cyber + usability)..."
     python seed_all.py
-    success "  Full demo data loaded."
+    success "  Full demo data loaded (covers §1-§9 + §81001-5-1 + §62366-1 seed)."
     ;;
   2)
     info "  Seeding Phase 1 demo data..."
@@ -179,10 +198,23 @@ echo "║    → http://localhost:3000                                   ║"
 echo "║                                                              ║"
 echo "║  Default login:                                              ║"
 echo "║    admin@medsoft.local / Admin@123                           ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  Standards layered into the platform                         ║"
+echo "║    IEC 62304        — software lifecycle (§1-§9)             ║"
+echo "║    ISO 14971        — risk management (via §7)               ║"
+echo "║    IEC 81001-5-1    — cybersecurity (Cyber sidebar)          ║"
+echo "║    IEC 62366-1      — usability engineering (Use sidebar)    ║"
+echo "║    AAMI TIR57       — cyber risk (risk_class discriminator)  ║"
+echo "║    FDA 21 CFR Pt 11 — e-signatures on release + CR approval  ║"
+echo "║    FDA 21 CFR 820.30(j) — DHF generator                      ║"
+echo "║    EU MDR Annex I §14 — satisfied via IEC 62366-1            ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "  Next steps:"
 echo "   1. Add ANTHROPIC_API_KEY to backend/.env"
 echo "   2. Visit http://localhost:3000/knowledge → Standards Library"
 echo "      auto-populates with IEC 62304 / ISO 14971 / MDR data"
+echo "   3. mkdocs build              # full docs site → site/"
+echo "      mkdocs build -f mkdocs-user.yml   # user-only docs → site-user/"
+echo "      FastAPI mounts these at /manual and /manual-user respectively"
 echo ""

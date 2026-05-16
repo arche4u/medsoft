@@ -29,7 +29,7 @@ A flat table auditors can use to navigate the codebase by clause.
 | §6.2.5 | Communicate to users + regulators | `compliance/release/` (PATCH `/notify`) | `/release` | User + regulator notification audit trail |
 | §6.3.1 | Use established process to implement modification | `compliance/change_control/` + §5 modules | various | Existing V-model re-run |
 | §6.3.2 | Re-release modified software system | `compliance/release/` | `/release` | `parent_release_id` lineage |
-| §7 | Software risk management (ISO 14971 + IEC 81001-5-1) | `compliance/risk/risks/` | `/risks` | Unified register hosts SAFETY / SECURITY / SAFETY_SECURITY via `risk_class` |
+| §7 | Software risk management (ISO 14971 + IEC 81001-5-1 + IEC 62366-1) | `compliance/risk/risks/` | `/risks` | Unified register hosts SAFETY / SECURITY / SAFETY_SECURITY / USABILITY via `risk_class` |
 | §7.1 | Analysis of software contributing to hazardous situations | `risks/` (`RiskContribution`) | `/risks` (Contributions section) | M:N — Risk ↔ SoftwareItem / SWComponent |
 | §7.2 | Risk control measures | `risks/` (`RiskControl` + `component_id`) | `/risks` (Controls tab) | INHERENT_SAFETY / PROTECTIVE_MEASURE / INFORMATION_FOR_SAFETY + §5.3 component link |
 | §7.3 | Verification of risk control measures | `risks/` (`VerificationEvidence` closed-loop) | `/risks` (Evidence sub-list per control) | Multi-evidence; PASS auto-flips control to VERIFIED |
@@ -53,8 +53,13 @@ A flat table auditors can use to navigate the codebase by clause.
 | **FDA 21 CFR Part 820.30(j)** Design History File | `compliance/dhf/` — bound DHF with traceability matrix |
 | **FDA 21 CFR Part 11** Electronic Records / Signatures | `platform/esign/` — applied to release approval + CR approval |
 | **EU MDR Annex I + §83–§92** Technical File + PMS + Vigilance | DHF + Feedback Intake + Change Control + Release notification |
-| **IEC 81001-5-1** Cybersecurity | *Planned — will live at `compliance/cybersecurity/`* |
-| **AAMI TIR57** Risk for Cybersecurity | *Planned — will integrate via `risks/` (unified risk file)* |
+| **EU MDR Annex I §14** Usability | `compliance/usability/` — Usability Engineering File (IEC 62366-1 satisfies §14) |
+| **IEC 81001-5-1** Cybersecurity | `compliance/cybersecurity/` — Threat Model (STRIDE) + Vulnerability Intake (CVE) + SBOM (CycloneDX) + Cybersecurity Plan |
+| **IEC 81001-5-1 §6.2** Threat modeling | `compliance/cybersecurity/threat_model/` — STRIDE per §5.3 SWComponent · `escalated_risk_id` back-FK to §7 risk register |
+| **IEC 81001-5-1 §6.3** Vulnerability management | `compliance/cybersecurity/vulnerabilities/` — `POST /vulnerabilities/{id}/escalate` creates a §7 Risk with `risk_class=SECURITY` |
+| **IEC 81001-5-1 SBOM** | `compliance/cybersecurity/sbom/` — `GET /sbom/{project_id}` returns CycloneDX 1.5 JSON derived from §8.2.2 SOUP register + open vulnerabilities |
+| **AAMI TIR57** Risk for Cybersecurity | `risks/` — `risk_class=SECURITY`/`SAFETY_SECURITY` discriminator integrated into the unified ISO 14971 / IEC 81001-5-1 risk file |
+| **IEC 62366-1** Usability engineering | `compliance/usability/` — UsabilityFile (§5.1 Use Specification) + UseScenario (§5.4) + UseError with `escalated_risk_id` back-FK to §7 risks (`risk_class=USABILITY`). Accepted by EU MDR §14, FDA Human Factors, Health Canada, TGA, PMDA, MHRA. |
 
 ## "Where do you implement §X.Y?" template answer
 

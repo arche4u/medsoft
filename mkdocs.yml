@@ -68,6 +68,8 @@ nav:
       - Data Model: developer/data-model.md
       - API Reference: developer/api-reference.md
       - IEC 62304 Clause Mapping: developer/iec-62304-mapping.md
+      - Cybersecurity (IEC 81001-5-1): developer/cybersecurity.md
+      - Usability (IEC 62366-1): developer/usability.md
 
   - User Guide:
       - user/index.md
@@ -82,4 +84,6 @@ nav:
       - Configuration Management (§8): user/08-config-mgmt.md
       - CAPA / Problem Resolution (§9): user/09-capa.md
       - DHF (Design History File): user/10-dhf.md
+      - Cybersecurity (IEC 81001-5-1): user/11-cybersecurity.md
+      - Usability Engineering (IEC 62366-1): user/12-usability.md
       - End-to-end Walkthrough: user/iec-62304-walkthrough.md

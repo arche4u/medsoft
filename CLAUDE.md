@@ -133,13 +133,20 @@ medsoft/
                 │   ├── release/          ← /release  (with §6.2.5 notification UI + §6.3.2 chip)
                 │   ├── change-control/   ← /change-control
                 │   └── dhf/              ← /dhf
-                └── plans/                ← /plans + /plans/{maintenance,risk-mgmt,…}
+                ├── (cybersecurity)/      ← IEC 81001-5-1 top-level "Cyber" group
+                │   ├── threat-model/     ← /threat-model    (STRIDE per §5.3 component)
+                │   ├── vulnerabilities/  ← /vulnerabilities (CVE → §7 risk_class=SECURITY)
+                │   └── sbom/             ← /sbom            (CycloneDX 1.5 export)
+                ├── (usability)/          ← IEC 62366-1 top-level "Use" group
+                │   └── usability/        ← /usability       (UEF · scenarios · use errors → §7 USABILITY)
+                └── plans/                ← /plans + /plans/{maintenance,risk-mgmt,cybersecurity,usability,…}
 ```
 
 **Two-package split rationale:**
 - `platform/` modules exist because the *application* needs them (auth, files, audit).
-- `compliance/` modules exist because a *standard* requires them (IEC 62304, ISO 14971, FDA 21 CFR 820).
-- Cybersecurity (IEC 81001-5-1) lands as `compliance/cybersecurity/` — its own sibling, not nested in `dev/`.
+- `compliance/` modules exist because a *standard* requires them (IEC 62304, ISO 14971, IEC 81001-5-1, IEC 62366-1, FDA 21 CFR 820).
+- Cybersecurity (IEC 81001-5-1) lives at `compliance/cybersecurity/` — its own sibling, not nested in `dev/`. Three sub-modules: `threat_model/`, `vulnerabilities/`, `sbom/`.
+- Usability (IEC 62366-1) lives at `compliance/usability/` — its own sibling. UsabilityFile → UseScenario → UseError with `escalated_risk_id` back-FK to the §7 unified risk register (`risk_class=USABILITY`).
 
 ---
 
@@ -249,8 +256,12 @@ All routes are prefixed with `/api/v1`. Interactive Swagger at `http://localhost
 | risks | `/risks` | CRUD + controls + residual + dashboard + categories + safety profile |
 | config_mgmt | `/config-mgmt` | Items + baselines + `/release-check/{project_id}` |
 | capa | `/capa` | Problem reports + root causes + CAPAs + verifications |
-| plans | `/plans` | Plan engine (MAINTENANCE / RISK_MGMT / CONFIG_MGMT / PROBLEM_RESOLUTION / custom) |
-| dhf | `/dhf` | `POST /generate/{project_id}?release_id=…` + document CRUD |
+| plans | `/plans` | Plan engine (MAINTENANCE / RISK_MGMT / CONFIG_MGMT / PROBLEM_RESOLUTION / CYBERSECURITY / USABILITY / LEGACY_SOFTWARE / custom) |
+| dhf | `/dhf` | `POST /generate/{project_id}?release_id=…` + document CRUD (includes §4.4 legacy + §6.2.3 CR sections) |
+| threat_model | `/threat-model` | IEC 81001-5-1 STRIDE per §5.3 component; threats escalate to §7 risk_class=SECURITY |
+| vulnerabilities | `/vulnerabilities` | IEC 81001-5-1 CVE intake; `POST /{id}/escalate` creates §7 risk_class=SECURITY |
+| sbom | `/sbom` | IEC 81001-5-1 CycloneDX 1.5 export derived from §8.2.2 SOUP register |
+| usability | `/usability` | IEC 62366-1 UEF: UsabilityFile → UseScenario → UseError; escalate to §7 risk_class=USABILITY |
 | audit | `/audit` | `/logs` (read-only) |
 | esign | `/esign` | `/sign` (21 CFR Part 11) |
 | documents | `/documents` | Document Register CRUD |
@@ -286,13 +297,19 @@ All routes are prefixed with `/api/v1`. Interactive Swagger at `http://localhost
 | §7.2 risk control measures + §5.3 component link | `compliance/risk/risks/RiskControl.component_id` | `/risks` (Controls tab) |
 | §7.3 closed-loop verification evidence | `compliance/risk/risks/VerificationEvidence` | `/risks` (Evidence sub-list) |
 | §7.4 auto-trigger on CR APPROVED + modifies_released_software | `compliance/change_control/router → risks/router.trigger_risk_reevaluation` | `/risks` (Re-evaluation Inbox) |
-| Cyber-ready risk register (IEC 81001-5-1 / AAMI TIR57) | `compliance/risk/risks/Risk.risk_class` | `/risks` (class filter) |
+| Cyber-ready risk register (IEC 81001-5-1 / AAMI TIR57) | `compliance/risk/risks/Risk.risk_class` (SAFETY/SECURITY/SAFETY_SECURITY/USABILITY) | `/risks` (class filter) |
 | §7 / ISO 14971 (overall) | `compliance/risk/risks` | `/risks` |
 | §8 | `compliance/config/config_mgmt` (RBAC + audit on all writes) | `/config-mgmt` |
 | §8.2.2 SOUP identification | `compliance/config/config_mgmt` (`item_type=SOUP` first-class) | `/config-mgmt` (SOUP §8.2.2 filter chip + per-card badge) |
 | §9 | `compliance/problems/capa` (RBAC + audit on all writes) | `/capa` |
 | §9.6 Problem trend analysis | `compliance/problems/capa` (in-memory aggregation `TrendAnalysisPanel`) | `/capa` (top-of-page panel: severity / status / top root causes · MTTR · trend alert) |
 | DHF | `compliance/dhf` | `/dhf` |
+| **IEC 81001-5-1** Cybersecurity Plan | `compliance/plans` (`plan_type=CYBERSECURITY`) | `/plans/cybersecurity` |
+| **IEC 81001-5-1** Threat Model (STRIDE) | `compliance/cybersecurity/threat_model` | `/threat-model` |
+| **IEC 81001-5-1** Vulnerability Intake | `compliance/cybersecurity/vulnerabilities` → §7 (`risk_class=SECURITY`) | `/vulnerabilities` |
+| **IEC 81001-5-1** SBOM (CycloneDX) | `compliance/cybersecurity/sbom` (derived from §8.2.2 SOUP) | `/sbom` |
+| **IEC 62366-1** Usability Plan | `compliance/plans` (`plan_type=USABILITY`) | `/plans/usability` |
+| **IEC 62366-1** Usability Engineering File | `compliance/usability` → §7 (`risk_class=USABILITY`) | `/usability` |
 
 ---
 
