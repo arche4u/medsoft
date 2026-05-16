@@ -1704,6 +1704,33 @@ export const api = {
   // STRIDE threats filed against §5.3 architecture components. Threats with
   // non-trivial residual risk escalate into the §7 risk register
   // (risk_class=SECURITY) — `escalated_risk_id` preserves the trail.
+  // ── IEC 62366-1 Usability Engineering File (Phase 9) ──────────────────────
+  // UsabilityFile (per-project, versioned) → UseScenario (n) → UseError (n).
+  // Use errors escalate to §7 risks with risk_class=USABILITY.
+  usability: {
+    listFiles: (project_id: string) =>
+      req<UsabilityFileRead[]>(`/usability/files?project_id=${project_id}`),
+    getFile: (id: string) => req<UsabilityFileRead>(`/usability/files/${id}`),
+    createFile: (d: UsabilityFileCreatePayload) =>
+      req<UsabilityFileRead>(`/usability/files`, { method: "POST", body: JSON.stringify(d) }),
+    updateFile: (id: string, d: Partial<UsabilityFileUpdatePayload>) =>
+      req<UsabilityFileRead>(`/usability/files/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    deleteFile: (id: string) => req<void>(`/usability/files/${id}`, { method: "DELETE" }),
+    addScenario: (file_id: string, d: UseScenarioPayload) =>
+      req<UseScenarioRead>(`/usability/files/${file_id}/scenarios`, { method: "POST", body: JSON.stringify(d) }),
+    updateScenario: (id: string, d: Partial<UseScenarioPayload>) =>
+      req<UseScenarioRead>(`/usability/scenarios/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    deleteScenario: (id: string) =>
+      req<void>(`/usability/scenarios/${id}`, { method: "DELETE" }),
+    addUseError: (scenario_id: string, d: UseErrorPayload) =>
+      req<UseErrorRead>(`/usability/scenarios/${scenario_id}/errors`, { method: "POST", body: JSON.stringify(d) }),
+    updateUseError: (id: string, d: Partial<UseErrorPayload> & { status?: UseErrorStatus }) =>
+      req<UseErrorRead>(`/usability/errors/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    deleteUseError: (id: string) =>
+      req<void>(`/usability/errors/${id}`, { method: "DELETE" }),
+    escalateUseError: (id: string, d: { requirement_id: string; severity: number; probability: number; hazardous_situation?: string }) =>
+      req<UseErrorRead>(`/usability/errors/${id}/escalate`, { method: "POST", body: JSON.stringify(d) }),
+  },
   // ── IEC 81001-5-1 SBOM (Phase 8D) ─────────────────────────────────────────
   // CycloneDX 1.5 JSON export derived from the §8.2.2 SOUP register +
   // any open vulnerabilities tied to those SOUP entries.
@@ -1756,6 +1783,79 @@ export const api = {
     deleteThreat: (id: string) =>
       req<void>(`/threat-model/threats/${id}`, { method: "DELETE" }),
   },
+};
+
+// ── Usability types (IEC 62366-1) ────────────────────────────────────────────
+export type UseErrorSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type UseErrorStatus = "IDENTIFIED" | "MITIGATED" | "ACCEPTED" | "TRANSFERRED";
+export type UsabilityFileStatus = "DRAFT" | "IN_REVIEW" | "APPROVED" | "OBSOLETE";
+
+export type UseErrorPayload = {
+  description: string;
+  potential_harm?: string | null;
+  severity?: UseErrorSeverity;
+  status?: UseErrorStatus;
+  mitigation?: string | null;
+};
+
+export type UseErrorRead = {
+  id: string;
+  scenario_id: string;
+  description: string;
+  potential_harm: string | null;
+  severity: UseErrorSeverity;
+  status: UseErrorStatus;
+  mitigation: string | null;
+  escalated_risk_id: string | null;
+  created_at: string;
+};
+
+export type UseScenarioPayload = {
+  name: string;
+  primary_function?: string | null;
+  task_chain?: string | null;
+  component_id?: string | null;
+};
+
+export type UseScenarioRead = {
+  id: string;
+  usability_file_id: string;
+  name: string;
+  primary_function: string | null;
+  task_chain: string | null;
+  component_id: string | null;
+  use_errors: UseErrorRead[];
+  created_at: string;
+};
+
+export type UsabilityFileCreatePayload = {
+  project_id: string;
+  name?: string;
+  version?: string;
+  intended_users?: string | null;
+  intended_use_environment?: string | null;
+  intended_medical_indication?: string | null;
+  operating_principle?: string | null;
+};
+
+export type UsabilityFileUpdatePayload = Partial<Omit<UsabilityFileCreatePayload, "project_id">> & {
+  status?: UsabilityFileStatus;
+};
+
+export type UsabilityFileRead = {
+  id: string;
+  project_id: string;
+  name: string;
+  version: string;
+  status: UsabilityFileStatus;
+  intended_users: string | null;
+  intended_use_environment: string | null;
+  intended_medical_indication: string | null;
+  operating_principle: string | null;
+  approved_by_id: string | null;
+  approved_at: string | null;
+  scenarios: UseScenarioRead[];
+  created_at: string;
 };
 
 // ── Vulnerability types ──────────────────────────────────────────────────────

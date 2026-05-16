@@ -47,6 +47,15 @@ function IconCyber({ size = 20 }: { size?: number }) {
   );
 }
 
+function IconUsability({ size = 20 }: { size?: number }) {
+  // Single-figure-with-cursor — human factors / usability primitive.
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM7.5 13c-.83 0-1.5.67-1.5 1.5V20h3v-5.5c0-.28.22-.5.5-.5h5c.28 0 .5.22.5.5V20h3v-5.5c0-.83-.67-1.5-1.5-1.5h-9zm9 7.5 3.5-3.5-1.4-1.4-2.1 2.1-.85-.85L14.25 18l2.25 2.5z"/>
+    </svg>
+  );
+}
+
 // ── Nav config ───────────────────────────────────────────────────────────────
 
 type SubItem = { href: string; label: string };
@@ -54,7 +63,7 @@ type NavItem = { href: string; label: string; subItems?: SubItem[] };
 type NavGroup = { group: string; items: NavItem[] };
 
 type Section = {
-  id: "design" | "documents" | "pm" | "cybersecurity";
+  id: "design" | "documents" | "pm" | "cybersecurity" | "usability";
   label: string;
   icon: React.ReactNode;
   groups: NavGroup[];
@@ -186,6 +195,24 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    // IEC 62366-1 Usability Engineering — accepted by every major regulator
+    // (EU MDR Annex I §14, FDA Human Factors guidance, Health Canada, TGA,
+    // PMDA, MHRA). One implementation → many regulators happy.
+    id: "usability",
+    label: "Use",
+    icon: <IconUsability />,
+    groups: [
+      {
+        group: "Usability Engineering (IEC 62366-1)",
+        items: [
+          { href: "/plans/usability",                       label: "Usability Plan" },
+          { href: "/usability",                              label: "Usability File (UEF)" },
+          { href: "/risks?risk_class=USABILITY",            label: "Usability Risks (§7)" },
+        ],
+      },
+    ],
+  },
+  {
     id: "documents",
     label: "Docs",
     icon: <IconDocuments />,
@@ -202,6 +229,7 @@ const SECTIONS: Section[] = [
           { href: "/plans/config-mgmt",            label: "Config Mgmt Plan (§8.1)" },
           { href: "/plans/problem-resolution",     label: "Problem Resolution Plan (§9)" },
           { href: "/plans/cybersecurity",          label: "Cybersecurity Plan (81001-5-1)" },
+          { href: "/plans/usability",               label: "Usability Plan (62366-1)" },
           { href: "/plans",                         label: "Custom Plans" },
         ],
       },

@@ -51,6 +51,7 @@ from app.modules.compliance.maintenance.feedback.router import router as feedbac
 from app.modules.compliance.cybersecurity.threat_model.router import router as threat_model_router
 from app.modules.compliance.cybersecurity.vulnerabilities.router import router as vulnerabilities_router
 from app.modules.compliance.cybersecurity.sbom.router import router as sbom_router
+from app.modules.compliance.usability.router import router as usability_router
 
 app = FastAPI(title="MedSoft Compliance Platform", version="0.5.0")
 
@@ -91,6 +92,7 @@ for router in [
     threat_model_router,
     vulnerabilities_router,
     sbom_router,
+    usability_router,
 ]:
     app.include_router(router, prefix=settings.API_PREFIX, dependencies=_auth)
 

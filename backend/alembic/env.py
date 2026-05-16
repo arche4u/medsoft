@@ -36,6 +36,7 @@ import app.modules.compliance.plans.model                 # noqa: F401
 import app.modules.compliance.maintenance.feedback.model              # noqa: F401
 import app.modules.compliance.cybersecurity.threat_model.model         # noqa: F401
 import app.modules.compliance.cybersecurity.vulnerabilities.model      # noqa: F401
+import app.modules.compliance.usability.model                           # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

@@ -182,6 +182,79 @@ PLAN_TYPES: dict[str, PlanTypeDef] = {
              "impact assessments for legacy software · who approves re-classification."),
         ),
     },
+    "USABILITY": {
+        "key": "USABILITY",
+        "label": "Usability Engineering Plan (IEC 62366-1)",
+        "iec_clause": "62366-1",
+        "description": (
+            "IEC 62366-1 — Usability engineering for medical devices. Cross-"
+            "regulator: EU MDR Annex I §14, FDA Human Factors guidance, "
+            "Health Canada, TGA, PMDA, MHRA all accept this standard as the "
+            "common spec for use-error management."
+        ),
+        "sections": _sections(
+            ("1", "Purpose and Scope",
+             "Identifies the device(s), the medical indication, the user populations, "
+             "and the use environments in scope of usability engineering. References "
+             "the §4.3 software safety classification — Class B/C devices require the "
+             "full §5.1–§5.9 process; Class A devices may apply a subset with documented "
+             "rationale."),
+            ("2", "Use Specification (§5.1)",
+             "Documents intended users (clinical role, training, expected expertise), "
+             "intended use environments (clinical setting, home, ambulance, OR, ICU), "
+             "intended medical indication, and the device's operating principle in "
+             "lay terms. The Use Specification is the input every subsequent step "
+             "references; it is captured on the Usability File page."),
+            ("3", "User-Interface Characteristics (§5.2)",
+             "Identifies UI elements related to safety — alarms, status indicators, "
+             "control inputs, navigation paths, default values. Each safety-related "
+             "characteristic is tracked back to a §5.3 SWComponent or a §5.4 design "
+             "element so the V-model trace stays intact."),
+            ("4", "Hazard Identification (§5.3)",
+             "Known and foreseeable hazards and hazardous situations from user "
+             "interaction. These feed the §7 risk register as `risk_class=USABILITY` "
+             "rows (the unified register already supports SAFETY / SECURITY / "
+             "SAFETY_SECURITY / USABILITY discriminators)."),
+            ("5", "Hazard-related Use Scenarios (§5.4)",
+             "Step-by-step descriptions of the user tasks where a use error could "
+             "lead to harm. Each scenario lists the task chain, the foreseeable use "
+             "errors, and the resulting potential harm. Captured on the Use Scenarios "
+             "page; each Use Error escalates to a §7 Risk so the controls flow "
+             "through the existing closed-loop verification."),
+            ("6", "Evaluation Methods (§5.5)",
+             "How formative evaluations (early, iterative — typically 5-8 representative "
+             "users, think-aloud protocol) and the summative evaluation (15+ representative "
+             "users per distinct user group, validation-grade) will be performed. "
+             "Defines test environments, simulation level (low-fidelity prototype vs "
+             "final production unit), and acceptance criteria."),
+            ("7", "User-Interface Specification (§5.6)",
+             "The formal UI spec — visual design, control labelling, defaults, alarm "
+             "priorities and presentations, error-recovery flows. Links to the §5.4 "
+             "design elements that implement each spec section."),
+            ("8", "Evaluation Plan (§5.7)",
+             "Per-evaluation: protocol, participant criteria, data collection method, "
+             "pass/fail criteria, analysis plan, reporting template. The summative "
+             "evaluation's pass criteria gate the §5.8 release readiness."),
+            ("9", "Formative Evaluation (§5.8)",
+             "How formative results feed back into the UI specification and the "
+             "hazard list. Each finding becomes either: a UI-spec change (tracked "
+             "via §6.2.3 change request), a new Use Error (tracked here), or both."),
+            ("10", "Summative Evaluation (§5.9)",
+             "The final validation evaluation against the §5.6 UI specification. "
+             "A documented summative-pass is a gate on the §5.8 release. Failures "
+             "block release until the §5.8 sub-loop is re-run."),
+            ("11", "Roles and Responsibilities",
+             "Usability engineer (owner); clinical SME (use-spec input); risk owner "
+             "(§7 escalation); test pilot (formative); independent evaluator (summative). "
+             "Wired through the existing RBAC roles (READ_RISK / UPDATE_RISK / "
+             "READ_DESIGN / UPDATE_DESIGN already in place)."),
+            ("12", "Records and Retention",
+             "Each Usability Engineering File (UEF) version is retained for the device "
+             "lifetime + the regulator-mandated period (typically 10 years post-last-"
+             "placement in EU MDR; 2 years post-last-sale + expected lifetime under "
+             "FDA). The Document Register module owns the storage."),
+        ),
+    },
     "CYBERSECURITY": {
         "key": "CYBERSECURITY",
         "label": "Cybersecurity Plan (IEC 81001-5-1)",
