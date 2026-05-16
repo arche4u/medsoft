@@ -436,9 +436,14 @@ async def transition_composite_baseline(
         b.prepared_at = b.prepared_at or now
 
     if payload.status == "APPROVED":
-        # Reject if any pinned category baseline is not APPROVED.
+        # IEC 62304 §5.2 — every pinned category baseline must itself be
+        # APPROVED before the composite SRS can be approved, so the composite
+        # is a snapshot of approved components and not a mix of DRAFT/approved.
         if not b.components:
-            raise HTTPException(400, "Cannot approve an empty composite — pin at least one category baseline first")
+            raise HTTPException(
+                400,
+                "§5.2: Cannot approve an empty composite SRS — pin at least one category baseline first.",
+            )
         not_approved = [
             f"{c.category_baseline.category_name}@v{c.category_baseline.version} ({c.category_baseline.status})"
             for c in b.components if c.category_baseline.status != "APPROVED"
@@ -446,7 +451,7 @@ async def transition_composite_baseline(
         if not_approved:
             raise HTTPException(
                 400,
-                "All pinned category baselines must be APPROVED first. Pending: " + ", ".join(not_approved),
+                "§5.2: All pinned category baselines must be APPROVED before the composite SRS can be approved. Not yet APPROVED: " + ", ".join(not_approved),
             )
         if not payload.reviewed_by:
             raise HTTPException(400, "reviewed_by is required to approve a composite SRS")
