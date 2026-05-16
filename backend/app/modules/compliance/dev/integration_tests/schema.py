@@ -116,6 +116,12 @@ class ProjectCoverage(BaseModel):
     not_run: int
     pass_rate: float
     safety_relevant_uncovered: int
+    # §5.6 — when `safety_relevant_only=true` was passed, `interfaces` is
+    # already filtered to safety-relevant rows; these counters expose how
+    # many non-safety interfaces were excluded so callers can show context.
+    safety_relevant_only: bool = False
+    total_interfaces_all: int | None = None
+    excluded_non_safety_interfaces: int | None = None
     interfaces: List[InterfaceCoverageItem]
     release_blocked: bool
     release_block_reasons: List[str]

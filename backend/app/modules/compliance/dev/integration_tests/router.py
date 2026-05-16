@@ -214,17 +214,32 @@ async def set_risks(
 # ── coverage ──────────────────────────────────────────────────────────────────
 
 @router.get("/coverage/{project_id}", response_model=ProjectCoverage)
-async def get_coverage(project_id: str, db: AsyncSession = Depends(get_db)):
+async def get_coverage(
+    project_id: str,
+    safety_relevant_only: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
     from app.modules.compliance.dev.architecture.model import SWInterface, SWComponent
 
     pid = uuid.UUID(project_id)
 
-    # load all interfaces for the project (via its components)
-    ifaces = (await db.execute(
-        select(SWInterface).join(
-            SWComponent, SWInterface.source_component_id == SWComponent.id
-        ).where(SWComponent.project_id == pid)
-    )).scalars().all()
+    # §5.6 — only safety-relevant interfaces need integration tests. When the
+    # caller opts in (`safety_relevant_only=true`), restrict the coverage view
+    # to those; preserve a count of the excluded non-safety interfaces so the
+    # UI can show "8/10 covered (12 non-safety interfaces excluded)".
+    base_q = select(SWInterface).join(
+        SWComponent, SWInterface.source_component_id == SWComponent.id
+    ).where(SWComponent.project_id == pid)
+    total_all: int | None = None
+    excluded_non_safety: int | None = None
+    if safety_relevant_only:
+        total_all = (await db.execute(
+            select(func.count()).select_from(base_q.subquery())
+        )).scalar_one()
+        base_q = base_q.where(SWInterface.safety_relevant.is_(True))
+    ifaces = (await db.execute(base_q)).scalars().all()
+    if safety_relevant_only and total_all is not None:
+        excluded_non_safety = total_all - len(ifaces)
 
     # load all test cases for the project
     tests = (await db.execute(
@@ -330,6 +345,9 @@ async def get_coverage(project_id: str, db: AsyncSession = Depends(get_db)):
         not_run=not_run,
         pass_rate=pass_rate,
         safety_relevant_uncovered=safety_uncovered,
+        safety_relevant_only=safety_relevant_only,
+        total_interfaces_all=total_all,
+        excluded_non_safety_interfaces=excluded_non_safety,
         interfaces=coverage_items,
         release_blocked=len(block_reasons) > 0 or failed > 0,
         release_block_reasons=block_reasons + ([f"{failed} failed test(s)"] if failed > 0 else []),
