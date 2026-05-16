@@ -1704,6 +1704,24 @@ export const api = {
   // STRIDE threats filed against §5.3 architecture components. Threats with
   // non-trivial residual risk escalate into the §7 risk register
   // (risk_class=SECURITY) — `escalated_risk_id` preserves the trail.
+  // ── IEC 81001-5-1 SBOM (Phase 8D) ─────────────────────────────────────────
+  // CycloneDX 1.5 JSON export derived from the §8.2.2 SOUP register +
+  // any open vulnerabilities tied to those SOUP entries.
+  sbom: {
+    fetchCycloneDx: async (project_id: string): Promise<{ json: unknown; blob: Blob; filename: string }> => {
+      const token = typeof window !== "undefined" ? localStorage.getItem("medsoft_token") : null;
+      const r = await fetch(`${BASE}/sbom/${project_id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!r.ok) throw new Error(`SBOM fetch failed: ${r.status} ${r.statusText}`);
+      const blob = await r.blob();
+      const cd = r.headers.get("Content-Disposition") || "";
+      const m = cd.match(/filename="([^"]+)"/);
+      const filename = m ? m[1] : `sbom-${project_id}.json`;
+      const json = JSON.parse(await blob.text());
+      return { json, blob, filename };
+    },
+  },
   // ── IEC 81001-5-1 Vulnerability Intake (Phase 8C) ─────────────────────────
   // CVE / advisory / internal findings. Triage workflow: NEW → TRIAGED →
   // MITIGATED/RESOLVED/FALSE_POSITIVE. Manual escalation creates a §7 Risk
