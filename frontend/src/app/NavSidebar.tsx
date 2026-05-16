@@ -176,6 +176,7 @@ const SECTIONS: Section[] = [
         group: "Cybersecurity (IEC 81001-5-1)",
         items: [
           { href: "/plans/cybersecurity",                  label: "Cybersecurity Plan" },
+          { href: "/threat-model",                          label: "Threat Model (STRIDE)" },
           { href: "/risks?risk_class=SECURITY",             label: "Security Risks (§7)" },
           { href: "/config-mgmt?type=SOUP",                 label: "SOUP / SBOM source (§8.2.2)" },
         ],

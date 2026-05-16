@@ -1700,4 +1700,70 @@ export const api = {
       req<FeedbackItem>(`/feedback/${id}/close`, { method: "PATCH", body: JSON.stringify({ closure_rationale }) }),
     delete: (id: string) => req<void>(`/feedback/${id}`, { method: "DELETE" }),
   },
+  // ── IEC 81001-5-1 Threat Model (Phase 8B) ──────────────────────────────────
+  // STRIDE threats filed against §5.3 architecture components. Threats with
+  // non-trivial residual risk escalate into the §7 risk register
+  // (risk_class=SECURITY) — `escalated_risk_id` preserves the trail.
+  threatModel: {
+    listModels: (project_id: string) =>
+      req<ThreatModelRead[]>(`/threat-model/models?project_id=${project_id}`),
+    getModel: (id: string) => req<ThreatModelRead>(`/threat-model/models/${id}`),
+    createModel: (d: { project_id: string; name: string; description?: string; version?: string; release_id?: string | null }) =>
+      req<ThreatModelRead>(`/threat-model/models`, { method: "POST", body: JSON.stringify(d) }),
+    updateModel: (id: string, d: Partial<{ name: string; description: string | null; status: ThreatModelStatus; release_id: string | null }>) =>
+      req<ThreatModelRead>(`/threat-model/models/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    deleteModel: (id: string) =>
+      req<void>(`/threat-model/models/${id}`, { method: "DELETE" }),
+    addThreat: (model_id: string, d: ThreatPayload) =>
+      req<ThreatRead>(`/threat-model/models/${model_id}/threats`, { method: "POST", body: JSON.stringify(d) }),
+    updateThreat: (id: string, d: Partial<ThreatPayload>) =>
+      req<ThreatRead>(`/threat-model/threats/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    deleteThreat: (id: string) =>
+      req<void>(`/threat-model/threats/${id}`, { method: "DELETE" }),
+  },
+};
+
+// ── Threat Model types ───────────────────────────────────────────────────────
+export type StrideCategory = "S" | "T" | "R" | "I" | "D" | "E";
+export type ThreatSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type ThreatStatus = "IDENTIFIED" | "MITIGATED" | "ACCEPTED" | "TRANSFERRED";
+export type ThreatModelStatus = "DRAFT" | "IN_REVIEW" | "APPROVED" | "OBSOLETE";
+
+export type ThreatPayload = {
+  component_id?: string | null;
+  category: StrideCategory;
+  title: string;
+  description?: string | null;
+  severity?: ThreatSeverity;
+  status?: ThreatStatus;
+  mitigation?: string | null;
+  escalated_risk_id?: string | null;
+};
+
+export type ThreatRead = {
+  id: string;
+  threat_model_id: string;
+  component_id: string | null;
+  category: StrideCategory;
+  title: string;
+  description: string | null;
+  severity: ThreatSeverity;
+  status: ThreatStatus;
+  mitigation: string | null;
+  escalated_risk_id: string | null;
+  created_at: string;
+};
+
+export type ThreatModelRead = {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  version: string;
+  status: ThreatModelStatus;
+  release_id: string | null;
+  approved_by_id: string | null;
+  approved_at: string | null;
+  threats: ThreatRead[];
+  created_at: string;
 };

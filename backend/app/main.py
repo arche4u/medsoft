@@ -48,6 +48,7 @@ from app.modules.compliance.config.config_mgmt.router import router as config_mg
 from app.modules.compliance.problems.capa.router import router as capa_router
 from app.modules.compliance.plans.router import router as plans_router
 from app.modules.compliance.maintenance.feedback.router import router as feedback_router
+from app.modules.compliance.cybersecurity.threat_model.router import router as threat_model_router
 
 app = FastAPI(title="MedSoft Compliance Platform", version="0.5.0")
 
@@ -85,6 +86,7 @@ for router in [
     capa_router,
     plans_router,
     feedback_router,
+    threat_model_router,
 ]:
     app.include_router(router, prefix=settings.API_PREFIX, dependencies=_auth)
 
