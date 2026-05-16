@@ -1704,6 +1704,23 @@ export const api = {
   // STRIDE threats filed against §5.3 architecture components. Threats with
   // non-trivial residual risk escalate into the §7 risk register
   // (risk_class=SECURITY) — `escalated_risk_id` preserves the trail.
+  // ── IEC 81001-5-1 Vulnerability Intake (Phase 8C) ─────────────────────────
+  // CVE / advisory / internal findings. Triage workflow: NEW → TRIAGED →
+  // MITIGATED/RESOLVED/FALSE_POSITIVE. Manual escalation creates a §7 Risk
+  // with risk_class=SECURITY and writes the FK back as escalated_risk_id.
+  vulnerabilities: {
+    list: (project_id: string, status?: string) =>
+      req<VulnerabilityRead[]>(`/vulnerabilities/?project_id=${project_id}${status ? `&status=${status}` : ""}`),
+    get: (id: string) => req<VulnerabilityRead>(`/vulnerabilities/${id}`),
+    create: (d: VulnerabilityCreatePayload) =>
+      req<VulnerabilityRead>(`/vulnerabilities/`, { method: "POST", body: JSON.stringify(d) }),
+    update: (id: string, d: Partial<VulnerabilityUpdatePayload>) =>
+      req<VulnerabilityRead>(`/vulnerabilities/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    delete: (id: string) =>
+      req<void>(`/vulnerabilities/${id}`, { method: "DELETE" }),
+    escalate: (id: string, d: { requirement_id: string; severity: number; probability: number; hazardous_situation?: string }) =>
+      req<VulnerabilityRead>(`/vulnerabilities/${id}/escalate`, { method: "POST", body: JSON.stringify(d) }),
+  },
   threatModel: {
     listModels: (project_id: string) =>
       req<ThreatModelRead[]>(`/threat-model/models?project_id=${project_id}`),
@@ -1721,6 +1738,50 @@ export const api = {
     deleteThreat: (id: string) =>
       req<void>(`/threat-model/threats/${id}`, { method: "DELETE" }),
   },
+};
+
+// ── Vulnerability types ──────────────────────────────────────────────────────
+export type VulnSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type VulnStatus = "NEW" | "TRIAGED" | "MITIGATED" | "RESOLVED" | "FALSE_POSITIVE";
+
+export type VulnerabilityCreatePayload = {
+  project_id: string;
+  cve_id?: string | null;
+  title: string;
+  description?: string | null;
+  cvss_score?: number | null;
+  cvss_vector?: string | null;
+  severity_band?: VulnSeverity;
+  affected_soup_id?: string | null;
+  affected_component_id?: string | null;
+  disclosed_at?: string | null;
+  fixed_in_version?: string | null;
+  notes?: string | null;
+};
+
+export type VulnerabilityUpdatePayload = Partial<Omit<VulnerabilityCreatePayload, "project_id">> & {
+  status?: VulnStatus;
+};
+
+export type VulnerabilityRead = {
+  id: string;
+  project_id: string;
+  cve_id: string | null;
+  title: string;
+  description: string | null;
+  cvss_score: number | null;
+  cvss_vector: string | null;
+  severity_band: VulnSeverity;
+  affected_soup_id: string | null;
+  affected_component_id: string | null;
+  status: VulnStatus;
+  escalated_risk_id: string | null;
+  disclosed_at: string | null;
+  fixed_in_version: string | null;
+  notes: string | null;
+  triaged_by_id: string | null;
+  triaged_at: string | null;
+  created_at: string;
 };
 
 // ── Threat Model types ───────────────────────────────────────────────────────
